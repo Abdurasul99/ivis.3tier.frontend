@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:extended_image/extended_image.dart';
@@ -43,16 +44,18 @@ class _TabRobotState extends State<TabRobot> with TickerProviderStateMixin {
   late AnimationController _animationController;
   late Animation<Offset> _slideAnimation;
 
-////// added to rendering position of robot in the map
+  // === Map bridge (как в TabDashboard) ===
+  static final Set<String> _registeredViewTypes = {};
+  late final String _viewId;
+  Widget _mapView = const SizedBox.shrink();
+
   bool _mapReady = false;
   final List<String> _postQueue = [];
-/////////////////////////////////////////////////////
-
-  late final String _viewId;
-  late final Widget _mapView;
-
   html.IFrameElement? _iframe;
-  WebViewController? _webViewController;
+  WebViewController? _wvCtrl;
+  Completer<dynamic>? _mapWindowC;
+  String? _mapOrigin;
+  StreamSubscription<html.MessageEvent>? _msgSub;
 
   String _selectedRobotType = "";
   String _selectedRobotFilter = "";
@@ -83,59 +86,21 @@ class _TabRobotState extends State<TabRobot> with TickerProviderStateMixin {
       reverseCurve: Curves.easeIn,
     ));
 
-    // WidgetsBinding.instance.addPostFrameCallback((_) async {
-    //   await Get.find<RobotController>().reqRobotTypes();
-    //   await Get.find<RobotController>().reqRobotList();
-    //   await Get.find<RobotController>().reqRobotStatusList();
-
-    //   List<RobotStatus> robotStatusList = Get.find<RobotController>().robotStatusList;
-    //   for (final status in robotStatusList) {
-    //     if (status.id == null || status.latitude == null || status.longitude == null) {
-    //       continue;
-    //     }
-
-    //     _postMoveCar(status.id.toString(), status.latitude!, status.longitude!);
-    //   }
-
-    //   _viewId = 'kakao-map-${DateTime.now().millisecondsSinceEpoch}';
-    //   final mapUrl = Get.find<MapController>().mapUri.toString();
-    //   if (kIsWeb) {
-    //     _setupWebView(mapUrl);
-    //   } else {
-    //     _setupNativeWebView(mapUrl);
-    //   }
-
-    //   if (mounted) {
-    //     setState(() {});
-    //   }
-
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      // Obtain the RobotController instance
-      final RobotController robotController = Get.find<RobotController>();
-
-      // Load robot types
+      final robotController = Get.find<RobotController>();
       await robotController.reqRobotTypes();
-
-      // Load the list of robots
       await robotController.reqRobotList();
-
-      // Load the status list for all robots
       await robotController.reqRobotStatusList();
 
-      // Generate a unique viewId for the map iframe
-      _viewId = 'kakao-map-${DateTime.now().millisecondsSinceEpoch}';
+      _viewId = 'kakao-map-frame-${DateTime.now().millisecondsSinceEpoch}';
+      final mapUrl = Get.find<MapController>().mapUri.toString();
 
-      // Retrieve the map URL from MapController
-      final String mapUrl = Get.find<MapController>().mapUri.toString();
-
-      // Initialize the WebView or native WebView based on platform
       if (kIsWeb) {
         _setupWebView(mapUrl);
       } else {
         _setupNativeWebView(mapUrl);
       }
 
-      // Wait until the map reports ready
       if (!_mapReady) {
         await Future.doWhile(() async {
           await Future.delayed(const Duration(milliseconds: 100));
@@ -143,157 +108,194 @@ class _TabRobotState extends State<TabRobot> with TickerProviderStateMixin {
         });
       }
 
-      // Place markers for each robot on the map
-      for (final RobotStatus robotStatus in robotController.robotStatusList) {
-        if (robotStatus.id != null && robotStatus.latitude != null && robotStatus.longitude != null) {
-          _postMoveCar(
-            robotStatus.id.toString(),
-            robotStatus.latitude!,
-            robotStatus.longitude!,
-          );
+      for (final status in robotController.robotStatusList) {
+        if (status.id != null && status.latitude != null && status.longitude != null) {
+          _postMoveCar(status.id!.toString(), status.latitude!, status.longitude!);
         }
       }
 
-      // Select the first robot by default if the list is not empty
-      if (robotController.robotStatusList.isNotEmpty && _selectedObjectId == -1) {
-        final RobotStatus firstRobotStatus = robotController.robotStatusList.first;
-        _selectedObjectId = firstRobotStatus.id!;
-        _postSelectCar(firstRobotStatus.id!);
+      if (_selectedObjectId >= 0) {
+        _postSelectCar(_selectedObjectId);
       }
 
-      // Trigger a rebuild to reflect loaded data
-      setState(() {});
+      if (mounted) setState(() {});
     });
   }
 
+  @override
+  void dispose() {
+    _msgSub?.cancel();
+    super.dispose();
+  }
+
+  // === WebView / IFrame setup (как в TabDashboard) ===
   void _setupWebView(String mapUrl) {
-    ui.platformViewRegistry.registerViewFactory(_viewId, (_) {
-      _iframe = html.IFrameElement()
-        ..src = mapUrl
-        ..style.border = '0'
-        ..style.width = '100%'
-        ..style.height = '100%';
+    final uri = Uri.parse(mapUrl);
+    _mapOrigin = uri.origin;
+    _mapWindowC = Completer<dynamic>();
 
-      _iframe!.onLoad.listen((_) {
-        setState(() {
-          _mapReady = true;
-        });
+    if (!_registeredViewTypes.contains(_viewId)) {
+      ui.platformViewRegistry.registerViewFactory(_viewId, (_) {
+        _iframe = html.IFrameElement()
+          ..id = _viewId
+          ..src = mapUrl
+          ..style.border = '0'
+          ..style.width = '100%'
+          ..style.height = '100%';
 
-        debugPrint("🟢 Map is ready!");
-
-        Future.delayed(Duration(milliseconds: 200), () {
-          for (final p in _postQueue) {
-            _iframe!.contentWindow?.postMessage(p, '*');
+        _iframe!.onLoad.listen((_) async {
+          final start = DateTime.now();
+          dynamic win;
+          while (win == null && DateTime.now().difference(start) < const Duration(seconds: 5)) {
+            win = _iframe?.contentWindow;
+            if (win == null) await Future.delayed(const Duration(milliseconds: 50));
           }
-          _postQueue.clear();
+
+          if (mounted) setState(() => _mapReady = win != null);
+
+          if (!(_mapWindowC?.isCompleted ?? true)) {
+            _mapWindowC?.complete(win);
+          }
+
+          if (win != null && _postQueue.isNotEmpty) {
+            for (final p in _postQueue) {
+              try {
+                (win as dynamic).postMessage(p, _mapOrigin ?? '*');
+              } catch (e) {
+                debugPrint("postMessage flush error: $e");
+              }
+            }
+            _postQueue.clear();
+          }
 
           if (_selectedObjectId >= 0) {
             _postSelectCar(_selectedObjectId);
           }
         });
+
+        return _iframe!;
       });
+      _registeredViewTypes.add(_viewId);
+    }
 
-      return _iframe!;
-    });
-
-    html.window.onMessage.listen((e) {
+    _msgSub = html.window.onMessage.listen((e) {
       try {
-        _processMessage(jsonDecode(e.data));
+        final data = e.data;
+        final parsed = (data is String) ? jsonDecode(data) : data;
+        if (parsed is Map) _processMessage(parsed);
       } catch (_) {}
     });
 
-    setState(() {
-      _mapView = HtmlElementView(viewType: _viewId, key: UniqueKey());
-    });
+    _mapView = HtmlElementView(viewType: _viewId, key: UniqueKey());
   }
 
   void _setupNativeWebView(String mapUrl) {
-    WebViewController webViewController = WebViewController();
-    webViewController.setJavaScriptMode(JavaScriptMode.unrestricted);
+    _wvCtrl = WebViewController()
+      ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..setNavigationDelegate(
+        NavigationDelegate(
+          onPageFinished: (url) {
+            setState(() => _mapReady = true);
 
-    NavigationDelegate navigationDelegate = NavigationDelegate(
-      onPageFinished: (String finishedUrl) {
-        setState(() {
-          _mapReady = true;
-        });
+            for (final payload in _postQueue) {
+              final escaped = _escapeJavaScriptString(payload);
+              _wvCtrl!.runJavaScript("window.postMessage('$escaped', '*');");
+            }
+            _postQueue.clear();
 
-        for (final String queuedPayload in _postQueue) {
-          String escapedPayload = _escapeJavaScriptString(queuedPayload);
-          webViewController.runJavaScript("window.postMessage('$escapedPayload', '*');");
-        }
-        _postQueue.clear();
-      },
-    );
-    webViewController.setNavigationDelegate(navigationDelegate);
+            if (_selectedObjectId >= 0) {
+              _postSelectCar(_selectedObjectId);
+            }
+          },
+          onWebResourceError: (e) => debugPrint("WebView error: $e"),
+        ),
+      )
+      ..loadRequest(Uri.parse(mapUrl));
 
-    Uri requestUri = Uri.parse(mapUrl);
-    webViewController.loadRequest(requestUri);
-
-    _webViewController = webViewController;
-    setState(() {
-      _mapView = WebViewWidget(controller: _webViewController!);
-    });
+    _mapView = WebViewWidget(controller: _wvCtrl!);
   }
 
   String _escapeJavaScriptString(String input) {
-    String withEscapedBackslashes = input.replaceAll(r'\', r'\\');
-    String withEscapedQuotes = withEscapedBackslashes.replaceAll("'", r"\'");
+    final withEscapedBackslashes = input.replaceAll(r'\', r'\\');
+    final withEscapedQuotes = withEscapedBackslashes.replaceAll("'", r"\'");
     return withEscapedQuotes;
   }
 
-  void _sendMessageToMap(String jsonStringPayload) {
-    debugPrint("_sendMessageToMap() $jsonStringPayload");
+  Future<void> _sendMessageToMap(String jsonPayload) async {
+    debugPrint("_sendMessageToMap() $jsonPayload");
 
     try {
-      if (_mapReady) {
-        if (_iframe != null) {
-          _iframe!.contentWindow?.postMessage(jsonStringPayload, '*');
-        } else if (_webViewController != null) {
-          String escapedPayload = _escapeJavaScriptString(jsonStringPayload);
-          _webViewController!.runJavaScript("window.postMessage('$escapedPayload', '*');");
+      if (!_mapReady) {
+        _postQueue.add(jsonPayload);
+        return;
+      }
+
+      if (kIsWeb) {
+        final win = (_mapWindowC?.isCompleted == true) ? await _mapWindowC!.future : await _mapWindowC?.future;
+        if (win != null) {
+          (win as dynamic).postMessage(jsonPayload, _mapOrigin ?? '*');
+        } else {
+          _postQueue.add(jsonPayload);
         }
       } else {
-        _postQueue.add(jsonStringPayload);
+        if (_wvCtrl != null) {
+          final escaped = _escapeJavaScriptString(jsonPayload);
+          await _wvCtrl!.runJavaScript("window.postMessage('$escaped', '*');");
+        } else {
+          _postQueue.add(jsonPayload);
+        }
       }
-    } catch (e) {
+    } catch (e, st) {
       debugPrint("[Exception] _sendMessageToMap() e: $e");
+      debugPrint("$st");
+      _postQueue.add(jsonPayload);
     }
   }
 
-  void _postMoveCar(String carId, double latitude, double longitude) {
-    Map<String, dynamic> messageMap = <String, dynamic>{
-      'sender': 'moveCar',
-      'value': '$carId,$latitude,$longitude;',
-    };
-    String jsonPayload = jsonEncode(messageMap);
-    _sendMessageToMap(jsonPayload);
+  // === messages to map ===
+  void _postMoveCar(String id, double lat, double lng) {
+    final payload = jsonEncode({'sender': 'moveCar', 'value': '$id,$lat,$lng;'});
+    _sendMessageToMap(payload);
   }
 
-  void _postSelectCar(int carObjectId) {
-    Map<String, dynamic> messageMap = <String, dynamic>{
-      'sender': 'selectCar',
-      'id': carObjectId,
-    };
-    String jsonPayload = jsonEncode(messageMap);
-    _sendMessageToMap(jsonPayload);
+  void _postSelectCar(int objectId) {
+    setState(() => _selectedObjectId = objectId);
+    final payload = jsonEncode({'sender': 'selectCar', 'id': objectId});
+    _sendMessageToMap(payload);
   }
 
+  // === messages from map ===
   void _processMessage(Map data) {
+    if (!mounted) return;
+
     if (data['sender'] == 'onClickCar') {
       final id = int.tryParse(data['message'].toString());
-      if (id != null && mounted) {
-        final robots = Get.find<RobotController>().robots;
+      if (id != null) setState(() => _selectedObjectId = id);
+    } else if (data.containsKey('move_res')) {
+      final m = data['move_res'];
+      final coords = List.from(m['data']['cur_coodi']);
+      _postMoveCar(
+        m['from'].toString(),
+        (coords[0] as num).toDouble(),
+        (coords[1] as num).toDouble(),
+      );
+    }
+  }
 
-        if (!_isRightPanelVisible) {
-          toggleRightPanel();
-        }
-        _selectedObjectId = id;
-
-        if (mounted) {
-          setState(() {});
-        }
+  Future<void> _refreshMapAfterReturn(int selectedId) async {
+    if (!_mapReady) {
+      await Future.doWhile(() async {
+        await Future.delayed(const Duration(milliseconds: 100));
+        return !_mapReady;
+      });
+    }
+    final list = Get.find<RobotController>().robotStatusList;
+    for (final s in list) {
+      if (s.id != null && s.latitude != null && s.longitude != null) {
+        _postMoveCar(s.id.toString(), s.latitude!, s.longitude!);
       }
     }
+    _postSelectCar(selectedId);
   }
 
   void toggleRightPanel() async {
@@ -306,13 +308,9 @@ class _TabRobotState extends State<TabRobot> with TickerProviderStateMixin {
       _serialController.text = "";
       _descController.text = "";
       _selectedRobotType = "";
-
       _animationController.reverse();
     }
-
-    if (mounted) {
-      setState(() {});
-    }
+    if (mounted) setState(() {});
   }
 
   @override
@@ -2288,19 +2286,34 @@ class _TabRobotState extends State<TabRobot> with TickerProviderStateMixin {
 
   Widget buildRobotListPanel() {
     return RobotListView(
-      onChanged: (Robot selectedRobot) {
-        // debugPrint("selectedRobot - $selectedRobot");
-
+      onChanged: (Robot selectedRobot) async {
+        final prevId = _selectedObjectId;
         _selectedObjectId = selectedRobot.id ?? 0;
-        String robotType = selectedRobot.typeDescription ?? "";
 
-        if (robotType.toLowerCase() == "untact") {
+        final robotType = (selectedRobot.typeDescription ?? "").toLowerCase();
+        final statuses = Get.find<RobotController>().robotStatusList;
+        final status = statuses.firstWhereOrNull((s) => s.id == _selectedObjectId);
+
+        final showingTaro =
+            (Get.find<RobotController>().robots.firstWhereOrNull((r) => r.id == prevId)?.typeDescription ?? "")
+                    .toLowerCase() ==
+                "taro";
+        final nowTaro = robotType == "taro";
+
+        if (showingTaro && !nowTaro && _selectedObjectId >= 0) {
+          await _refreshMapAfterReturn(_selectedObjectId);
+        }
+
+        if (!nowTaro) {
+          if (status?.latitude != null && status?.longitude != null) {
+            _postMoveCar(_selectedObjectId.toString(), status!.latitude!, status.longitude!);
+            await Future.delayed(const Duration(milliseconds: 40));
+          }
           _postSelectCar(_selectedObjectId);
         }
 
         Get.find<GraphController>().setSelectedRobotId(_selectedObjectId);
-        Get.find<GraphController>().setSelectedRobotType(robotType.toLowerCase());
-
+        Get.find<GraphController>().setSelectedRobotType(robotType);
         Get.find<GraphController>().setSelectedPeriodDistance("daily");
         Get.find<GraphController>().setSelectedPeriodTime("daily");
         Get.find<GraphController>().setSelectedPeriodBattery("daily");
@@ -2311,9 +2324,7 @@ class _TabRobotState extends State<TabRobot> with TickerProviderStateMixin {
         Get.find<LogController>().setViewPage(0);
         Get.find<LogController>().reqLogList();
 
-        if (mounted) {
-          setState(() {});
-        }
+        if (mounted) setState(() {});
       },
       showAddRobotButton: true,
       onRobotButtonTap: toggleRightPanel,
