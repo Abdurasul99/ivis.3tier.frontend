@@ -1,5 +1,4 @@
 import 'dart:html' as html;
-
 import 'package:excel/excel.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
@@ -32,10 +31,6 @@ class LogController extends GetxController {
   int get maxPage => _maxPage;
   Set<int> get selectedIds => _selectedIds;
 
-  /////////////////////////////////////////////////////////////////////////////////////////
-  /////////////////////////////////////////////////////////////////////////////////////////
-  /////////////////////////////////////////////////////////////////////////////////////////
-
   void setSelectedRobotId(int robotId) {
     _selectedRobotId = robotId;
   }
@@ -45,18 +40,12 @@ class LogController extends GetxController {
   }
 
   void addSelectedId(int id) {
-    if (id == -1) {
-      return;
-    }
-
+    if (id == -1) return;
     _selectedIds.add(id);
   }
 
   void removeSelectedId(int id) {
-    if (id == -1) {
-      return;
-    }
-
+    if (id == -1) return;
     _selectedIds.remove(id);
   }
 
@@ -74,17 +63,9 @@ class LogController extends GetxController {
     _totalLogCount = 0;
     _robotLogs.clear();
 
-    if (startDate != null) {
-      _startDate = startDate;
-    }
-
-    if (endDate != null) {
-      _endDate = endDate;
-    }
-
-    if (keyword != null) {
-      _keyword = keyword;
-    }
+    if (startDate != null) _startDate = startDate;
+    if (endDate != null) _endDate = endDate;
+    if (keyword != null) _keyword = keyword;
 
     int offset = (_viewPage * kLogListLimit);
     robotLogList = await LogRepository().requestLogList(
@@ -103,18 +84,10 @@ class LogController extends GetxController {
     }
 
     _totalLogCount = robotLogList.listCount ?? 0;
-    if (_totalLogCount % kLogListLimit == 0) {
-      _maxPage = (_totalLogCount / kLogListLimit).floor();
-    } else {
-      _maxPage = (_totalLogCount / kLogListLimit).floor() + 1;
-    }
-
-    if (_maxPage <= 0) {
-      _maxPage = 1;
-    }
+    _maxPage = (_totalLogCount / kLogListLimit).ceil();
+    if (_maxPage <= 0) _maxPage = 1;
 
     _robotLogs = robotLogList.logList;
-
     _isLoading = false;
     update();
   }
@@ -130,11 +103,8 @@ class LogController extends GetxController {
     List<RobotLog> result = await LogRepository().requestLogListForDocument(_selectedRobotId, minLogId, maxLogId);
 
     List<RobotLog> excelResult = [];
-
     for (int i = 0; i < result.length; i++) {
-      if (_selectedIds.contains(result[i].id!)) {
-        excelResult.add(result[i]);
-      }
+      if (_selectedIds.contains(result[i].id!)) excelResult.add(result[i]);
     }
 
     if (excelResult.isEmpty) {
@@ -143,15 +113,12 @@ class LogController extends GetxController {
     }
 
     await exportToExcel(excelResult);
-
     _isLoading = false;
     update();
   }
 
   Future<void> exportToExcel(List<RobotLog> logs) async {
-    if (logs.isEmpty) {
-      return;
-    }
+    if (logs.isEmpty) return;
 
     try {
       String startDate = logs[logs.length - 1].createdTs ?? "";
@@ -195,7 +162,6 @@ class LogController extends GetxController {
         final bytes = excel.save();
         if (bytes != null) {
           final fileName = '${robotName}_logs_$startDate~$endDate.xlsx';
-
           final blob = html.Blob([bytes]);
           final url = html.Url.createObjectUrlFromBlob(blob);
           final downloadElement = html.AnchorElement()
@@ -214,37 +180,22 @@ class LogController extends GetxController {
     }
   }
 
-  String getTaroDestinationName(double x, double y) {
-    for (int i = 0; i < kTaroMakers.length; i++) {
-      if (kTaroMakers[i]["X"] == x && kTaroMakers[i]["Y"] == y) {
-        return kTaroMakers[i]["title"];
-      }
-    }
-
-    return "";
-  }
-
   String getUntactDestinationName(double x, double y) {
     if (x == kStation0Latitude && y == kStation0Longitude) {
       return "station0(광주광역시 광산구 월전동 59-8)";
     }
-
     if (x == kStation1Latitude && y == kStation1Longitude) {
       return "station1(광주광역시 광산구 덕립동)";
     }
-
     if (x == kStation2Latitude && y == kStation2Longitude) {
       return "station2(광주광역시 광산구 덕립동)";
     }
-
     if (x == kStation3Latitude && y == kStation3Longitude) {
       return "station3(광주광역시 광산구 삼거동)";
     }
-
     if (x == kStation4Latitude && y == kStation4Longitude) {
       return "station4(광주광역시 광산구 삼거동)";
     }
-
     return "($x, $y)";
   }
 

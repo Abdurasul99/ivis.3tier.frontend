@@ -27,7 +27,6 @@ class RobotListView extends StatefulWidget {
 
 class _RobotListViewState extends State<RobotListView> {
   List<String> _filters = [];
-
   int? _selectedObjectId;
 
   @override
@@ -39,13 +38,11 @@ class _RobotListViewState extends State<RobotListView> {
   void loadRobotFilters() {
     if (Get.find<RobotController>().robotTypes.isNotEmpty) {
       _filters = [];
-
       for (int i = 0; i < Get.find<RobotController>().robotTypes.length; i++) {
         if (Get.find<RobotController>().robotTypes[i].typeDescription == null ||
             Get.find<RobotController>().robotTypes[i].typeDescription!.isEmpty) {
           continue;
         }
-
         _filters.add(Get.find<RobotController>().robotTypes[i].typeDescription ?? "");
       }
     }
@@ -91,14 +88,9 @@ class _RobotListViewState extends State<RobotListView> {
                           items: _filters,
                           selectedItems: Get.find<RobotController>().robotFilter,
                           onChanged: (selectedItems) {
-                            if (selectedItems.isEmpty) {
-                              return;
-                            }
-
+                            if (selectedItems.isEmpty) return;
                             Get.find<RobotController>().setRobotFilterStr(selectedItems);
-                            if (mounted) {
-                              setState(() {});
-                            }
+                            if (mounted) setState(() {});
                           },
                         ),
                       ),
@@ -120,29 +112,19 @@ class _RobotListViewState extends State<RobotListView> {
                               break;
                             }
                           }
-
-                          if (status == null) {
-                            return Container();
-                          }
+                          if (status == null) return const SizedBox.shrink();
 
                           String location = "";
                           String battery = '-%';
-
-                          final isTaro = (robot.typeDescription ?? '').toLowerCase().contains('taro');
 
                           if (isDeleted) {
                             battery = "-";
                             location = "-";
                           } else {
-                            if (isTaro) {
-                              if (status.wheelBattery != null) {
-                                battery = '${status.wheelBattery!.round()}%';
-                              }
-                              location = Get.find<RobotController>().getTaroLocation(robot.serial ?? "");
-                            } else if (!isTaro && status.battery != null) {
+                            if (status.battery != null) {
                               battery = '${status.battery!.round()}%';
-                              location = status.address ?? "-";
                             }
+                            location = status.address ?? "-";
                           }
 
                           String statusStr = "";
@@ -151,19 +133,14 @@ class _RobotListViewState extends State<RobotListView> {
                             statusStr = "삭제됨";
                             statusColor = const Color(0xFF1E1F50);
                           } else {
-                            if (isTaro) {
-                              statusStr = controller.getTaroStateLabel(robot.serial ?? "");
-                              statusColor = controller.getTaroStatedColor(robot.serial ?? "");
-                            } else {
-                              statusStr = kStateStr[status.robotStatus ?? 0];
-                              statusColor = kStateColor[status.robotStatus ?? 0];
-                            }
+                            statusStr = kStateStr[status.robotStatus ?? 0];
+                            statusColor = kStateColor[status.robotStatus ?? 0];
                           }
 
                           return GestureDetector(
                             onTap: () {
                               _selectedObjectId = robot.id;
-                              widget.onChanged!(robot);
+                              widget.onChanged?.call(robot);
                             },
                             child: Container(
                               color: isSelected
@@ -202,7 +179,7 @@ class _RobotListViewState extends State<RobotListView> {
                                           margin: const EdgeInsets.only(top: 2),
                                           child: Text(
                                             statusStr,
-                                            style: TextStyle(
+                                            style: const TextStyle(
                                               fontSize: 10,
                                               color: Colors.white,
                                               fontWeight: FontWeight.w400,
@@ -218,10 +195,12 @@ class _RobotListViewState extends State<RobotListView> {
                                     margin: const EdgeInsets.symmetric(horizontal: 16),
                                     color: const Color(0xFFDBDBDB),
                                   ),
+                                  // фикс overflow: вместо height -> minHeight
                                   Container(
-                                    height: 100,
+                                    constraints: const BoxConstraints(minHeight: 100),
                                     padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 16),
                                     child: Row(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
                                       children: [
                                         Stack(
                                           children: [
@@ -247,7 +226,7 @@ class _RobotListViewState extends State<RobotListView> {
                                                 decoration: BoxDecoration(
                                                   borderRadius: BorderRadius.circular(8),
                                                   border: Border.all(color: const Color(0xFFDADADA)),
-                                                  color: Color(0xFFD9D9D9).withValues(alpha: 0.5),
+                                                  color: const Color(0xFFD9D9D9).withOpacity(0.5),
                                                 ),
                                               ),
                                           ],
@@ -293,6 +272,8 @@ class _RobotListViewState extends State<RobotListView> {
                                               const SizedBox(height: 4),
                                               Text(
                                                 location,
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
                                                 style: const TextStyle(
                                                   fontFamily: 'pretendard',
                                                   fontSize: 13,
