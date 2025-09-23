@@ -26,7 +26,6 @@ import 'package:fms/viewmodel/controller/map_controller.dart';
 import 'package:fms/viewmodel/controller/user_controller.dart';
 import 'package:fms/view/components/input_edit_text_ex.dart';
 import 'package:fms/view/components/input_edit_text_long.dart';
-import 'package:fms/view/components/taro_map_view.dart';
 import 'package:fms/view/tabs/mobile/dialogs/ask_dialog_mobile.dart';
 import 'package:fms/utils/clamp.dart';
 
@@ -705,8 +704,8 @@ class _TabRobotStateMobile extends State<TabRobotMobile> with TickerProviderStat
 
   Widget buildRobotStatePanel() {
     return Container(
-      decoration: BoxDecoration(
-        color: const Color(0xFFFAFAFA),
+      decoration: const BoxDecoration(
+        color: Color(0xFFFAFAFA),
       ),
       child: GetBuilder<RobotController>(
         builder: (controller) {
@@ -729,11 +728,7 @@ class _TabRobotStateMobile extends State<TabRobotMobile> with TickerProviderStat
           final idx = clampIdx(_selectedIndex, controller.robots.length);
           Robot robot = controller.robots[idx];
 
-          if ((robot.typeDescription ?? "").toLowerCase() == "taro") {
-            return buildTaroStatePanel(robot);
-          } else {
-            return buildUntactStatePanel(robot);
-          }
+          return buildUntactStatePanel(robot);
         },
       ),
     );
@@ -741,588 +736,6 @@ class _TabRobotStateMobile extends State<TabRobotMobile> with TickerProviderStat
 
   Widget _blockInput(bool disabled, Widget child) {
     return AbsorbPointer(absorbing: disabled, child: child);
-  }
-
-  Widget buildTaroStatePanel(Robot robot) {
-    return GetBuilder<RobotController>(
-      init: RobotController(),
-      builder: (controller) {
-        RobotStatus? robotState;
-        List<RobotStatus> robotStatusList = controller.robotStatusList;
-
-        for (int i = 0; i < robotStatusList.length; i++) {
-          if (robotStatusList[i].id == robot.id) {
-            robotState = robotStatusList[i];
-            break;
-          }
-        }
-        final bool deleted = _isDeleted(robot);
-
-        final String badgeText = deleted ? '삭제됨' : Get.find<RobotController>().getTaroStateLabel(robot.serial ?? '');
-
-        final Color badgeColor =
-            deleted ? kNavyColor : Get.find<RobotController>().getTaroStatedColor(robot.serial ?? '');
-
-        final hasLatLng = robotState?.latitude != null && robotState?.longitude != null;
-        final hasSerial = robot.serial?.isNotEmpty ?? false;
-
-        double speed = 0.0;
-        if (robotState != null) {
-          speed = robotState.drivingSpeed ?? 0.0;
-          speed = ((speed * 100).floor() / 100);
-          speed = speed.abs();
-        }
-
-        return SingleChildScrollView(
-          physics: const BouncingScrollPhysics(),
-          child: Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 36),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Stack(
-                          alignment: Alignment.bottomCenter,
-                          children: [
-                            Container(
-                              width: 100,
-                              height: 100,
-                              clipBehavior: Clip.antiAlias,
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(color: const Color(0xFFDADADA), width: 1),
-                              ),
-                              foregroundDecoration: deleted
-                                  ? BoxDecoration(
-                                      borderRadius: BorderRadius.circular(8),
-                                      color: const Color(0xFFF4F4F4).withOpacity(0.6),
-                                      border: Border.all(color: const Color(0xFFE8E8E8), width: 1),
-                                    )
-                                  : null,
-                              child: ExtendedImage.network(
-                                robot.imageUrl ?? robot.typeImageUrl ?? '',
-                                fit: BoxFit.cover,
-                                cache: true,
-                              ),
-                            ),
-                            Positioned(
-                              left: 0,
-                              right: 0,
-                              bottom: 0,
-                              child: Container(
-                                height: 16,
-                                alignment: Alignment.center,
-                                color: (deleted ? kNavyColor : badgeColor).withOpacity(0.7),
-                                child: Text(
-                                  badgeText,
-                                  style: const TextStyle(fontSize: 10, color: Colors.white),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              Row(
-                                children: [
-                                  const Text(
-                                    "배터리(%)",
-                                    style: TextStyle(
-                                      fontFamily: 'pretendard',
-                                      fontSize: 13,
-                                      color: Color(0xFF666565),
-                                      fontWeight: FontWeight.w400,
-                                    ),
-                                  ),
-                                  const Spacer(),
-                                  Text(
-                                    robotState?.wheelBattery != null
-                                        ? robotState!.wheelBattery!.toStringAsFixed(1)
-                                        : "-",
-                                    style: TextStyle(
-                                      fontFamily: 'pretendard',
-                                      fontSize: 25,
-                                      color: _disabledOr(
-                                          robotState?.wheelBattery != null ? Colors.black : kHintColor, deleted),
-                                      fontWeight: FontWeight.w400,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const Divider(height: 11, thickness: 1, color: Color(0xFFDBDBDB)),
-                              Row(
-                                children: [
-                                  const Text(
-                                    "현재 속도(km/h)",
-                                    style: TextStyle(
-                                      fontFamily: 'pretendard',
-                                      fontSize: 13,
-                                      color: Color(0xFF666565),
-                                      fontWeight: FontWeight.w400,
-                                    ),
-                                  ),
-                                  const Spacer(),
-                                  Text(
-                                    speed.toStringAsFixed(2),
-                                    style: TextStyle(
-                                      fontFamily: 'pretendard',
-                                      fontSize: 25,
-                                      color: _disabledOr(
-                                        (robotState == null || robotState.drivingSpeed == null)
-                                            ? kHintColor
-                                            : Colors.black,
-                                        deleted,
-                                      ),
-                                      fontWeight: FontWeight.w400,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const Divider(height: 1, thickness: 1, color: Color(0xFFDBDBDB)),
-                              Row(
-                                children: [
-                                  const Text(
-                                    "탑승 여부",
-                                    style: TextStyle(
-                                      fontFamily: 'pretendard',
-                                      fontSize: 13,
-                                      color: Color(0xFF666565),
-                                      fontWeight: FontWeight.w400,
-                                    ),
-                                  ),
-                                  const Spacer(),
-                                  Text(
-                                    Get.find<RobotController>().getTaroIsSeated(robot.serial ?? "")
-                                        ? "Seated"
-                                        : "Empty",
-                                    style: TextStyle(
-                                      fontFamily: 'pretendard',
-                                      fontSize: 25,
-                                      color: _disabledOr(
-                                        Get.find<RobotController>().getTaroIsSeated(robot.serial ?? "")
-                                            ? Colors.black
-                                            : const Color(0xFF666565),
-                                        deleted,
-                                      ),
-                                      fontWeight: FontWeight.w400,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 24),
-                    Container(
-                      alignment: Alignment.centerLeft,
-                      padding: const EdgeInsets.symmetric(horizontal: 14),
-                      child: const Text(
-                        "로봇 제어",
-                        style: TextStyle(
-                          fontFamily: 'pretendard',
-                          fontSize: 13,
-                          color: Color(0xFF666565),
-                          fontWeight: FontWeight.w400,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        GestureDetector(
-                          onTap: () {
-                            Map<String, dynamic> payload = {
-                              'Robot_Num': robot.serial,
-                              'Status': RobotState.manualMode,
-                              'Service_Mode': 0,
-                              'Position_X': 0.0,
-                              'Position_Y': 0.0,
-                              'Position_Z': 0.0,
-                              'Position_W': 0.0,
-                              'Goal_X': 0.0,
-                              'Goal_Y': 0.0,
-                              'Goal_Z': 0.0,
-                              'Goal_W': 0.0,
-                            };
-                            Get.find<MqttController>().publishMessage("Info_Display_Sub", json.encode(payload));
-                          },
-                          child: Container(
-                            height: 40,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.rectangle,
-                              color: const Color(0xFFF0F0F0),
-                              borderRadius: BorderRadius.circular(3.0),
-                            ),
-                            padding: const EdgeInsets.symmetric(horizontal: 14),
-                            child: Row(
-                              children: [
-                                Text(
-                                  "자율주행",
-                                  style: TextStyle(
-                                    fontFamily: 'pretendard',
-                                    fontSize: 14,
-                                    color: deleted ? const Color(0xFF666565) : Colors.black,
-                                    fontWeight: FontWeight.w400,
-                                  ),
-                                ),
-                                const Spacer(),
-                                Text(
-                                  deleted
-                                      ? "이용불가"
-                                      : (Get.find<RobotController>().getIsTaroAutoPilotMode(robot.serial ?? "")
-                                          ? "켜짐"
-                                          : "꺼짐"),
-                                  style: TextStyle(
-                                    fontFamily: 'pretendard',
-                                    fontSize: 12,
-                                    color: deleted
-                                        ? Color(0xFF666565)
-                                        : (Get.find<RobotController>().getIsTaroAutoPilotMode(robot.serial ?? "")
-                                            ? Color(0xFF005FB8)
-                                            : Color(0xFF666565)),
-                                    fontWeight: deleted
-                                        ? FontWeight.w400
-                                        : (Get.find<RobotController>().getIsTaroAutoPilotMode(robot.serial ?? "")
-                                            ? FontWeight.w600
-                                            : FontWeight.w400),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-                        GestureDetector(
-                          onTap: () {
-                            int modeOn = (robotState!.onPromotionMode ?? false)
-                                ? RobotState.promotionModeOff
-                                : RobotState.promotionModeOn;
-
-                            Map<String, dynamic> data = {};
-                            data['Send'] = 1;
-                            data['Robot_Num'] = robot.serial;
-                            data['Service_Mode'] = 0;
-                            data['Bookcase_Num'] = 0;
-                            data['Target_X'] = 0.0;
-                            data['Target_Y'] = 0.0;
-                            data['Target_Z'] = 0.0;
-                            data['Target_W'] = 0.0;
-                            data['Current_X'] = 0.0;
-                            data['Current_Y'] = 0.0;
-                            data['Current_Z'] = 0.0;
-                            data['Current_W'] = 0.0;
-                            data['RobotStatus'] = modeOn;
-                            data['channel'] = "MainPage";
-                            data['Goal_X'] = 0.0;
-                            data['Goal_Y'] = 0.0;
-                            data['Goal_Z'] = 0.0;
-                            data['Goal_W'] = 0.0;
-
-                            Map<String, dynamic> mainMessage = {};
-                            mainMessage['Comm'] = "MainPage";
-                            mainMessage['Data'] = data;
-
-                            String jsonPayload = json.encode(mainMessage);
-                            Get.find<MqttController>().publishMessage("MainPage_Pub/${robot.serial}", jsonPayload);
-                          },
-                          child: Container(
-                            height: 40,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.rectangle,
-                              color: const Color(0xFFF0F0F0),
-                              borderRadius: BorderRadius.circular(3.0),
-                            ),
-                            padding: const EdgeInsets.symmetric(horizontal: 14),
-                            child: Row(
-                              children: [
-                                Text(
-                                  "홍보모드",
-                                  style: TextStyle(
-                                    fontFamily: 'pretendard',
-                                    fontSize: 14,
-                                    color: deleted ? const Color(0xFF666565) : Colors.black,
-                                    fontWeight: FontWeight.w400,
-                                  ),
-                                ),
-                                const Spacer(),
-                                Text(
-                                  deleted ? "이용불가" : (robotState?.onPromotionMode == true ? "켜짐" : "꺼짐"),
-                                  style: TextStyle(
-                                    fontFamily: 'pretendard',
-                                    fontSize: 12,
-                                    color: deleted
-                                        ? Color(0xFF666565)
-                                        : (robotState?.onPromotionMode == true ? Color(0xFF005FB8) : Color(0xFF666565)),
-                                    fontWeight: deleted
-                                        ? FontWeight.w400
-                                        : (robotState?.onPromotionMode == true ? FontWeight.w600 : FontWeight.w400),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-                        GradientButton(
-                          buttonText: "위치 초기화",
-                          buttonColor: deleted ? const Color(0xFFE5E5E5) : Colors.white,
-                          borderColor: const Color(0xFFD9D9D9),
-                          textColor: deleted ? const Color(0xFF666565) : const Color(0xFF1B1B1B),
-                          onTap: deleted
-                              ? null
-                              : () {
-                                  Map<String, dynamic> data = {};
-                                  data['Send'] = 1;
-                                  data['Robot_Num'] = robot.serial ?? "";
-                                  data['Service_Mode'] = 0;
-                                  data['Bookcase_Num'] = 0;
-                                  data['Target_X'] = 0.0;
-                                  data['Target_Y'] = 0.0;
-                                  data['Target_Z'] = 0.0;
-                                  data['Target_W'] = 0.0;
-                                  data['Current_X'] = 0.526;
-                                  data['Current_Y'] = 4.157;
-                                  data['Current_Z'] = 0.0;
-                                  data['Current_W'] = 0.0;
-                                  data['RobotStatus'] = RobotState.waiting;
-                                  data['TimeManual'] = 0.0;
-                                  data['TimeAuto'] = 0.0;
-                                  data['DistanceManual'] = 0.0;
-                                  data['DistanceAuto'] = 0.0;
-                                  data['Acc_TimeManual'] = 0.0;
-                                  data['Acc_TimeAuto'] = 0.0;
-                                  data['Acc_DistanceManual'] = 0.0;
-                                  data['Acc_DistanceAuto'] = 0.0;
-                                  data['WheelBattery'] = robotState!.wheelBattery ?? 0.0;
-                                  data['channel'] = "MainPage";
-
-                                  Map<String, dynamic> mainMessage = {};
-                                  mainMessage['Comm'] = "MainPage";
-                                  mainMessage['Data'] = data;
-
-                                  String jsonPayload = json.encode(mainMessage);
-                                  Get.find<MqttController>().publishMessage("MainPage_Sub", jsonPayload);
-                                },
-                        ),
-                        const SizedBox(height: 10),
-                        GradientButton(
-                          buttonText: "긴급제동",
-                          buttonColor: deleted ? const Color(0xFFE5E5E5) : const Color(0xFFC42B1C),
-                          borderColor: deleted ? const Color(0xFFD9D9D9) : Colors.transparent,
-                          textColor: deleted ? const Color(0xFF666565) : Colors.white,
-                          onTap: deleted
-                              ? null
-                              : () {
-                                  Map<String, dynamic> payload = {};
-                                  payload['Robot_Num'] = robot.serial ?? "";
-                                  payload['Status'] = RobotState.stop;
-                                  payload['Service_Mode'] = 0;
-                                  payload['Position_X'] = 0.0;
-                                  payload['Position_Y'] = 0.0;
-                                  payload['Position_Z'] = 0.0;
-                                  payload['Position_W'] = 0.0;
-                                  payload['Goal_X'] = 0.0;
-                                  payload['Goal_Y'] = 0.0;
-                                  payload['Goal_Z'] = 0.0;
-                                  payload['Goal_W'] = 0.0;
-
-                                  String jsonPayload = json.encode(payload);
-                                  Get.find<MqttController>().publishMessage("Info_Display_Sub", jsonPayload);
-                                },
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 14),
-                    Container(
-                      height: 40,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.rectangle,
-                        color: const Color(0xFFF0F0F0),
-                        borderRadius: BorderRadius.circular(3.0),
-                      ),
-                      padding: const EdgeInsets.symmetric(horizontal: 14),
-                      child: Row(
-                        children: [
-                          Text(
-                            "누적 주행 거리",
-                            style: TextStyle(
-                              fontFamily: 'pretendard',
-                              fontSize: 13,
-                              color: Color(0xFF666565),
-                              fontWeight: FontWeight.w400,
-                            ),
-                          ),
-                          const Spacer(),
-                          Text(
-                            (robotState == null || robotState.accDistanceAuto == null)
-                                ? ""
-                                : Utils.numberWithComma(robotState.accDistanceAuto!.round()),
-                            style: TextStyle(
-                              fontFamily: 'pretendard',
-                              fontSize: 20,
-                              color: _disabledOr(
-                                (robotState == null || robotState.accDistanceAuto == null) ? kHintColor : Colors.black,
-                                deleted,
-                              ),
-                              fontWeight: FontWeight.w400,
-                            ),
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            "m",
-                            style: TextStyle(
-                              fontFamily: 'pretendard',
-                              fontSize: 13,
-                              color: Color(0xFF666565),
-                              fontWeight: FontWeight.w400,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    Container(
-                      height: 40,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.rectangle,
-                        color: const Color(0xFFF0F0F0),
-                        borderRadius: BorderRadius.circular(3.0),
-                      ),
-                      padding: const EdgeInsets.symmetric(horizontal: 14),
-                      child: Row(
-                        children: [
-                          Text(
-                            "현재 주행 거리",
-                            style: TextStyle(
-                              fontFamily: 'pretendard',
-                              fontSize: 13,
-                              color: Color(0xFF666565),
-                              fontWeight: FontWeight.w400,
-                            ),
-                          ),
-                          const Spacer(),
-                          Text(
-                            (robotState == null || robotState.distanceAuto == null)
-                                ? ""
-                                : Utils.numberWithComma(robotState.distanceAuto!.round()),
-                            style: TextStyle(
-                              fontFamily: 'pretendard',
-                              fontSize: 20,
-                              color: _disabledOr(
-                                (robotState == null || robotState.distanceAuto == null) ? kHintColor : Colors.black,
-                                deleted,
-                              ),
-                              fontWeight: FontWeight.w400,
-                            ),
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            "m",
-                            style: TextStyle(
-                              fontFamily: 'pretendard',
-                              fontSize: 13,
-                              color: Color(0xFF666565),
-                              fontWeight: FontWeight.w400,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    Container(
-                      height: 40,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.rectangle,
-                        color: const Color(0xFFF0F0F0),
-                        borderRadius: BorderRadius.circular(3.0),
-                      ),
-                      padding: const EdgeInsets.symmetric(horizontal: 14),
-                      child: Row(
-                        children: [
-                          Text(
-                            "주행 시간",
-                            style: TextStyle(
-                              fontFamily: 'pretendard',
-                              fontSize: 13,
-                              color: Color(0xFF666565),
-                              fontWeight: FontWeight.w400,
-                            ),
-                          ),
-                          const Spacer(),
-                          Text(
-                            (robotState == null || robotState.timeAuto == null)
-                                ? ""
-                                : Utils.getTimeString(robotState.timeAuto!.round()),
-                            style: TextStyle(
-                              fontFamily: 'pretendard',
-                              fontSize: 20,
-                              color: _disabledOr(
-                                (robotState == null || robotState.timeAuto == null) ? kHintColor : Colors.black,
-                                deleted,
-                              ),
-                              fontWeight: FontWeight.w400,
-                            ),
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            "m",
-                            style: TextStyle(
-                              fontFamily: 'pretendard',
-                              fontSize: 13,
-                              color: Colors.transparent,
-                              fontWeight: FontWeight.w400,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                  ],
-                ),
-              ),
-              AbsorbPointer(
-                absorbing: !_mapActive,
-                child: deleted
-                    ? const SizedBox(height: 345, width: double.infinity)
-                    : Container(
-                        height: 345,
-                        width: double.infinity,
-                        color: kIsWeb ? const Color(0xFFCDCDCD) : Colors.grey.shade200,
-                        child: kIsWeb
-                            ? (hasSerial
-                                ? TaroMapView(
-                                    selectedTaroSerial: robot.serial!,
-                                    initialScale: 1.2,
-                                  )
-                                : const Center(
-                                    child: Text(
-                                      '시리얼 번호가 없어 지도를 표시할 수 없습니다.',
-                                      style: TextStyle(
-                                        fontFamily: 'pretendard',
-                                        fontSize: 14,
-                                        color: Colors.black54,
-                                      ),
-                                    ),
-                                  ))
-                            : _buildMapArea(),
-                      ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
   }
 
   Widget buildUntactStatePanel(Robot robot) {
@@ -2180,7 +1593,7 @@ class _TabRobotStateMobile extends State<TabRobotMobile> with TickerProviderStat
   }
 
   Widget buildRobotListPanel() {
-    const double dividerHeight = 1; // thin divider
+    const double dividerHeight = 1;
 
     return Container(
       decoration: BoxDecoration(
@@ -2203,7 +1616,6 @@ class _TabRobotStateMobile extends State<TabRobotMobile> with TickerProviderStat
           }
 
           final filters = <String>['Select All', '삭제됨', ...typeMap.values];
-
           final List<Robot> displayed = controller.robots;
 
           return Column(
@@ -2268,23 +1680,14 @@ class _TabRobotStateMobile extends State<TabRobotMobile> with TickerProviderStat
                   );
                   if (status.id == null) return const SizedBox.shrink();
 
-                  String battery, location;
-                  if ((robot.typeDescription ?? '').toLowerCase() == 'taro') {
-                    battery = status.wheelBattery != null ? '${status.wheelBattery!.round()}%' : '-%';
-                    location = controller.getTaroLocation(robot.serial ?? '');
-                  } else {
-                    battery = status.battery != null ? '${status.battery!.round()}%' : '-%';
-                    location = status.address ?? '-';
-                  }
+                  final battery = status.battery != null ? '${status.battery!.round()}%' : '-%';
+                  final location = status.address ?? '-';
 
                   String statusStr;
                   Color statusColor;
                   if (isDeleted) {
                     statusStr = '삭제됨';
                     statusColor = kNavyColor;
-                  } else if ((robot.typeDescription ?? '').toLowerCase() == 'taro') {
-                    statusStr = controller.getTaroStateLabel(robot.serial ?? '');
-                    statusColor = controller.getTaroStatedColor(robot.serial ?? '');
                   } else {
                     final idx = _safeIdx(status.robotStatus ?? 0, kStateStr.length);
                     statusStr = kStateStr[idx];
@@ -2303,18 +1706,16 @@ class _TabRobotStateMobile extends State<TabRobotMobile> with TickerProviderStat
 
                       final id = robot.id ?? 0;
                       final type = (robot.typeDescription ?? '').toLowerCase();
-                      if (isDeleted) {
-                      } else if (_mapReady) {
+                      if (!isDeleted && _mapReady) {
                         final lat = status.latitude;
                         final lng = status.longitude;
-
-                        if (type != 'taro' && lat != null && lng != null) {
+                        if (lat != null && lng != null) {
                           _postMoveCar(id.toString(), lat, lng);
                           _postSelectCar(id);
                         } else {
                           Utils.showSnackBar("이 로봇의 좌표를 사용할 수 없습니다!");
                         }
-                      } else {
+                      } else if (!isDeleted) {
                         Utils.showSnackBar("지도가 로딩 중입니다");
                       }
 
