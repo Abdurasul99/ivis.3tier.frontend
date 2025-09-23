@@ -21,7 +21,6 @@ import '../../viewmodel/controller/dashboard_controller.dart';
 import '../../viewmodel/controller/map_controller.dart';
 import '../../viewmodel/controller/robot_controller.dart';
 import '../components/robot_list_view.dart';
-import '../components/taro_map_view.dart';
 import '../dashboard_widgets/operation_time_widget.dart';
 import '../dashboard_widgets/used_battery_widget.dart';
 
@@ -50,12 +49,14 @@ class _TabDashboardState extends State<TabDashboard> {
   String? _mapOrigin;
   StreamSubscription<html.MessageEvent>? _msgSub;
 
-  bool _showingTaro = false;
-
   List<bool> _layoutSetRow0 = [false, false, false];
   List<bool> _layoutSetRow1 = [false, false, false];
   bool _showRow1st = false;
   bool _showRow2nd = false;
+
+  bool _followSelected = true;
+  Timer? _centerDebounceTimer;
+  static const _kCenterDebounce = Duration(milliseconds: 250);
 
   @override
   void initState() {
@@ -94,6 +95,7 @@ class _TabDashboardState extends State<TabDashboard> {
   @override
   void dispose() {
     _msgSub?.cancel();
+    _centerDebounceTimer?.cancel();
     super.dispose();
   }
 
@@ -148,10 +150,8 @@ class _TabDashboardState extends State<TabDashboard> {
           if (win != null && _postQueue.isNotEmpty) {
             for (final p in _postQueue) {
               try {
-                (win as dynamic).postMessage(p, _mapOrigin ?? '*');
-              } catch (e) {
-                debugPrint("postMessage flush error: $e");
-              }
+                (win as dynamic).postMessage(p, '*');
+              } catch (e) {}
             }
             _postQueue.clear();
           }
@@ -211,18 +211,15 @@ class _TabDashboardState extends State<TabDashboard> {
   }
 
   Future<void> _sendMessageToMap(String jsonPayload) async {
-    debugPrint("_sendMessageToMap() $jsonPayload");
-
     try {
       if (!_mapReady) {
         _postQueue.add(jsonPayload);
         return;
       }
-
       if (kIsWeb) {
         final win = (_mapWindowC?.isCompleted == true) ? await _mapWindowC!.future : await _mapWindowC?.future;
         if (win != null) {
-          (win as dynamic).postMessage(jsonPayload, _mapOrigin ?? '*');
+          (win as dynamic).postMessage(jsonPayload, '*');
         } else {
           _postQueue.add(jsonPayload);
         }
@@ -234,9 +231,7 @@ class _TabDashboardState extends State<TabDashboard> {
           _postQueue.add(jsonPayload);
         }
       }
-    } catch (e, st) {
-      debugPrint("[Exception] _sendMessageToMap() e: $e");
-      debugPrint("$st");
+    } catch (e) {
       _postQueue.add(jsonPayload);
     }
   }
@@ -244,20 +239,47 @@ class _TabDashboardState extends State<TabDashboard> {
   void _postMoveCar(String id, double lat, double lng) {
     final payload = jsonEncode({'sender': 'moveCar', 'value': '$id,$lat,$lng;'});
     _sendMessageToMap(payload);
+    _maybeCenterOnMove(id, lat, lng);
   }
 
   void _postSelectCar(int objectId) {
-    setState(() => _selectedObjectId = objectId);
+    setState(() {
+      _selectedObjectId = objectId;
+      _followSelected = true;
+    });
     final payload = jsonEncode({'sender': 'selectCar', 'id': objectId});
     _sendMessageToMap(payload);
   }
 
+  void _postCenterTo(double lat, double lng) {
+    final payload = jsonEncode({'sender': 'centerMap', 'value': '$lat,$lng'});
+    _sendMessageToMap(payload);
+  }
+
+  void _maybeCenterOnMove(String id, double lat, double lng) {
+    if (!_followSelected) return;
+    final selId = _selectedObjectId;
+    if (selId == null) return;
+    if (int.tryParse(id) != selId) return;
+
+    _centerDebounceTimer?.cancel();
+    _centerDebounceTimer = Timer(_kCenterDebounce, () {
+      _postCenterTo(lat, lng);
+    });
+  }
+
   void _processMessage(Map data) {
     if (!mounted) return;
-
     if (data['sender'] == 'onClickCar') {
       final id = int.tryParse(data['message'].toString());
-      if (id != null) setState(() => _selectedObjectId = id);
+      if (id != null) {
+        setState(() {
+          _selectedObjectId = id;
+          _followSelected = true;
+        });
+      }
+    } else if (data['sender'] == 'map_interaction') {
+      _followSelected = false;
     } else if (data.containsKey('move_res')) {
       final m = data['move_res'];
       final coords = List.from(m['data']['cur_coodi']);
@@ -272,9 +294,7 @@ class _TabDashboardState extends State<TabDashboard> {
   @override
   Widget build(BuildContext context) {
     if (context.isMobile()) {
-      return MobileTabDashboard(
-        gotoAlarmSet: widget.gotoAlarmSet,
-      );
+      return MobileTabDashboard(gotoAlarmSet: widget.gotoAlarmSet);
     }
     return Row(
       children: [
@@ -299,41 +319,12 @@ class _TabDashboardState extends State<TabDashboard> {
                   );
                 },
               ),
-              GetBuilder<RobotController>(
-                init: RobotController(),
-                builder: (controller) {
-                  RobotStatus? robotState;
-                  if (_selectedObjectId != null) {
-                    robotState = controller.robotStatusList.firstWhereOrNull(
-                      (s) => s.id == _selectedObjectId,
-                    );
-                  }
-                  _showingTaro = (robotState != null && robotState.objectTypeId == 2);
-
-                  return Expanded(
-                    child: Container(
-                      margin: const EdgeInsets.only(top: 6),
-                      color: _showingTaro ? const Color(0xFFAAAAAA) : Colors.transparent,
-                      child: Stack(
-                        fit: StackFit.expand,
-                        children: [
-                          Offstage(
-                            offstage: _showingTaro,
-                            child: _mapView,
-                          ),
-                          Offstage(
-                            offstage: !_showingTaro,
-                            child: Center(
-                              child: (robotState != null)
-                                  ? TaroMapView(selectedTaroSerial: robotState.serial)
-                                  : const SizedBox.shrink(),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-                },
+              Expanded(
+                child: Container(
+                  margin: const EdgeInsets.only(top: 6),
+                  color: Colors.transparent,
+                  child: _mapView,
+                ),
               ),
             ],
           ),
@@ -345,47 +336,21 @@ class _TabDashboardState extends State<TabDashboard> {
   Widget buildRobotListPanel() {
     return RobotListView(
       onChanged: (Robot selectedRobot) {
-        final prevWasTaro = _showingTaro;
-
         _selectedObjectId = selectedRobot.id ?? -1;
-        _showingTaro = (selectedRobot.typeDescription ?? "").toLowerCase() == "taro";
-
+        _followSelected = true;
         if (mounted) setState(() {});
-
-        if (prevWasTaro && !_showingTaro && selectedRobot.id != null) {
-          _refreshMapAfterReturn(selectedRobot.id!);
-        }
-
-        if (selectedRobot.id != null && !_showingTaro) {
+        if (selectedRobot.id != null) {
           _postSelectCar(selectedRobot.id!);
         }
       },
     );
   }
 
-  Future<void> _refreshMapAfterReturn(int selectedId) async {
-    if (!_mapReady) {
-      await Future.doWhile(() async {
-        await Future.delayed(const Duration(milliseconds: 100));
-        return !_mapReady;
-      });
-    }
-    final list = Get.find<RobotController>().robotStatusList;
-    for (final s in list) {
-      if (s.id != null && s.latitude != null && s.longitude != null) {
-        _postMoveCar(s.id.toString(), s.latitude!, s.longitude!);
-      }
-    }
-    _postSelectCar(selectedId);
-  }
-
   Widget buildLayout(LayoutSet? layout, int row, int column) {
     if (layout == null || layout.title == null || layout.title!.isEmpty) {
       return Container();
     }
-
     Widget dashboardWidget;
-
     if (layout.title == '기기 운행 현황') {
       dashboardWidget = const DeviceStatusWidget();
     } else if (layout.title == '주요 알림') {
@@ -405,7 +370,6 @@ class _TabDashboardState extends State<TabDashboard> {
     } else {
       dashboardWidget = Center(child: Text('Unknown: ${layout.title}'));
     }
-
     return Container(
       height: 240,
       decoration: BoxDecoration(
@@ -421,16 +385,8 @@ class _TabDashboardState extends State<TabDashboard> {
     final layout2 = getLayoutSet(rowIndex, 1);
     final layout3 = getLayoutSet(rowIndex, 2);
 
-    bool isExist2ndColumn;
-    bool isExist3rdColumn;
-
-    if (rowIndex == 0) {
-      isExist2ndColumn = _layoutSetRow0[1];
-      isExist3rdColumn = _layoutSetRow0[2];
-    } else {
-      isExist2ndColumn = _layoutSetRow1[1];
-      isExist3rdColumn = _layoutSetRow1[2];
-    }
+    final isExist2ndColumn = rowIndex == 0 ? _layoutSetRow0[1] : _layoutSetRow1[1];
+    final isExist3rdColumn = rowIndex == 0 ? _layoutSetRow0[2] : _layoutSetRow1[2];
 
     return Container(
       alignment: Alignment.center,
