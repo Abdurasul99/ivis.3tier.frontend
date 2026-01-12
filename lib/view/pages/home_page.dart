@@ -2,95 +2,92 @@ import 'package:extended_image/extended_image.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/svg.dart';
-import 'package:fms/view/tabs/tab_dashboard.dart';
-import 'package:fms/view/tabs/tab_setting.dart';
-import 'package:fms/viewmodel/controller/notification_controller.dart';
 import 'package:get/get.dart';
 import 'package:intl/intl.dart';
+import 'package:ivis/view/tabs/tab_dashboard.dart';
+import 'package:ivis/view/tabs/tab_setting.dart';
+import 'package:ivis/viewmodel/repository/log_repository.dart';
 
 import '../../constants/constants.dart';
-import '../../view/components/layout.dart';
-import '../../view/pages/mobile/home_page_mobile.dart';
+import '../../viewmodel/controller/log_controller.dart';
 import '../../viewmodel/controller/time_controller.dart';
 import '../../viewmodel/controller/user_controller.dart';
-import '../components/notification_bell_view.dart';
-import '../tabs/tab_robot.dart';
 import 'login_page.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
 
-  static const routeName = '/home';
+  static const String routeName = '/home';
 
   @override
   State<HomePage> createState() => _HomePageState();
 }
 
 class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
-  final List<String> _menuTitles = ["대시보드", "로봇", "설정"];
-  final List<String> _menuIcons = ["dashboard", "robot", "setting"];
+  static const double menuWidth = 88;
+  static const double menuItemHeight = 80;
+  static const double headerHeight = 60;
+  static const double avatarSize = 40;
 
-  int _selectMenuIndex = 0;
+  final List<String> menuTitles = <String>['대시보드', '설정'];
+  final List<String> menuIcons = <String>['dashboard', 'setting'];
 
-  late TabController _tabController;
+  int selectedMenuIndex = 0;
+  late TabController tabController;
 
-  bool _isProfileMenuVisible = false;
-  late AnimationController _profileMenuAnimationController;
-  late Animation<Offset> _profileMenuAnimation;
+  bool isProfileMenuVisible = false;
+  late AnimationController profileMenuAnimationController;
+  late Animation<Offset> profileMenuAnimation;
 
-  VoidCallback? _changeAlarmTabFunction;
+  late LogController logController;
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(vsync: this, length: _menuTitles.length);
 
-    _profileMenuAnimationController = AnimationController(
+    tabController = TabController(vsync: this, length: menuTitles.length);
+    profileMenuAnimationController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 300),
+      duration: const Duration(milliseconds: 220),
+    );
+    profileMenuAnimation = Tween<Offset>(
+      begin: const Offset(0, -0.2),
+      end: const Offset(0, 0),
+    ).animate(
+      CurvedAnimation(
+        parent: profileMenuAnimationController,
+        curve: Curves.easeOutCubic,
+      ),
     );
 
-    _profileMenuAnimation = Tween<Offset>(
-      begin: const Offset(0, -1.0),
-      end: const Offset(0, 0),
-    ).animate(CurvedAnimation(
-      parent: _profileMenuAnimationController,
-      curve: Curves.easeOutCubic,
-    ));
+    logController = Get.isRegistered<LogController>() ? Get.find<LogController>() : Get.put(LogController());
   }
 
   @override
   void dispose() {
-    _profileMenuAnimationController.dispose();
-    _tabController.dispose();
+    profileMenuAnimationController.dispose();
+    tabController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    if (context.isMobile()) {
-      return const HomePageMobile();
-    }
     return SafeArea(
       child: Scaffold(
         backgroundColor: kBackgroundColor,
         body: Column(
-          children: [
-            buildStateBar(),
+          children: <Widget>[
+            buildHeaderBar(),
             Expanded(
               child: Stack(
-                children: [
-                  Container(
-                    alignment: Alignment.center,
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      crossAxisAlignment: CrossAxisAlignment.center,
-                      children: [
-                        buildMenu(),
-                        Expanded(child: buildDefaultTabControl()),
-                      ],
-                    ),
+                children: <Widget>[
+                  Row(
+                    children: <Widget>[
+                      buildSideMenu(),
+                      Expanded(
+                        child: buildTabHost(),
+                      ),
+                    ],
                   ),
                   buildProfilePanel(),
                 ],
@@ -102,76 +99,81 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     );
   }
 
-  Widget buildMenu() {
+  Widget buildSideMenu() {
     return Container(
-      width: 80,
+      width: menuWidth,
       color: Colors.white,
       child: Column(
-        children: _menuTitles.map((e) => buildMenuItem(_menuTitles.indexOf(e))).toList(),
+        children: List<Widget>.generate(
+          menuTitles.length,
+          (int index) => buildMenuItem(index),
+        ),
       ),
     );
   }
 
   Widget buildMenuItem(int index) {
+    final bool selected = selectedMenuIndex == index;
+    final Color backgroundColor = selected ? const Color(0xFFF3F4F6) : Colors.white;
+    final Color borderColor = selected ? const Color(0xFFE5E7EB) : Colors.white;
+    final Color labelColor = selected ? const Color(0xFF111827) : const Color(0xFF6B7280);
+
     return GestureDetector(
       onTap: () {
-        _selectMenuIndex = index;
-        _tabController.index = _selectMenuIndex;
-
+        selectedMenuIndex = index;
+        tabController.index = selectedMenuIndex;
         if (mounted) {
           setState(() {});
         }
       },
       child: Row(
-        children: [
+        children: <Widget>[
           const SizedBox(width: 2),
           Stack(
-            children: [
+            children: <Widget>[
               Container(
-                width: 78,
-                height: 80,
+                width: menuWidth - 2,
+                height: menuItemHeight,
                 alignment: Alignment.center,
                 decoration: BoxDecoration(
-                  color: (_selectMenuIndex == index) ? const Color(0xFFF7F7F7) : Colors.white,
+                  color: backgroundColor,
                   borderRadius: const BorderRadius.only(
-                    topLeft: Radius.circular(8),
-                    bottomLeft: Radius.circular(8),
+                    topLeft: Radius.circular(10),
+                    bottomLeft: Radius.circular(10),
                   ),
                   border: Border.all(
-                    color: (_selectMenuIndex == index) ? const Color(0xFFEAEAEA) : Colors.white,
+                    color: borderColor,
                     width: 1,
                   ),
                 ),
                 child: Column(
-                  mainAxisSize: MainAxisSize.min,
                   mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
+                  children: <Widget>[
                     SvgPicture.asset(
-                      (_selectMenuIndex == index)
-                          ? "assets/images/icons_menu_${_menuIcons[index]}_selected.svg"
-                          : "assets/images/icons_menu_${_menuIcons[index]}_unselected.svg",
+                      selected
+                          ? 'assets/images/icons_menu_${menuIcons[index]}_selected.svg'
+                          : 'assets/images/icons_menu_${menuIcons[index]}_unselected.svg',
                     ),
-                    const SizedBox(height: 10),
+                    const SizedBox(height: 8),
                     Text(
-                      _menuTitles[index],
-                      style: const TextStyle(
+                      menuTitles[index],
+                      style: TextStyle(
                         fontFamily: 'gm-medium',
                         fontSize: 12,
-                        fontWeight: FontWeight.w400,
-                        color: Color(0xFF666566),
+                        fontWeight: FontWeight.w500,
+                        color: labelColor,
                       ),
                     ),
                   ],
                 ),
               ),
-              if (_selectMenuIndex == index)
+              if (selected)
                 Positioned(
                   left: 0,
                   top: 10,
+                  bottom: 10,
                   child: Container(
                     width: 4,
-                    height: 60,
                     decoration: BoxDecoration(
                       color: const Color(0xFF005CB2),
                       borderRadius: BorderRadius.circular(4),
@@ -185,230 +187,269 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     );
   }
 
-  Widget buildStateBar() {
+  Widget buildHeaderBar() {
     return Column(
-      children: [
+      children: <Widget>[
         Container(
-          height: 60,
-          alignment: Alignment.centerLeft,
+          height: headerHeight,
+          padding: const EdgeInsets.symmetric(horizontal: 20),
           decoration: BoxDecoration(
             color: Colors.white,
-            boxShadow: [
+            boxShadow: <BoxShadow>[
               BoxShadow(
-                color: const Color(0xFF00000D).withOpacity(0.05),
-                offset: const Offset(0.0, 1.0),
-                blurRadius: 3.0,
-                spreadRadius: 0.0,
+                color: const Color(0xFF000000).withOpacity(0.04),
+                offset: const Offset(0, 1),
+                blurRadius: 4,
               ),
             ],
           ),
           child: Row(
-            children: [
-              const SizedBox(width: 24),
+            children: <Widget>[
               SvgPicture.asset(
-                "assets/images/icons_symbol.svg",
+                'assets/images/icons_symbol.svg',
                 width: 22,
                 fit: BoxFit.fitWidth,
               ),
-              const SizedBox(width: 16),
-              Text(
-                "3Tier",
+              const SizedBox(width: 10),
+              const Text(
+                '3tier',
                 style: TextStyle(
                   fontFamily: 'gm-medium',
                   fontSize: 18,
-                  fontWeight: FontWeight.w500,
+                  fontWeight: FontWeight.w600,
                   color: Colors.black,
                 ),
               ),
               const Spacer(),
-              GetBuilder<UserController>(
-                init: UserController(),
-                builder: (controller) {
-                  return GestureDetector(
-                    onTap: () {
-                      _isProfileMenuVisible = !_isProfileMenuVisible;
-                      if (_isProfileMenuVisible) {
-                        _profileMenuAnimationController.forward();
-                      } else {
-                        _profileMenuAnimationController.reverse();
-                      }
-
-                      if (mounted) {
-                        setState(() {});
-                      }
-                    },
-                    child: (controller.loginUser != null &&
-                            controller.loginUser!.imageUrl != null &&
-                            controller.loginUser!.imageUrl!.isNotEmpty)
-                        ? ClipRRect(
-                            borderRadius: BorderRadius.circular(21),
-                            child: ExtendedImage.network(
-                              controller.loginUser!.imageUrl!,
-                              width: 42,
-                              height: 42,
-                              fit: BoxFit.cover,
-                            ),
-                          )
-                        : SvgPicture.asset(
-                            "assets/images/icons_small_profile.svg",
-                            width: 42,
-                            fit: BoxFit.fitWidth,
-                          ),
-                  );
-                },
-              ),
-              const SizedBox(width: 22),
-              const NotificationBellView(),
-              const SizedBox(width: 22),
-              GetBuilder<TimeController>(
-                init: TimeController(),
-                builder: (controller) {
-                  String time = DateFormat('yyyy.MM.dd aa hh:mm').format(DateTime.now());
-
-                  return Text(
-                    time,
-                    style: const TextStyle(
-                      fontFamily: 'pretendard',
-                      fontSize: 17,
-                      fontWeight: FontWeight.w400,
-                      color: kBlackFontColor,
+              GetBuilder<LogController>(
+                init: logController,
+                builder: (LogController controller) {
+                  return SizedBox(
+                    height: 32,
+                    child: ElevatedButton.icon(
+                      onPressed: controller.isDownloading
+                          ? null
+                          : () {
+                              controller.downloadLatestLog();
+                            },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF005CB2),
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        textStyle: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      icon: const Icon(
+                        Icons.download,
+                        size: 16,
+                        color: Colors.white,
+                      ),
+                      label: const Text(
+                        '데이터 다운로드',
+                        style: TextStyle(
+                          color: Colors.white,
+                        ),
+                      ),
                     ),
                   );
                 },
               ),
               const SizedBox(width: 16),
+              GetBuilder<TimeController>(
+                init: TimeController(),
+                builder: (TimeController controller) {
+                  final String formattedTime = DateFormat('yyyy.MM.dd  HH:mm').format(DateTime.now());
+                  return Text(
+                    formattedTime,
+                    style: const TextStyle(
+                      fontFamily: 'pretendard',
+                      fontSize: 13,
+                      fontWeight: FontWeight.w400,
+                      color: Color(0xFF6B7280),
+                    ),
+                  );
+                },
+              ),
+              const SizedBox(width: 24),
+              GetBuilder<UserController>(
+                init: UserController(),
+                builder: (UserController controller) {
+                  Widget avatar;
+                  if (controller.loginUser != null &&
+                      controller.loginUser!.imageUrl != null &&
+                      controller.loginUser!.imageUrl!.isNotEmpty) {
+                    avatar = ClipRRect(
+                      borderRadius: BorderRadius.circular(avatarSize / 2),
+                      child: ExtendedImage.network(
+                        controller.loginUser!.imageUrl!,
+                        width: avatarSize,
+                        height: avatarSize,
+                        fit: BoxFit.cover,
+                      ),
+                    );
+                  } else {
+                    avatar = SvgPicture.asset(
+                      'assets/images/icons_small_profile.svg',
+                      width: avatarSize,
+                      fit: BoxFit.fitWidth,
+                    );
+                  }
+                  return GestureDetector(
+                    onTap: () {
+                      isProfileMenuVisible = !isProfileMenuVisible;
+                      if (isProfileMenuVisible) {
+                        profileMenuAnimationController.forward();
+                      } else {
+                        profileMenuAnimationController.reverse();
+                      }
+                      if (mounted) {
+                        setState(() {});
+                      }
+                    },
+                    child: avatar,
+                  );
+                },
+              ),
             ],
           ),
         ),
-        Container(height: 1, color: const Color(0xFFE8E8E8)),
+        Container(
+          height: 1,
+          color: const Color(0xFFE5E7EB),
+        ),
       ],
     );
   }
 
-  Widget buildDefaultTabControl() {
+  Widget buildTabHost() {
     return DefaultTabController(
-      length: _menuTitles.length,
+      length: menuTitles.length,
       child: TabBarView(
-        controller: _tabController,
+        controller: tabController,
         physics: const NeverScrollableScrollPhysics(),
-        children: [
-          TabDashboard(gotoAlarmSet: gotoAlarmSetTab),
-          const TabRobot(),
-          const TabSetting(),
+        children: const <Widget>[
+          TabDashboard(),
+          TabSetting(),
         ],
       ),
     );
   }
 
-  void gotoAlarmSetTab() async {
-    Get.find<NotificationController>().setSettingTabIndex(3);
-    _tabController.index = 2;
-    _selectMenuIndex = 2;
-
-    if (mounted) {
-      setState(() {});
-    }
-  }
-
   Widget buildProfilePanel() {
-    if (_isProfileMenuVisible == false) {
-      return Container();
+    if (!isProfileMenuVisible) {
+      return const SizedBox.shrink();
     }
-
     return Positioned(
-      top: 8,
-      right: 16,
+      top: 10,
+      right: 20,
       child: SlideTransition(
-        position: _profileMenuAnimation,
+        position: profileMenuAnimation,
         child: Container(
-          width: 294,
+          width: 290,
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
             color: Colors.white,
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: const Color(0xFFE8E8E8), width: 1),
-            boxShadow: [
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: const Color(0xFFE5E7EB),
+              width: 1,
+            ),
+            boxShadow: <BoxShadow>[
               BoxShadow(
-                color: Colors.black.withOpacity(0.1),
-                blurRadius: 5,
-                offset: const Offset(0, 0),
+                color: Colors.black.withOpacity(0.08),
+                blurRadius: 8,
+                offset: const Offset(0, 4),
               ),
             ],
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
+            children: <Widget>[
               GetBuilder<UserController>(
                 init: UserController(),
-                builder: (controller) {
+                builder: (UserController controller) {
                   if (controller.loginUser == null) {
-                    return Container();
+                    return const SizedBox.shrink();
                   }
-
-                  return Container(
+                  final String name = controller.loginUser!.name ?? '';
+                  final String email = controller.loginUser!.email ?? '';
+                  Widget avatar;
+                  if (controller.loginUser!.imageUrl != null && controller.loginUser!.imageUrl!.isNotEmpty) {
+                    avatar = ClipRRect(
+                      borderRadius: BorderRadius.circular(44),
+                      child: ExtendedImage.network(
+                        controller.loginUser!.imageUrl!,
+                        width: 88,
+                        height: 88,
+                        fit: BoxFit.cover,
+                      ),
+                    );
+                  } else {
+                    avatar = SvgPicture.asset(
+                      'assets/images/icons_profile.svg',
+                      width: 88,
+                      fit: BoxFit.fitWidth,
+                    );
+                  }
+                  return SizedBox(
                     height: 96,
-                    alignment: Alignment.center,
                     child: Row(
-                      children: [
-                        (controller.loginUser!.imageUrl != null && controller.loginUser!.imageUrl!.isNotEmpty)
-                            ? ClipRRect(
-                                borderRadius: BorderRadius.circular(44),
-                                child: ExtendedImage.network(
-                                  controller.loginUser!.imageUrl!,
-                                  width: 88,
-                                  height: 88,
-                                  fit: BoxFit.cover,
-                                ),
-                              )
-                            : SvgPicture.asset(
-                                "assets/images/icons_profile.svg",
-                                width: 88,
-                                fit: BoxFit.fitWidth,
-                              ),
-                        const SizedBox(width: 16),
+                      children: <Widget>[
+                        avatar,
+                        const SizedBox(width: 14),
                         Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.start,
                           mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: <Widget>[
                             Text(
-                              controller.loginUser!.name ?? "",
+                              name,
                               style: const TextStyle(
                                 fontFamily: 'pretendard',
-                                fontSize: 20,
-                                fontWeight: FontWeight.w400,
+                                fontSize: 18,
+                                fontWeight: FontWeight.w500,
                                 color: kBlackFontColor,
                               ),
                             ),
-                            const SizedBox(height: 8),
+                            const SizedBox(height: 6),
                             Text(
-                              controller.loginUser!.email ?? "",
+                              email,
                               style: const TextStyle(
                                 fontFamily: 'pretendard',
-                                fontSize: 14,
+                                fontSize: 13,
                                 fontWeight: FontWeight.w400,
-                                color: kBlackFontColor,
+                                color: Color(0xFF6B7280),
                               ),
                             ),
                           ],
                         ),
-                        const Spacer(),
                       ],
                     ),
                   );
                 },
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 16),
               GestureDetector(
-                onTap: _goToProfile,
+                onTap: () {
+                  tabController.index = 1;
+                  selectedMenuIndex = 1;
+                  isProfileMenuVisible = false;
+                  profileMenuAnimationController.reverse();
+                  if (mounted) {
+                    setState(() {});
+                  }
+                },
                 child: Row(
-                  children: [
-                    const SizedBox(width: 8),
-                    Icon(CupertinoIcons.gear, size: 22, color: kBlackFontColor),
-                    const SizedBox(width: 12),
-                    const Text(
-                      "My account",
+                  children: const <Widget>[
+                    SizedBox(width: 6),
+                    Icon(
+                      CupertinoIcons.gear,
+                      size: 22,
+                      color: kBlackFontColor,
+                    ),
+                    SizedBox(width: 10),
+                    Text(
+                      'My account',
                       style: TextStyle(
                         fontFamily: 'pretendard',
                         fontSize: 15,
@@ -416,23 +457,27 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                         color: kBlackFontColor,
                       ),
                     ),
-                    const Spacer(),
+                    Spacer(),
                   ],
                 ),
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 14),
               GestureDetector(
                 onTap: () async {
                   await Get.find<UserController>().logout();
                   Get.offAllNamed(LoginPage.routeName);
                 },
                 child: Row(
-                  children: [
-                    const SizedBox(width: 8),
-                    Icon(Icons.logout, size: 22, color: kBlackFontColor),
-                    const SizedBox(width: 12),
-                    const Text(
-                      "Log out",
+                  children: const <Widget>[
+                    SizedBox(width: 6),
+                    Icon(
+                      Icons.logout,
+                      size: 22,
+                      color: kBlackFontColor,
+                    ),
+                    SizedBox(width: 10),
+                    Text(
+                      'Log out',
                       style: TextStyle(
                         fontFamily: 'pretendard',
                         fontSize: 15,
@@ -440,7 +485,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                         color: kBlackFontColor,
                       ),
                     ),
-                    const Spacer(),
+                    Spacer(),
                   ],
                 ),
               ),
@@ -449,14 +494,5 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         ),
       ),
     );
-  }
-
-  void _goToProfile() {
-    Get.find<NotificationController>().setSettingTabIndex(0);
-    _tabController.index = 2;
-    _selectMenuIndex = 2;
-    _isProfileMenuVisible = false;
-    _profileMenuAnimationController.reverse();
-    setState(() {});
   }
 }

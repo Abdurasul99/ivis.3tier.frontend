@@ -2,14 +2,13 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:flutter/material.dart';
 
-import '../../constants/constants.dart'; 
+import '../../constants/constants.dart';
 import '../../model/common_model.dart';
 
 class RegisterRepository {
   final String _baseUrl = kApiServer;
 
-  Future<CommonResponse?> requestRegisterSendCode(
-      String name, String email) async {
+  Future<CommonResponse?> requestRegisterSendCode(String name, String email) async {
     final url = Uri.http(_baseUrl, "/api/findId/sendCode");
     final body = jsonEncode({"name": name, "email": email});
 
@@ -33,8 +32,7 @@ class RegisterRepository {
     }
   }
 
-  Future<CommonResponse?> requestRegisterVerifyCode(
-      String email, String code) async {
+  Future<CommonResponse?> requestRegisterVerifyCode(String email, String code) async {
     final url = Uri.http(_baseUrl, "/api/findId/verify");
     final body = jsonEncode({"email": email, "code": code});
 

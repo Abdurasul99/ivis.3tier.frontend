@@ -1,9 +1,8 @@
 import 'package:extended_image/extended_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/svg.dart';
-import 'package:fms/view/components/layout.dart';
-import 'package:fms/view/dialogs/photo_edit_dialog.dart';
-import 'package:fms/view/tabs/mobile/tab_setting_profile_mobile.dart';
+import 'package:ivis/view/components/layout.dart';
+import 'package:ivis/view/dialogs/photo_edit_dialog.dart';
 import 'package:get/get.dart';
 
 import '../../model/user_model.dart';
@@ -46,7 +45,7 @@ class _TabSettingProfileState extends State<TabSettingProfile> {
   @override
   Widget build(BuildContext context) {
     if (context.isMobile()) {
-      return const TabSettingProfileMobile();
+      return const TabSettingProfile();
     }
 
     return Row(
@@ -154,9 +153,7 @@ class _TabSettingProfileState extends State<TabSettingProfile> {
                           focusNode: _phoneNumberFocusNode,
                           title: "핸드폰",
                           hintText: "핸드폰 번호를 입력해주세요.",
-                          onChanged: (String value) {
-                            // do nothing
-                          },
+                          onChanged: (String value) {},
                         ),
                       ),
                       const SizedBox(width: 12),

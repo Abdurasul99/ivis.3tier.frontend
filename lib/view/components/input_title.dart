@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:fms/view/components/text_title.dart';
+import 'package:ivis/view/components/text_title.dart';
 import '../../constants/constants.dart';
 
 class InputTitle extends StatelessWidget {

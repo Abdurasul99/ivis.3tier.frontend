@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
-import 'package:fms/viewmodel/controller/user_controller.dart';
+import 'package:ivis/viewmodel/controller/user_controller.dart';
 import 'package:get/get.dart';
 import 'package:http/http.dart' as http;
 

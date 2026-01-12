@@ -1,86 +1,90 @@
-import 'package:flutter/material.dart';
-import 'package:fms/model/robot_model.dart';
-import 'package:fms/viewmodel/repository/base_repository.dart';
+import 'dart:convert';
+import 'dart:html' as html;
+
+import 'package:get/get.dart';
 import 'package:http/http.dart' as http;
 
 import '../../constants/constants.dart';
+import '../controller/user_controller.dart';
 
-class LogRepository extends BaseRepository {
-  final String logListPath = "/api/log/list";
-  final String logListDocPath = "/api/log/list/doc";
+class LogFileInfo {
+  final String fileName;
+  final int sizeBytes;
+  final DateTime? lastModified;
 
-  Future<RobotLogList?> requestLogList(
-    int objectId,
-    int limit,
-    int offset, {
-    String? startDate,
-    String? endDate,
-    String? keyword,
-  }) async {
-    Map<String, dynamic> params = {};
-    params['objectId'] = objectId.toString();
-    params['limit'] = limit.toString();
-    params['offset'] = offset.toString();
+  LogFileInfo({
+    required this.fileName,
+    required this.sizeBytes,
+    this.lastModified,
+  });
 
-    if (startDate != null && startDate.isNotEmpty) {
-      params['startDate'] = startDate.toString();
+  factory LogFileInfo.fromJson(Map<String, dynamic> json) {
+    final String name = (json['fileName'] ?? json['file_name'] ?? '').toString();
+
+    final int size = int.tryParse(
+          '${json['sizeBytes'] ?? json['size_bytes'] ?? json['size'] ?? 0}',
+        ) ??
+        0;
+
+    DateTime? lm;
+    final dynamic rawTs = json['lastModified'] ?? json['last_modified'] ?? json['modifiedAt'];
+    if (rawTs is String) {
+      lm = DateTime.tryParse(rawTs);
     }
 
-    if (endDate != null && endDate.isNotEmpty) {
-      params['endDate'] = endDate.toString();
-    }
+    return LogFileInfo(
+      fileName: name,
+      sizeBytes: size,
+      lastModified: lm,
+    );
+  }
+}
 
-    if (keyword != null && keyword.isNotEmpty) {
-      params['keyword'] = keyword.toString();
-    }
+class LogRepository {
+  String get apiServerHost => kApiServer;
 
-    var url = Uri.http(kApiServer, logListPath, params);
-
-    try {
-      final response = await http.get(url, headers: getHeader());
-      if (response.statusCode != 200) {
-        debugPrint('[Error] getLogList() statusCode ${response.statusCode}');
-        return null;
-      }
-
-      return handleResponse(response, (jsonResponse) {
-        // debugPrint("getLogList() ${jsonResponse.toString()}");
-        dynamic body = jsonResponse['body'];
-        RobotLogList result = RobotLogList.fromJson(body);
-
-        return result;
-      });
-    } catch (e) {
-      debugPrint("[Exception] getLogList $e");
-      return null;
-    }
+  Uri buildUri(String path, {Map<String, dynamic>? query}) {
+    return Uri.http(apiServerHost, path, query);
   }
 
-  Future<List<RobotLog>> requestLogListForDocument(int objectId, int minId, int maxId) async {
-    Map<String, dynamic> params = {};
-    params['objectId'] = objectId.toString();
-    params['startId'] = minId.toString();
-    params['endId'] = maxId.toString();
-
-    var url = Uri.http(kApiServer, logListDocPath, params);
-
-    try {
-      final response = await http.get(url, headers: getHeader());
-      if (response.statusCode != 200) {
-        debugPrint('[Error] requestLogListForDocument() statusCode ${response.statusCode}');
-        return [];
-      }
-
-      return handleResponse(response, (jsonResponse) {
-        // debugPrint("requestLogListForDocument() ${jsonResp.toString()}");
-        List<dynamic> items = jsonResponse['body'];
-        List<RobotLog> result = items.map((e) => RobotLog.fromJson(e)).toList();
-
-        return result;
-      });
-    } catch (e) {
-      debugPrint("[Exception] requestLogListForDocument $e");
-      return [];
+  Map<String, String> buildHeaders() {
+    final String accessToken = Get.find<UserController>().accessToken ?? '';
+    final Map<String, String> headers = {'Content-Type': 'application/json'};
+    if (accessToken.isNotEmpty) {
+      headers['x-access-token'] = accessToken;
     }
+    return headers;
+  }
+
+  Future<List<LogFileInfo>> fetchLogFiles() async {
+    final Uri uri = buildUri('/api/broker-debug/files');
+    final http.Response response = await http.get(uri, headers: buildHeaders());
+
+    if (response.statusCode != 200) {
+      throw Exception('Error ${response.statusCode}: ${response.body}');
+    }
+
+    final dynamic decoded = jsonDecode(response.body);
+
+    List<dynamic> rawList = [];
+    if (decoded is Map<String, dynamic>) {
+      if (decoded['files'] is List<dynamic>) {
+        rawList = decoded['files'];
+      } else if (decoded['body'] is Map && decoded['body']['files'] is List<dynamic>) {
+        rawList = decoded['body']['files'];
+      }
+    }
+
+    final List<Map<String, dynamic>> onlyXls = rawList.whereType<Map<String, dynamic>>().where((file) {
+      final String name = (file['fileName'] ?? file['file_name'] ?? '').toString();
+      return name.toLowerCase().endsWith('.xls');
+    }).toList();
+
+    return onlyXls.map((e) => LogFileInfo.fromJson(e)).toList();
+  }
+
+  Future<void> downloadLogFile(String fileName) async {
+    final Uri uri = buildUri('/api/broker-debug/download/$fileName');
+    html.window.open(uri.toString(), '_blank');
   }
 }

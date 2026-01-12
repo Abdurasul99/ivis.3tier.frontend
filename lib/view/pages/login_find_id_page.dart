@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:fms/view/components/layout.dart';
-import 'package:fms/view/pages/mobile/login_find_id_page_mobile.dart';
+import 'package:ivis/view/components/layout.dart';
 import 'package:get/get.dart';
 
 import '../../constants/constants.dart';
@@ -52,7 +51,7 @@ class _LoginFindIdPageState extends State<LoginFindIdPage> {
   @override
   Widget build(BuildContext context) {
     if (context.isMobile()) {
-      return const LoginFindIdPageMobile();
+      return const LoginFindIdPage();
     }
     return SafeArea(
       child: Scaffold(

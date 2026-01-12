@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:fms/view/components/empty_top_bar_view.dart';
-import 'package:fms/view/components/layout.dart';
-import 'package:fms/view/pages/mobile/login_find_pw_page_mobile.dart';
+import 'package:ivis/view/components/empty_top_bar_view.dart';
+import 'package:ivis/view/components/layout.dart';
 import 'package:get/get.dart';
 
 import '../../constants/constants.dart';
@@ -86,7 +85,7 @@ class _LoginFindPwPageState extends State<LoginFindPwPage> {
   @override
   Widget build(BuildContext context) {
     if (context.isMobile()) {
-      return const LoginFindPwPageMobile();
+      return const LoginFindPwPage();
     }
     return SafeArea(
       child: Scaffold(
