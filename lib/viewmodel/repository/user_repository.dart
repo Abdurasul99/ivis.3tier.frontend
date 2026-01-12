@@ -15,14 +15,8 @@ class UserRepository extends BaseRepository {
   final String changePasswordPath = "/api/users/update";
   final String changePhoneNumberPath = "/api/users/updatePhoneNumber";
   final String changeProfilePath = "/api/users/updateProfile";
-
-  // Additional paths for findId
   final String findIdSendCodePath = "/api/findid/sendCode";
   final String findIdVerifyCodePath = "/api/findid/verify";
-
-  //////////////////////////////////////////////////////////////////////////////
-  //                         Sign Up & Login
-  //////////////////////////////////////////////////////////////////////////////
 
   Future<CommonResponse?> requestSignUpByIdAndEmail(Map<String, dynamic> params) async {
     final url = Uri.http(kApiServer, signUpByIdEmailPath);
@@ -80,10 +74,6 @@ class UserRepository extends BaseRepository {
     }
   }
 
-  //////////////////////////////////////////////////////////////////////////////
-  //                          Change Password
-  //////////////////////////////////////////////////////////////////////////////
-
   Future<String> requestChangePassword(Map<String, dynamic> params) async {
     final url = Uri.http(kApiServer, changePasswordPath);
     final body = jsonEncode(params);
@@ -106,10 +96,6 @@ class UserRepository extends BaseRepository {
     }
   }
 
-  //////////////////////////////////////////////////////////////////////////////
-  //                       Change Phone Number
-  //////////////////////////////////////////////////////////////////////////////
-
   Future<bool> requestChangePhoneNumber(Map<String, dynamic> params) async {
     final url = Uri.http(kApiServer, changePhoneNumberPath);
     final body = jsonEncode(params);
@@ -128,10 +114,6 @@ class UserRepository extends BaseRepository {
     }
   }
 
-  //////////////////////////////////////////////////////////////////////////////
-  //                       Update Profile Image
-  //////////////////////////////////////////////////////////////////////////////
-
   Future<bool> requestUpdateProfileImage(Map<String, dynamic> params) async {
     final url = Uri.http(kApiServer, changeProfilePath);
     final body = jsonEncode(params);
@@ -147,10 +129,6 @@ class UserRepository extends BaseRepository {
       return false;
     }
   }
-
-  //////////////////////////////////////////////////////////////////////////////
-  //                     Find ID (send code, verify code)
-  //////////////////////////////////////////////////////////////////////////////
 
   Future<bool> requestFindIdSendCode(Map<String, dynamic> params) async {
     final url = Uri.http(kApiServer, findIdSendCodePath);

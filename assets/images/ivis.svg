@@ -1,0 +1,44 @@
+<svg width="300" height="360" viewBox="0 0 300 360" xmlns="http://www.w3.org/2000/svg">
+  <!-- Orbit logo -->
+  <g transform="translate(0,10)">
+    <ellipse
+      cx="150" cy="110"
+      rx="95" ry="55"
+      transform="rotate(-25 150 110)"
+      fill="none"
+      stroke="#D8D8D8"
+      stroke-width="14"
+      stroke-linecap="round"
+    />
+    <ellipse
+      cx="150" cy="110"
+      rx="95" ry="55"
+      transform="rotate(65 150 110)"
+      fill="none"
+      stroke="#E5E5E5"
+      stroke-width="10"
+      stroke-linecap="round"
+    />
+    <ellipse
+      cx="150" cy="110"
+      rx="95" ry="55"
+      transform="rotate(155 150 110)"
+      fill="none"
+      stroke="#E0E0E0"
+      stroke-width="10"
+      stroke-linecap="round"
+    />
+  </g>
+
+  <!-- Text "ivis" -->
+  <text
+    x="50"
+    y="300"
+    font-family="sans-serif"
+    font-weight="700"
+    font-size="96"
+    letter-spacing="6"
+    fill="#D13138">
+    ivis
+  </text>
+</svg>

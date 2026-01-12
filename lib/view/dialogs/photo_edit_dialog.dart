@@ -5,8 +5,7 @@ import 'package:extended_image/extended_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:get/get.dart';
-import 'package:fms/utils/stubs/image_picker_web_stub.dart'
-    if (dart.library.html) 'package:image_picker_web/image_picker_web.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../../model/pick_image_model.dart';
 import '../../model/upload_model.dart';
@@ -30,19 +29,13 @@ class _PhotoEditDialogState extends State<PhotoEditDialog> {
   @override
   void initState() {
     super.initState();
-
-    LoginUser? loginUser = Get.find<UserController>().loginUser;
+    final LoginUser? loginUser = Get.find<UserController>().loginUser;
     _imageUrl = loginUser?.imageUrl ?? "";
   }
 
   @override
-  void dispose() {
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
-    double dialogWidth = 430;
+    const double dialogWidth = 430;
 
     return Dialog(
       shape: RoundedRectangleBorder(
@@ -60,7 +53,7 @@ class _PhotoEditDialogState extends State<PhotoEditDialog> {
           boxShadow: [
             BoxShadow(
               color: Colors.black.withOpacity(0.1),
-              offset: Offset(0, 0),
+              offset: const Offset(0, 0),
               blurRadius: 5,
               spreadRadius: 0,
             ),
@@ -98,30 +91,19 @@ class _PhotoEditDialogState extends State<PhotoEditDialog> {
               padding: const EdgeInsets.symmetric(horizontal: 4),
               child: GradientButton(
                 buttonText: (_imageUrl.isEmpty && _imageBytes == null) ? "사진 추가" : "사진 변경",
-                // onTap: () async {
-                //   try {
-                //     _imageBytes = await ImagePickerWeb.getImageAsBytes();
-                //   } catch (e) {
-                //     debugPrint("imageFile pickImage error: $e");
-                //     return;
-                //   }
-
-                //   _imageUrl = "";
-                //   if (mounted) {
-                //     setState(() {});
-                //   }
-                // },
                 onTap: () async {
+                  // Cross-platform picker (Web/iOS/Android/Desktop)
                   try {
-                    final bytes = await ImagePickerWeb.getImageAsBytes();
-                    if (bytes == null) {
-                      return;
-                    }
+                    final picker = ImagePicker();
+                    final XFile? file = await picker.pickImage(source: ImageSource.gallery);
+                    if (file == null) return;
+
+                    final Uint8List bytes = await file.readAsBytes(); // Works on Web too
                     _imageBytes = bytes;
                     _imageUrl = "";
                     if (mounted) setState(() {});
                   } catch (e) {
-                    debugPrint("imageFile pickImage error: $e");
+                    debugPrint("pickImage error: $e");
                   }
                 },
               ),
@@ -134,10 +116,7 @@ class _PhotoEditDialogState extends State<PhotoEditDialog> {
                 onTap: () {
                   _imageUrl = "";
                   _imageBytes = null;
-
-                  if (mounted) {
-                    setState(() {});
-                  }
+                  if (mounted) setState(() {});
                 },
               ),
             ),
@@ -150,40 +129,41 @@ class _PhotoEditDialogState extends State<PhotoEditDialog> {
                     buttonText: "저장",
                     buttonColor: const Color(0xFF005FB8),
                     onTap: () async {
+                      // If user picked local bytes, upload first
                       if (_imageUrl.isEmpty && (_imageBytes != null && _imageBytes!.isNotEmpty)) {
-                        PickImageFile selImageFile =
-                            PickImageFile(fileType: PickImageFileType.imageBytes, imageBytes: _imageBytes);
+                        final PickImageFile selImageFile = PickImageFile(
+                          fileType: PickImageFileType.imageBytes,
+                          imageBytes: _imageBytes,
+                        );
 
-                        List<UploadModel> upload = await Get.find<UploadController>().reqUploadImage([selImageFile]);
+                        final List<UploadModel> upload =
+                            await Get.find<UploadController>().reqUploadImage([selImageFile]);
 
                         if (upload.isEmpty) {
                           Utils.showSnackBar("이미지 업로드에 실패했습니다.", isError: true);
                           return;
                         }
 
-                        debugPrint("upload $upload");
                         _imageUrl = upload.first.location ?? "";
-
                         if (_imageUrl.isEmpty) {
                           Utils.showSnackBar("이미지 업로드에 실패했습니다.", isError: true);
                           return;
                         }
                       }
 
-                      Map<String, dynamic> params = {};
-                      params['id'] = Get.find<UserController>().loginUser!.id;
-                      params["imageUrl"] = _imageUrl;
+                      final Map<String, dynamic> params = {
+                        'id': Get.find<UserController>().loginUser!.id,
+                        'imageUrl': _imageUrl,
+                      };
 
-                      bool result = await Get.find<UserController>().reqUpdateProfileImage(params);
+                      final bool result = await Get.find<UserController>().reqUpdateProfileImage(params);
 
                       Get.back();
                       if (result) {
                         Utils.showSnackBar("프로필 이미지가 변경되었습니다.");
                       }
 
-                      if (mounted) {
-                        setState(() {});
-                      }
+                      if (mounted) setState(() {});
                     },
                   ),
                 ),

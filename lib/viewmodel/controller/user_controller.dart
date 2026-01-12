@@ -1,4 +1,4 @@
-import 'package:fms/viewmodel/controller/password_controller.dart';
+import 'package:ivis/viewmodel/controller/password_controller.dart';
 import 'package:get/get.dart';
 
 import '../../model/user_model.dart';

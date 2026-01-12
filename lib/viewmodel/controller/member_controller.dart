@@ -1,4 +1,4 @@
-import 'package:fms/viewmodel/repository/member_repository.dart';
+import 'package:ivis/viewmodel/repository/member_repository.dart';
 import 'package:get/get.dart';
 
 import '../../model/user_model.dart';
