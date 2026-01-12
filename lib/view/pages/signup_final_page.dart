@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:fms/view/components/empty_top_bar_view.dart';
-import 'package:fms/view/components/layout.dart';
-import 'package:fms/view/pages/mobile/signup_final_page_mobile.dart';
+import 'package:ivis/view/components/empty_top_bar_view.dart';
+import 'package:ivis/view/components/layout.dart';
 import 'package:get/get.dart';
 import '../../constants/constants.dart';
 import 'login_page.dart';
@@ -14,7 +13,7 @@ class SignUpFinalPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (context.isMobile()) {
-      return const SignUpFinalPageMobile();
+      return const SignUpFinalPage();
     }
     return Scaffold(
       backgroundColor: kBackgroundColor,

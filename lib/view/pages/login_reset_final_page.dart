@@ -1,9 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:fms/view/components/empty_top_bar_view.dart';
-import 'package:fms/view/components/layout.dart';
-import 'package:fms/view/pages/mobile/login_reset_final_page_mobile.dart';
+import 'package:ivis/view/components/empty_top_bar_view.dart';
+import 'package:ivis/view/components/layout.dart';
 import 'package:get/get.dart';
-
 import '../../constants/constants.dart';
 import 'login_page.dart';
 
@@ -15,7 +13,7 @@ class LoginResetFinalPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (context.isMobile()) {
-      return const LoginResetFinalPageMobile();
+      return const LoginResetFinalPage();
     }
     return SafeArea(
       top: false,

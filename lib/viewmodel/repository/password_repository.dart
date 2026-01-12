@@ -11,12 +11,8 @@ class PasswordRepository {
   final String resetPath = "/api/password/reset";
   final String verifyPath = "/api/password/verify";
   final String completePath = "/api/password/complete";
-
-  // new paths for "byIdAndEmail" scenario:
   final String resetByIdEmailPath = "/api/password/resetByIdAndEmail";
   final String verifyByIdEmailPath = "/api/password/verifyByIdAndEmail";
-
-  // (1) reset by email
   Future<CommonResponse?> requestResetPassword(String email) async {
     final url = Uri.http(kApiServer, resetPath);
     try {
@@ -36,7 +32,6 @@ class PasswordRepository {
     }
   }
 
-  // (2) verify code by email
   Future<CommonResponse?> requestVerifyCode(String email, String code) async {
     final url = Uri.http(kApiServer, verifyPath);
     try {
@@ -56,7 +51,6 @@ class PasswordRepository {
     }
   }
 
-  // (3) complete by email + verifyToken
   Future<CommonResponse?> requestCompletePassword(String email, String newPassword, String verifyToken) async {
     final url = Uri.http(kApiServer, completePath);
     try {
@@ -80,8 +74,6 @@ class PasswordRepository {
     }
   }
 
-  // ==============================
-  // NEW: reset by userId + email
   Future<CommonResponse?> requestResetPasswordByIdAndEmail(String userId, String email) async {
     final url = Uri.http(kApiServer, resetByIdEmailPath);
     try {
@@ -101,7 +93,6 @@ class PasswordRepository {
     }
   }
 
-  // NEW: verify by userId + email + code
   Future<CommonResponse?> requestVerifyCodeByIdAndEmail(String userId, String email, String code) async {
     final url = Uri.http(kApiServer, verifyByIdEmailPath);
     try {
