@@ -1,8 +1,7 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
-import 'package:fms/view/components/gradient_button.dart';
-import 'package:fms/view/components/layout.dart';
-import 'package:fms/view/tabs/mobile/tab_setting_member_mobile.dart';
+import 'package:ivis/view/components/gradient_button.dart';
+import 'package:ivis/view/components/layout.dart';
 import 'package:get/get.dart';
 
 import '../../constants/constants.dart';
@@ -43,7 +42,7 @@ class _TabSettingMemberState extends State<TabSettingMember> {
   @override
   Widget build(BuildContext context) {
     if (context.isMobile()) {
-      return const TabSettingMemberMobile();
+      return const TabSettingMember();
     }
 
     return Padding(

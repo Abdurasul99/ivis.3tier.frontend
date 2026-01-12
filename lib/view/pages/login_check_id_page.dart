@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/svg.dart';
-import 'package:fms/view/components/layout.dart';
-import 'package:fms/view/pages/mobile/login_check_id_page_mobile.dart';
+import 'package:ivis/view/components/layout.dart';
 import 'package:get/get.dart';
 
 import '../../constants/constants.dart';
@@ -16,7 +15,7 @@ class LoginCheckIdPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (context.isMobile()) {
-      return const LoginCheckIdPageMobile();
+      return const LoginCheckIdPage();
     }
     final args = Get.arguments ?? {};
     final userId = args['userId'] ?? 'unknown@domain.com';

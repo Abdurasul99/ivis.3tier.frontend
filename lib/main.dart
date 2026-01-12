@@ -1,35 +1,39 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
-import 'package:fms/view/components/custom_scroll_behavior.dart';
-import 'package:fms/view/pages/home_page.dart';
-import 'package:fms/view/pages/login_check_id_page.dart';
-import 'package:fms/view/pages/login_find_id_page.dart';
-import 'package:fms/view/pages/login_find_pw_page.dart';
-import 'package:fms/view/pages/login_page.dart';
-import 'package:fms/view/pages/login_reset_final_page.dart';
-import 'package:fms/view/pages/login_reset_pw_page.dart';
-import 'package:fms/view/pages/signup_final_page.dart';
-import 'package:fms/view/pages/signup_page.dart';
-import 'package:fms/view/pages/signup_register_page.dart';
-import 'package:fms/view/pages/start_page.dart';
-import 'package:fms/viewmodel/controller/dashboard_controller.dart';
-import 'package:fms/viewmodel/controller/graph_controller.dart';
-import 'package:fms/viewmodel/controller/log_controller.dart';
-import 'package:fms/viewmodel/controller/map_controller.dart';
-import 'package:fms/viewmodel/controller/member_controller.dart';
-import 'package:fms/viewmodel/controller/mqtt_controller.dart';
-import 'package:fms/viewmodel/controller/notification_controller.dart';
-import 'package:fms/viewmodel/controller/password_controller.dart';
-import 'package:fms/viewmodel/controller/register_controller.dart';
-import 'package:fms/viewmodel/controller/robot_controller.dart';
-import 'package:fms/viewmodel/controller/time_controller.dart';
-import 'package:fms/viewmodel/controller/upload_controller.dart';
-import 'package:fms/viewmodel/controller/user_controller.dart';
+import 'package:ivis/view/components/custom_scroll_behavior.dart';
+import 'package:ivis/view/pages/home_page.dart';
+import 'package:ivis/view/pages/login_check_id_page.dart';
+import 'package:ivis/view/pages/login_find_id_page.dart';
+import 'package:ivis/view/pages/login_find_pw_page.dart';
+import 'package:ivis/view/pages/login_page.dart';
+import 'package:ivis/view/pages/login_reset_final_page.dart';
+import 'package:ivis/view/pages/login_reset_pw_page.dart';
+import 'package:ivis/view/pages/signup_final_page.dart';
+import 'package:ivis/view/pages/signup_page.dart';
+import 'package:ivis/view/pages/signup_register_page.dart';
+import 'package:ivis/view/pages/start_page.dart';
+import 'package:ivis/viewmodel/controller/member_controller.dart';
+import 'package:ivis/viewmodel/controller/mqtt_controller.dart';
+import 'package:ivis/viewmodel/controller/password_controller.dart';
+import 'package:ivis/viewmodel/controller/register_controller.dart';
+import 'package:ivis/viewmodel/controller/time_controller.dart';
+import 'package:ivis/viewmodel/controller/user_controller.dart';
+import 'package:ivis/viewmodel/controller/vehicle_controller.dart';
+import 'package:ivis/viewmodel/controller/infra_controller.dart';
 import 'package:get/get.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+
+  FlutterError.onError = (FlutterErrorDetails details) {
+    FlutterError.dumpErrorToConsole(details);
+  };
+
+  ErrorWidget.builder = (FlutterErrorDetails details) {
+    return const SizedBox.shrink();
+  };
 
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
@@ -39,29 +43,35 @@ void main() {
     ),
   );
 
-  Get.put(UserController());
-  Get.put(TimeController());
-  Get.put(DashboardController());
-  Get.put(PasswordController());
-  Get.put(UploadController());
-  Get.put(MemberController());
-  Get.put(RegisterController());
-  Get.put(RobotController());
-  Get.put(MqttController());
-  Get.put(MapController());
-  Get.put(NotificationController());
-  Get.put(GraphController());
-  Get.put(LogController());
-
+  Get.put(UserController(), permanent: true);
+  Get.put(TimeController(), permanent: true);
+  Get.put(PasswordController(), permanent: true);
+  Get.put(MemberController(), permanent: true);
+  Get.put(RegisterController(), permanent: true);
+  Get.put(VehicleController(), permanent: true);
+  Get.put(InfraController(), permanent: true);
+  Get.put(MqttController(), permanent: true);
   runApp(const IvisFmsApp());
 }
 
 class IvisFmsApp extends StatelessWidget {
   const IvisFmsApp({super.key});
+
   @override
   Widget build(BuildContext context) {
+    final base = ThemeData(
+      fontFamily: 'pretendard',
+      primaryColor: Colors.white,
+      scaffoldBackgroundColor: Colors.white,
+      visualDensity: VisualDensity.adaptivePlatformDensity,
+    );
+
+    final theme = base.copyWith(
+      platform: kIsWeb ? TargetPlatform.android : base.platform,
+    );
+
     return GetMaterialApp(
-      title: 'IVIS FMS',
+      title: '3tier Data Dashboard',
       debugShowCheckedModeBanner: false,
       scrollBehavior: CustomScrollBehavior(),
       locale: const Locale('ko', 'KR'),
@@ -74,12 +84,8 @@ class IvisFmsApp extends StatelessWidget {
         GlobalWidgetsLocalizations.delegate,
         GlobalCupertinoLocalizations.delegate,
       ],
-      theme: ThemeData(
-        fontFamily: 'pretendard',
-        primaryColor: Colors.white,
-        scaffoldBackgroundColor: Colors.white,
-        visualDensity: VisualDensity.adaptivePlatformDensity,
-      ),
+      theme: theme,
+      darkTheme: theme,
       getPages: [
         GetPage(name: StartPage.routeName, page: () => const StartPage()),
         GetPage(name: LoginPage.routeName, page: () => const LoginPage()),

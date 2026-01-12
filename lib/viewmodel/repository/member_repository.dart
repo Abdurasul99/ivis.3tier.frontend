@@ -1,7 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
-import 'package:fms/viewmodel/repository/base_repository.dart';
+import 'package:ivis/viewmodel/repository/base_repository.dart';
 import 'package:http/http.dart' as http;
 
 import '../../constants/constants.dart';
@@ -28,7 +28,6 @@ class MemberRepository extends BaseRepository {
       }
 
       return handleResponse(response, (jsonResponse) {
-        // debugPrint("requestUnApprovedMemberList() ${jsonResp.toString()}");
         List<dynamic> items = jsonResponse['body'];
         List<Member> result = items.map((e) => Member.fromJson(e)).toList();
 
@@ -51,7 +50,6 @@ class MemberRepository extends BaseRepository {
       }
 
       return handleResponse(response, (jsonResponse) {
-        // debugPrint("requestMemberList() ${jsonResponse.toString()}");
         List<dynamic> items = jsonResponse['body'];
         List<Member> result = items.map((e) => Member.fromJson(e)).toList();
 
@@ -79,7 +77,6 @@ class MemberRepository extends BaseRepository {
       }
 
       return handleResponse(response, (jsonResponse) {
-        // debugPrint("requestApproveMember() ${jsonResp.toString()}");
         return (jsonResponse['body']['affectedRows'] != null);
       });
     } catch (e) {
@@ -103,7 +100,6 @@ class MemberRepository extends BaseRepository {
       }
 
       return handleResponse(response, (jsonResponse) {
-        // debugPrint("requestRejectMember() ${jsonResp.toString()}");
         return (jsonResponse['body']['affectedRows'] != null);
       });
     } catch (e) {
@@ -128,7 +124,6 @@ class MemberRepository extends BaseRepository {
       }
 
       return handleResponse(response, (jsonResponse) {
-        // debugPrint("requestChangeRole() ${jsonResp.toString()}");
         return (jsonResponse['body']['affectedRows'] != null);
       });
     } catch (e) {
@@ -152,7 +147,6 @@ class MemberRepository extends BaseRepository {
       }
 
       return handleResponse(response, (jsonResponse) {
-        // debugPrint("requestDeleteMember() ${jsonResp.toString()}");
         return (jsonResponse['body']['affectedRows'] != null);
       });
     } catch (e) {

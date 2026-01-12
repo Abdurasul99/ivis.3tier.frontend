@@ -1,159 +1,191 @@
+// lib/viewmodel/controller/mqtt_controller.dart
+import 'dart:async';
 import 'dart:convert';
-import 'package:flutter/material.dart';
-import 'package:fms/viewmodel/controller/robot_controller.dart';
 import 'package:get/get.dart';
 import 'package:mqtt_client/mqtt_browser_client.dart';
 import 'package:mqtt_client/mqtt_client.dart';
 import '../../constants/constants.dart';
 
+class MqttIncomingMessage {
+  final String topic;
+  final String raw;
+  final Map<String, dynamic>? json;
+  MqttIncomingMessage(this.topic, this.raw, this.json);
+}
+
 class MqttController extends GetxController {
   MqttBrowserClient? _client;
+  final _incoming = StreamController<MqttIncomingMessage>.broadcast();
+  Stream<MqttIncomingMessage> get incomingMessagesStream => _incoming.stream;
 
-  get client => _client;
+  final _connected = false.obs;
+  bool get isConnected => _connected.value;
 
-  bool isConnected() {
-    return _client != null &&
-        _client!.connectionStatus != null &&
-        _client!.connectionStatus!.state == MqttConnectionState.connected;
-  }
+  Timer? _reconnectTimer;
+  int _retry = 0;
+  bool _manualDisconnect = false;
+
+  final List<String> _defaultTopics;
+  final MqttQos _defaultQos;
+
+  MqttController({
+    List<String> defaultTopics = const ['#'],
+    MqttQos defaultQos = MqttQos.atMostOnce,
+  })  : _defaultTopics = defaultTopics,
+        _defaultQos = defaultQos;
 
   Future<MqttClientConnectionStatus?> connect(String clientId) async {
+    _manualDisconnect = false;
+    if (_client != null && _client!.connectionStatus?.state == MqttConnectionState.connected) {
+      return _client!.connectionStatus;
+    }
+
+    _disposeClient();
+
+    final c = MqttBrowserClient.withPort(kMqttServer, clientId, 9001);
+    c.keepAlivePeriod = 30;
+    c.logging(on: false);
+    c.websocketProtocols = MqttClientConstants.protocolsMultipleDefault;
+    c.autoReconnect = false;
+    c.onConnected = _onConnected;
+    c.onDisconnected = _onDisconnected;
+    c.onSubscribed = (t) {};
+    c.onSubscribeFail = (t) {};
+    c.pongCallback = () {};
+
+    c.clientIdentifier = clientId;
+    c.connectionMessage =
+        MqttConnectMessage().withClientIdentifier(clientId).startClean().withWillQos(MqttQos.atLeastOnce);
+
+    _client = c;
+
     try {
-      _client = MqttBrowserClient.withPort(kMqttServer, clientId, 9001)
-        ..keepAlivePeriod = 30
-        ..onDisconnected = () {
-          debugPrint("[MQTT] onDisconnected");
-        }
-        ..onConnected = () {
-          debugPrint("[MQTT] onConnected");
-        }
-        ..onSubscribed = (String data) {
-          debugPrint("[MQTT] subscribed : $data");
-        }
-        ..pongCallback = () {
-          debugPrint("[MQTT] pongCallback");
-        };
-
       final status = await _client!.connect();
-      debugPrint("[MQTT] connect() status $status");
-
-      _client!.updates!.listen((List<MqttReceivedMessage<MqttMessage>> event) {
-        onMessage(event);
-      });
-
-      subscribeTopic();
-
+      if (_client!.updates != null) {
+        _client!.updates!.listen(_onUpdate, onError: (e, s) {});
+      }
+      _subscribeDefaults();
+      _retry = 0;
       return status;
-    } on Exception catch (e) {
-      debugPrint('[MQTT] connect() client exception - $e');
+    } catch (e) {
+      _scheduleReconnect();
       return null;
     }
   }
 
-  Future<void> onMessage(List<MqttReceivedMessage<MqttMessage>> event) async {
-    for (int i = 0; i < event.length; i++) {
-      parseMessage(event[i]);
+  void _onConnected() {
+    _connected.value = true;
+  }
+
+  void _onDisconnected() {
+    _connected.value = false;
+    if (!_manualDisconnect) {
+      _scheduleReconnect();
     }
   }
 
-  void parseMessage(MqttReceivedMessage<MqttMessage> event) {
-    final topic = event.topic.toString();
-    final msg = event.payload as MqttPublishMessage;
-    final receivedValue = utf8.decode(msg.payload.message);
+  void _onUpdate(List<MqttReceivedMessage<MqttMessage>> events) {
+    for (final evt in events) {
+      final topic = evt.topic;
+      final msg = evt.payload;
+      if (msg is! MqttPublishMessage) continue;
 
-    Map<String, dynamic> payload;
-    try {
-      payload = json.decode(receivedValue);
-    } catch (e) {
+      final bytes = msg.payload.message;
+      final raw = utf8.decode(bytes, allowMalformed: true).trim();
+
+      Map<String, dynamic>? jsonMap;
+      if (raw.isNotEmpty) {
+        try {
+          final parsed = json.decode(raw);
+          if (parsed is Map<String, dynamic>) jsonMap = parsed;
+        } catch (_) {}
+      }
+
+      _incoming.add(MqttIncomingMessage(topic, raw, jsonMap));
+    }
+  }
+
+  void _subscribeDefaults() {
+    if (_client == null || _client!.connectionStatus?.state != MqttConnectionState.connected) {
       return;
     }
-
-    if (topic.contains("controller_")) {
-      if (payload['move_res'] != null) {
-        Get.find<RobotController>().setOnMoveRes(topic, payload['move_res']);
-      } else if (payload['car_battery_res'] != null) {
-        Get.find<RobotController>().setOnCarBatteryRes(topic, payload['car_battery_res']);
-      } else {
-        final tag = payload['tag'];
-        switch (tag) {
-          case "on_emergency_stop":
-            Get.find<RobotController>().setOnEmergencyStop(topic, payload['data']['message'] == "ready");
-            break;
-          case "on_auto_pilot":
-            Get.find<RobotController>().setOnAutoPilot(topic, payload['data']['message'] == "ready");
-            break;
-          case "on_head_light":
-            Get.find<RobotController>().setOnHeadLight(topic, payload['data']['message'] == "ready");
-            break;
-          case "on_returning":
-            Get.find<RobotController>().setOnReturning(topic, payload['data']['message'] == "ready");
-            break;
-          case "open_refrig_door":
-            Get.find<RobotController>().setOpenRefrigDoor(topic, payload['data']['message'] == "ready");
-            break;
-          case "interior_door":
-            Get.find<RobotController>().setOpenInnerDoor(topic, payload['data']['message'] == "ready");
-            break;
-          case "interior_lamp":
-            Get.find<RobotController>().setOnInnerLight(topic, payload['data']['message'] == "ready");
-            break;
-          case "interior_display":
-            Get.find<RobotController>().setOnOutsideDisplay(topic, payload['data']['message'] == "ready");
-            break;
-          case "open_delivery_box_01":
-            Get.find<RobotController>().setOpenDeliveryBox01(topic, payload['data']['message'] == "ready");
-            break;
-          case "open_delivery_box_02":
-            Get.find<RobotController>().setOpenDeliveryBox02(topic, payload['data']['message'] == "ready");
-            break;
-          case "open_delivery_box_03":
-            Get.find<RobotController>().setOpenDeliveryBox03(topic, payload['data']['message'] == "ready");
-            break;
-          case "open_delivery_box_04":
-            Get.find<RobotController>().setOpenDeliveryBox04(topic, payload['data']['message'] == "ready");
-            break;
-          case "open_delivery_box":
-            Get.find<RobotController>().setOpenDeliveryBox(topic, (payload['data']['message']).toString());
-            break;
-          case "address_update":
-            Get.find<RobotController>().setUpdateAddress(topic, (payload['data']['address']).toString());
-            break;
-          default:
-            break;
-        }
-      }
+    for (final t in _defaultTopics) {
+      try {
+        _client!.subscribe(t, _defaultQos);
+      } catch (e) {}
     }
   }
 
-  void publishMessage(String topic, String message) {
+  void subscribe(String topic, {MqttQos qos = MqttQos.atMostOnce}) {
+    if (!isConnected) {
+      return;
+    }
     try {
-      final builder = MqttClientPayloadBuilder();
-      builder.addString(message);
-      _client!.publishMessage(topic, MqttQos.atLeastOnce, builder.payload!);
-    } on Exception catch (e) {
-      debugPrint('[MQTT] publishMessage() client exception - $e');
+      _client!.subscribe(topic, qos);
+    } catch (e) {}
+  }
+
+  void unsubscribe(String topic) {
+    try {
+      _client?.unsubscribe(topic);
+    } catch (e) {}
+  }
+
+  bool publishString(String topic, String message, {MqttQos qos = MqttQos.atLeastOnce, bool retain = false}) {
+    if (!isConnected) return false;
+    try {
+      final b = MqttClientPayloadBuilder()..addString(message);
+      _client!.publishMessage(topic, qos, b.payload!, retain: retain);
+      return true;
+    } catch (e) {
+      return false;
     }
   }
 
-  void subscribeTopic() {
-    if (_client != null &&
-        _client!.connectionStatus != null &&
-        _client!.connectionStatus!.state == MqttConnectionState.connected) {
-      _client!.subscribe("#", MqttQos.atMostOnce);
-    } else {
-      debugPrint("[MQTT] subscribeTopic() fail: client is null or not connected");
-    }
-  }
-
-  void unSubscribeTopic() {
-    if (_client != null) {
-      _client!.unsubscribe("#");
-    }
+  bool publishJson(String topic, Map<String, dynamic> jsonBody,
+      {MqttQos qos = MqttQos.atLeastOnce, bool retain = false}) {
+    return publishString(topic, json.encode(jsonBody), qos: qos, retain: retain);
   }
 
   void disconnect() {
-    if (_client != null) {
-      _client!.disconnect();
-    }
+    _manualDisconnect = true;
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
+    try {
+      _client?.disconnect();
+    } catch (_) {}
+    _connected.value = false;
+  }
+
+  void _scheduleReconnect() {
+    _reconnectTimer?.cancel();
+    final seconds = _nextBackoffSeconds();
+    _reconnectTimer = Timer(Duration(seconds: seconds), () {
+      if (_manualDisconnect) return;
+      final id = _client?.clientIdentifier ?? 'fms-web';
+      connect(id);
+    });
+  }
+
+  int _nextBackoffSeconds() {
+    _retry = (_retry + 1).clamp(1, 10);
+    final base = _retry <= 4 ? (1 << (_retry - 1)) : (_retry <= 5 ? 15 : 30);
+    return base;
+  }
+
+  void _disposeClient() {
+    try {
+      _client?.disconnect();
+    } catch (_) {}
+    _client = null;
+  }
+
+  @override
+  void onClose() {
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
+    _incoming.close();
+    _disposeClient();
+    super.onClose();
   }
 }
