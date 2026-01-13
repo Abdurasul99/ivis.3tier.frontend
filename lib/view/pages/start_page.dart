@@ -23,23 +23,78 @@ class _StartPageState extends State<StartPage> {
     super.initState();
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      final UserController userController = Get.find<UserController>();
+      await initializeApp();
+    });
+  }
 
-      final bool isTokenValid = await userController.reqLoginByToken();
+  Future<void> initializeApp() async {
+    final UserController userController = Get.find<UserController>();
+
+    final bool isTokenValid = await userController.reqLoginByToken();
+
+    if (!mounted) {
+      return;
+    }
+
+    if (isTokenValid) {
+      await handleAfterTokenLogin();
+
       if (!mounted) {
         return;
       }
 
-      if (isTokenValid) {
-        await handleAfterTokenLogin();
-        if (!mounted) {
-          return;
-        }
-        Get.offAllNamed(HomePage.routeName);
-      } else {
-        Get.offAllNamed(LoginPage.routeName);
+      await verifyDataLoaded();
+
+      if (!mounted) {
+        return;
       }
-    });
+
+      Get.offAllNamed(HomePage.routeName);
+    } else {
+      Get.offAllNamed(LoginPage.routeName);
+    }
+  }
+
+  Future<void> handleAfterTokenLogin() async {
+    final UserController userController = Get.find<UserController>();
+    final VehicleController vehicleController = Get.find<VehicleController>();
+    final InfraController infraController = Get.find<InfraController>();
+    final MqttController mqttController = Get.find<MqttController>();
+
+    await Future.wait(<Future<void>>[
+      vehicleController.reqLoadVehicles(),
+      infraController.reqLoadInfraIdentifiers(),
+    ]);
+
+    await infraController.refreshAll();
+
+    final String? email = userController.loginUser?.email?.trim();
+    final String? userId = userController.loginUser?.userId?.trim();
+
+    final String clientId =
+        (email != null && email.isNotEmpty) ? email : (userId != null && userId.isNotEmpty ? userId : 'fms-web');
+
+    mqttController.connect(clientId);
+  }
+
+  Future<void> verifyDataLoaded() async {
+    final UserController userController = Get.find<UserController>();
+    final VehicleController vehicleController = Get.find<VehicleController>();
+
+    for (int attempt = 0; attempt < 100; attempt++) {
+      final String? token = userController.accessToken;
+      final bool hasToken = token != null && token.isNotEmpty;
+
+      if (hasToken && vehicleController.vehicles.isNotEmpty) {
+        return;
+      }
+
+      if (hasToken && attempt > 20) {
+        return;
+      }
+
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+    }
   }
 
   @override
@@ -52,24 +107,5 @@ class _StartPageState extends State<StartPage> {
         ),
       ),
     );
-  }
-
-  Future<void> handleAfterTokenLogin() async {
-    final VehicleController vehicleController = Get.find<VehicleController>();
-    await vehicleController.reqLoadVehicles();
-
-    final InfraController infraController = Get.find<InfraController>();
-    await infraController.refreshAll();
-
-    final UserController userController = Get.find<UserController>();
-    final MqttController mqttController = Get.find<MqttController>();
-
-    final String? email = userController.loginUser?.email?.trim();
-    final String? userId = userController.loginUser?.userId?.trim();
-
-    final String clientId =
-        (email != null && email.isNotEmpty) ? email : (userId != null && userId.isNotEmpty ? userId : 'fms-web');
-
-    await mqttController.connect(clientId);
   }
 }
