@@ -169,7 +169,6 @@ class _TabDashboardState extends State<TabDashboard> with AutomaticKeepAliveClie
       await infraController.reqLoadInfraIdentifiers();
     } catch (_) {}
     if (!mounted) return;
-    // Изменяем состояние только при необходимости
     if (infraIdFilter != 'ALL') {
       final bool exists =
           infraController.infraIdentifiers.any((int identifier) => identifier.toString() == infraIdFilter);
@@ -245,9 +244,6 @@ class _TabDashboardState extends State<TabDashboard> with AutomaticKeepAliveClie
     if (!mounted) return;
     setState(() {
       isLoading = true;
-      if (!firstDataArrived) {
-        // оставляем cachedGridRows, но загрузку покажем через spinner
-      }
     });
     updateGrid();
 
@@ -484,22 +480,18 @@ class _TabDashboardState extends State<TabDashboard> with AutomaticKeepAliveClie
   }
 
   void updateGrid() {
-    // Не обновляем, пока грид не готов
     if (!gridReady || gridStateManager == null) {
       return;
     }
 
     final PlutoGridStateManager manager = gridStateManager!;
     try {
-      // Показываем индикатор загрузки, пока идёт загрузка и данные ещё не пришли
       manager.setShowLoading(isLoading && !firstDataArrived);
 
-      // Если данные ещё не пришли — не трогаем строки
       if (isLoading && !firstDataArrived) {
         return;
       }
 
-      // Формируем список строк для отображения
       List<PlutoRow> rowsToInsert;
       if (pageRows.isEmpty) {
         rowsToInsert = <PlutoRow>[];
@@ -513,7 +505,7 @@ class _TabDashboardState extends State<TabDashboard> with AutomaticKeepAliveClie
       }
       manager.notifyListeners();
     } catch (exception) {
-      if (kDebugMode) debugPrint('applyGridToManager error: $exception');
+      if (kDebugMode) debugPrint('updateGrid error: $exception');
     }
   }
 
@@ -950,7 +942,6 @@ class _TabDashboardState extends State<TabDashboard> with AutomaticKeepAliveClie
         final int safeTotal = metaTotal > 0 ? metaTotal : (expectedCount > 0 ? expectedCount : unique.length);
         final bool hasNext = metaTotal > 0 ? (offset + limit) < metaTotal : false;
 
-        // Исправлено: передаём правильный offset
         return _ObjectPageResult(unique, hasNext, safeTotal, offset, limit);
       }
     } catch (_) {
@@ -1331,8 +1322,15 @@ class _TabDashboardState extends State<TabDashboard> with AutomaticKeepAliveClie
     );
   }
 
-  Widget buildPlutoGrid() {
-    final Widget grid = PlutoGrid(
+  Widget buildPlutoGrid(double availableHeight) {
+    const double columnHeight = 44;
+    const double scrollbarThickness = 12;
+    const double verticalBorders = 2;
+    final double bodyHeight = availableHeight - columnHeight - scrollbarThickness - verticalBorders;
+
+    final double rowHeight = (bodyHeight / rowsPerPage).floorToDouble().clamp(22, 60);
+
+    final PlutoGrid grid = PlutoGrid(
       key: ValueKey<String>('dashboard_grid_${currentEntityType.name}'),
       columns: List<PlutoColumn>.from(cachedColumns, growable: true),
       rows: <PlutoRow>[],
@@ -1341,28 +1339,28 @@ class _TabDashboardState extends State<TabDashboard> with AutomaticKeepAliveClie
         gridReady = true;
         try {
           event.stateManager.setSelectingMode(PlutoGridSelectingMode.row);
-          // Показываем спиннер до прихода данных
           event.stateManager.setShowLoading(isLoading && !firstDataArrived);
         } catch (_) {}
-        // Если данные уже загружены, обновляем грид
-        if (firstDataArrived) {
-          updateGrid();
+        if (mounted) {
+          setState(() {});
         }
+        updateGrid();
       },
       onRowDoubleTap: (PlutoGridOnRowDoubleTapEvent event) async {
         final int index = event.rowIdx;
-        if (index < 0) return;
-        if (index >= pageRows.length) return;
+        if (index < 0 || index >= pageRows.length) return;
         await openRowDetails(pageRows[index]);
       },
       configuration: PlutoGridConfiguration(
+        scrollbar: const PlutoGridScrollbarConfig(
+          isAlwaysShown: false,
+          scrollbarThickness: scrollbarThickness,
+        ),
         style: PlutoGridStyleConfig(
+          rowHeight: rowHeight,
+          columnHeight: columnHeight,
           gridBorderColor: const Color(0xFFE0E0E0),
           borderColor: const Color(0xFFE0E0E0),
-          columnHeight: 44,
-          rowHeight: 38,
-          columnTextStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w900, color: Color(0xFF1B5E20)),
-          cellTextStyle: const TextStyle(fontSize: 12, color: Color(0xFF212121)),
           oddRowColor: const Color(0xFFFFFFFF),
           evenRowColor: const Color(0xFFF7FFF8),
           activatedBorderColor: const Color(0xFF43A047),
@@ -1371,13 +1369,8 @@ class _TabDashboardState extends State<TabDashboard> with AutomaticKeepAliveClie
       ),
     );
 
-    return NotificationListener<ScrollNotification>(
-      onNotification: (ScrollNotification notification) {
-        if (notification.metrics.axis == Axis.vertical) {
-          return true;
-        }
-        return false;
-      },
+    return SizedBox(
+      height: availableHeight,
       child: grid,
     );
   }
@@ -1385,8 +1378,9 @@ class _TabDashboardState extends State<TabDashboard> with AutomaticKeepAliveClie
   @override
   Widget build(BuildContext context) {
     super.build(context);
+
     return Container(
-      color: const Color(0xFFF5F5F5),
+      color: const Color(0xFFF0F4F8),
       child: Column(
         children: <Widget>[
           buildToolbar(),
@@ -1394,7 +1388,12 @@ class _TabDashboardState extends State<TabDashboard> with AutomaticKeepAliveClie
           Expanded(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
-              child: buildPlutoGrid(),
+              child: LayoutBuilder(
+                builder: (BuildContext context, BoxConstraints constraints) {
+                  final double availableHeight = constraints.maxHeight;
+                  return buildPlutoGrid(availableHeight);
+                },
+              ),
             ),
           ),
           buildPaginationBar(),
