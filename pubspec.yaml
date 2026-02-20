@@ -30,7 +30,6 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-
   flutter_localizations:
     sdk: flutter
   # The following adds the Cupertino Icons font to your application.
@@ -62,6 +61,8 @@ dev_dependencies:
   meta: ^1.10.0 # reflection and metadata annotations
   test: ^1.25.0 # For running tests
   build_runner: ^2.4.7 # For code generation
+  google_maps_flutter: ^2.7.0
+  google_maps_flutter_web: ^0.5.0
   mockito: ^5.4.4 # For creating mock objects in tests
 
 

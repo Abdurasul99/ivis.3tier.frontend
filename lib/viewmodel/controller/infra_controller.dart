@@ -1,245 +1,281 @@
+//ivis.3tier.frontend/lib/viewmodel/controller/infra_controller.dart
+import 'package:flutter/foundation.dart';
 import 'package:get/get.dart';
-
 import '../../model/infra_model.dart';
 import '../repository/infra_repository.dart';
 import 'user_controller.dart';
 
-enum MessageScope { vehicle, infra, detected }
-
 class InfraController extends GetxController {
-  final InfraRepository infraRepository = InfraRepository();
+  final InfraRepository repository = InfraRepository();
 
-  Message? latestMessage;
+  bool isLoadingInternal = false;
+  List<int> infraIdentifiersInternal = <int>[];
+  int? selectedInfraIdInternal;
 
-  List<Message> currentHistoryMessages = <Message>[];
-  int currentHistoryTotalCount = 0;
+  List<InfraInfoHistory> historyItemsInternal = <InfraInfoHistory>[];
+  int historyTotalCountInternal = 0;
+  int historyOffsetInternal = 0;
+  int historyLimitInternal = 18;
 
-  bool isLoading = false;
-  MessageScope scope = MessageScope.vehicle;
+  List<InfraInfo> statusItemsInternal = <InfraInfo>[];
+  int statusTotalCountInternal = 0;
+  int statusOffsetInternal = 0;
+  int statusLimitInternal = 100;
 
-  int? selectedInfraId;
-  List<int> infraIdentifiers = <int>[];
+  InfraInfo? latestInfraInfoInternal;
 
-  int? fromEpochMilliseconds;
-  int? toEpochMilliseconds;
+  int? fromEpochMsInternal;
+  int? toEpochMsInternal;
+
+  bool get isLoading {
+    return isLoadingInternal;
+  }
+
+  List<int> get infraIdentifiers {
+    return infraIdentifiersInternal;
+  }
+
+  int? get selectedInfraId {
+    return selectedInfraIdInternal;
+  }
+
+  List<InfraInfoHistory> get historyItems {
+    return historyItemsInternal;
+  }
+
+  int get historyTotalCount {
+    return historyTotalCountInternal;
+  }
+
+  int get historyOffset {
+    return historyOffsetInternal;
+  }
+
+  int get historyLimit {
+    return historyLimitInternal;
+  }
+
+  List<InfraInfo> get statusItems {
+    return statusItemsInternal;
+  }
+
+  int get statusTotalCount {
+    return statusTotalCountInternal;
+  }
+
+  int get statusOffset {
+    return statusOffsetInternal;
+  }
+
+  int get statusLimit {
+    return statusLimitInternal;
+  }
+
+  InfraInfo? get latestInfraInfo {
+    return latestInfraInfoInternal;
+  }
+
+  int? get fromEpochMs {
+    return fromEpochMsInternal;
+  }
+
+  int? get toEpochMs {
+    return toEpochMsInternal;
+  }
 
   bool get hasToken {
     try {
-      return (Get.find<UserController>().accessToken ?? '').isNotEmpty;
+      final UserController userController = Get.find<UserController>();
+      final String? token = userController.accessToken;
+      return token != null && token.isNotEmpty;
     } catch (_) {
       return false;
     }
   }
 
   void setSelectedInfraId(int? infraId) {
-    selectedInfraId = infraId;
+    selectedInfraIdInternal = infraId;
     update();
   }
 
-  Future<void> setScope(MessageScope newScope) async {
-    if (scope == newScope) {
-      return;
-    }
-    scope = newScope;
-    latestMessage = null;
-    currentHistoryMessages = <Message>[];
-    currentHistoryTotalCount = 0;
-    update();
-  }
-
-  int _toInteger(dynamic value) {
-    if (value == null) return 0;
-    if (value is int) return value;
-    if (value is num) return value.toInt();
-    if (value is String) return int.tryParse(value) ?? 0;
-    return int.tryParse(value.toString()) ?? 0;
-  }
-
-  int? _parseIsoOrEpochToMilliseconds(String? value) {
-    if (value == null) return null;
-    final String trimmed = value.trim();
-    if (trimmed.isEmpty) return null;
-
-    final int? directNumber = int.tryParse(trimmed);
-    if (directNumber != null) return directNumber;
-
-    try {
-      final DateTime parsed = DateTime.parse(trimmed).toUtc();
-      return parsed.millisecondsSinceEpoch;
-    } catch (_) {
-      return null;
-    }
+  void setDateRange(int? fromMs, int? toMs) {
+    fromEpochMsInternal = fromMs;
+    toEpochMsInternal = toMs;
   }
 
   Future<void> reqLoadInfraIdentifiers() async {
     if (!hasToken) {
-      infraIdentifiers = <int>[];
+      infraIdentifiersInternal = <int>[];
       update();
       return;
     }
 
     try {
-      final List<int> list = await infraRepository.requestInfraIdentifiers();
-      infraIdentifiers = list.toSet().toList()..sort();
-    } catch (_) {
-      infraIdentifiers = <int>[];
+      final List<int> identifierList = await repository.requestInfraIdentifiers();
+      infraIdentifiersInternal = identifierList.toSet().toList()..sort();
+    } catch (exception) {
+      if (kDebugMode) {
+        debugPrint('InfraController.reqLoadInfraIdentifiers error: $exception');
+      }
+      infraIdentifiersInternal = <int>[];
     }
 
     update();
   }
 
-  Future<void> refreshAll({
-    String? fromIsoOrEpoch,
-    String? toIsoOrEpoch,
-    int? vehicleId,
-  }) async {
+  Future<void> reqLoadLatestInfraInfo(int infraId) async {
     if (!hasToken) {
-      latestMessage = null;
-      currentHistoryMessages = <Message>[];
-      currentHistoryTotalCount = 0;
+      latestInfraInfoInternal = null;
       update();
       return;
     }
 
-    fromEpochMilliseconds = _parseIsoOrEpochToMilliseconds(fromIsoOrEpoch);
-    toEpochMilliseconds = _parseIsoOrEpochToMilliseconds(toIsoOrEpoch);
-
     try {
-      await Future.wait(<Future<void>>[
-        loadLatest(vehicleId: vehicleId),
-        loadFirstPage(vehicleId: vehicleId),
-      ]);
-    } catch (_) {
-      latestMessage = null;
-      currentHistoryMessages = <Message>[];
-      currentHistoryTotalCount = 0;
-    } finally {
-      update();
-    }
-  }
-
-  Future<void> loadLatest({int? vehicleId}) async {
-    if (!hasToken) {
-      latestMessage = null;
-      return;
-    }
-
-    try {
-      if (scope == MessageScope.vehicle) {
-        if (vehicleId == null) {
-          latestMessage = null;
-          return;
-        }
-        latestMessage = await infraRepository.requestLatestVehicle(vehicleId);
-        return;
+      latestInfraInfoInternal = await repository.requestLatestInfraInfo(infraId);
+    } catch (exception) {
+      if (kDebugMode) {
+        debugPrint('InfraController.reqLoadLatestInfraInfo error: $exception');
       }
-
-      if (scope == MessageScope.infra) {
-        final int? infraId = selectedInfraId;
-        if (infraId == null) {
-          latestMessage = null;
-          return;
-        }
-        latestMessage = await infraRepository.requestLatestInfra(infraId);
-        return;
-      }
-
-      latestMessage = null;
-    } catch (_) {
-      latestMessage = null;
-    }
-  }
-
-  Future<void> loadFirstPage({int? vehicleId, int limit = 18}) async {
-    if (!hasToken) {
-      currentHistoryMessages = <Message>[];
-      currentHistoryTotalCount = 0;
-      return;
+      latestInfraInfoInternal = null;
     }
 
-    isLoading = true;
     update();
-
-    try {
-      final Map<String, dynamic> meta = scope == MessageScope.vehicle
-          ? await infraRepository.requestHistoryVehicleWithMeta(
-              vehicleId: vehicleId,
-              fromEpochMs: fromEpochMilliseconds,
-              toEpochMs: toEpochMilliseconds,
-              limit: limit,
-              offset: 0,
-            )
-          : await infraRepository.requestHistoryInfraWithMeta(
-              infraId: selectedInfraId,
-              fromEpochMs: fromEpochMilliseconds,
-              toEpochMs: toEpochMilliseconds,
-              limit: limit,
-              offset: 0,
-            );
-
-      final dynamic itemsDynamic = meta['items'];
-      final dynamic totalDynamic = meta['totalCount'];
-
-      currentHistoryMessages = itemsDynamic is List<Message> ? itemsDynamic : <Message>[];
-      currentHistoryTotalCount = _toInteger(totalDynamic);
-    } catch (_) {
-      currentHistoryMessages = <Message>[];
-      currentHistoryTotalCount = 0;
-    } finally {
-      isLoading = false;
-      update();
-    }
   }
 
-  Future<Map<String, dynamic>> fetchVehicleHistoryPageWithMeta({
-    int? vehicleId,
-    required int offset,
-    required int limit,
-  }) async {
-    if (!hasToken) {
-      return <String, dynamic>{'items': <Message>[], 'totalCount': 0};
-    }
-
-    final Map<String, dynamic> meta = await infraRepository.requestHistoryVehicleWithMeta(
-      vehicleId: vehicleId,
-      fromEpochMs: fromEpochMilliseconds,
-      toEpochMs: toEpochMilliseconds,
-      limit: limit,
-      offset: offset,
-    );
-
-    final dynamic items = meta['items'];
-    final dynamic total = meta['totalCount'];
-
-    final List<Message> list = items is List<Message> ? items : <Message>[];
-    final int totalCount = _toInteger(total);
-
-    return <String, dynamic>{'items': list, 'totalCount': totalCount};
-  }
-
-  Future<Map<String, dynamic>> fetchInfraHistoryPageWithMeta({
+  Future<void> reqLoadHistory({
     int? infraId,
-    required int offset,
-    required int limit,
+    int offset = 0,
+    int limit = 18,
+    String? searchText,
+    String? searchColumnName,
   }) async {
     if (!hasToken) {
-      return <String, dynamic>{'items': <Message>[], 'totalCount': 0};
+      historyItemsInternal = <InfraInfoHistory>[];
+      historyTotalCountInternal = 0;
+      historyOffsetInternal = 0;
+      update();
+      return;
     }
 
-    final Map<String, dynamic> meta = await infraRepository.requestHistoryInfraWithMeta(
-      infraId: infraId,
-      fromEpochMs: fromEpochMilliseconds,
-      toEpochMs: toEpochMilliseconds,
-      limit: limit,
-      offset: offset,
-    );
+    isLoadingInternal = true;
+    update();
 
-    final dynamic items = meta['items'];
-    final dynamic total = meta['totalCount'];
+    try {
+      final InfraInfoHistoryResult? result = await repository.requestInfraHistory(
+        infraId: infraId,
+        fromEpochMs: fromEpochMsInternal,
+        toEpochMs: toEpochMsInternal,
+        limit: limit,
+        offset: offset,
+        searchText: searchText,
+        searchColumnName: searchColumnName,
+      );
 
-    final List<Message> list = items is List<Message> ? items : <Message>[];
-    final int totalCount = _toInteger(total);
+      if (result != null) {
+        historyItemsInternal = result.items;
+        historyTotalCountInternal = result.totalCount;
+        historyOffsetInternal = offset;
+        historyLimitInternal = limit;
+      } else {
+        historyItemsInternal = <InfraInfoHistory>[];
+        historyTotalCountInternal = 0;
+        historyOffsetInternal = 0;
+      }
+    } catch (exception) {
+      if (kDebugMode) {
+        debugPrint('InfraController.reqLoadHistory error: $exception');
+      }
+      historyItemsInternal = <InfraInfoHistory>[];
+      historyTotalCountInternal = 0;
+      historyOffsetInternal = 0;
+    } finally {
+      isLoadingInternal = false;
+      update();
+    }
+  }
 
-    return <String, dynamic>{'items': list, 'totalCount': totalCount};
+  Future<void> reqLoadStatus({
+    int? infraId,
+    int offset = 0,
+    int limit = 100,
+    String? searchText,
+    String? searchColumnName,
+  }) async {
+    if (!hasToken) {
+      statusItemsInternal = <InfraInfo>[];
+      statusTotalCountInternal = 0;
+      statusOffsetInternal = 0;
+      update();
+      return;
+    }
+
+    isLoadingInternal = true;
+    update();
+
+    try {
+      final InfraInfoResult? result = await repository.requestInfraStatus(
+        infraId: infraId,
+        fromEpochMs: fromEpochMsInternal,
+        toEpochMs: toEpochMsInternal,
+        limit: limit,
+        offset: offset,
+        searchText: searchText,
+        searchColumnName: searchColumnName,
+      );
+
+      if (result != null) {
+        statusItemsInternal = result.items;
+        statusTotalCountInternal = result.totalCount;
+        statusOffsetInternal = offset;
+        statusLimitInternal = limit;
+      } else {
+        statusItemsInternal = <InfraInfo>[];
+        statusTotalCountInternal = 0;
+        statusOffsetInternal = 0;
+      }
+    } catch (exception) {
+      if (kDebugMode) {
+        debugPrint('InfraController.reqLoadStatus error: $exception');
+      }
+      statusItemsInternal = <InfraInfo>[];
+      statusTotalCountInternal = 0;
+      statusOffsetInternal = 0;
+    } finally {
+      isLoadingInternal = false;
+      update();
+    }
+  }
+
+  void clearHistory() {
+    historyItemsInternal = <InfraInfoHistory>[];
+    historyTotalCountInternal = 0;
+    historyOffsetInternal = 0;
+    latestInfraInfoInternal = null;
+    update();
+  }
+
+  void clearStatus() {
+    statusItemsInternal = <InfraInfo>[];
+    statusTotalCountInternal = 0;
+    statusOffsetInternal = 0;
+    update();
+  }
+
+  void reset() {
+    isLoadingInternal = false;
+    infraIdentifiersInternal = <int>[];
+    selectedInfraIdInternal = null;
+    historyItemsInternal = <InfraInfoHistory>[];
+    historyTotalCountInternal = 0;
+    historyOffsetInternal = 0;
+    historyLimitInternal = 18;
+    statusItemsInternal = <InfraInfo>[];
+    statusTotalCountInternal = 0;
+    statusOffsetInternal = 0;
+    statusLimitInternal = 100;
+    latestInfraInfoInternal = null;
+    fromEpochMsInternal = null;
+    toEpochMsInternal = null;
+    update();
   }
 }

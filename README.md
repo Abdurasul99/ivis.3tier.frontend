@@ -1,6 +1,6 @@
 # fms
 
-IVIS FMS
+IVIS 3tier
 
 ## Getting Started
 

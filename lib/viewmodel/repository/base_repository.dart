@@ -1,5 +1,5 @@
+// ivis.3tier.frontend/lib/viewmodel/repository/base_repository.dart
 import 'dart:convert';
-
 import 'package:get/get.dart';
 import 'package:http/http.dart' as http;
 
@@ -21,7 +21,6 @@ class BaseRepository {
       }
     }
 
-    // debugPrint("header $headers");
     return headers;
   }
 

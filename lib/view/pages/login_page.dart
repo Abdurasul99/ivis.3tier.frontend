@@ -1,20 +1,20 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/svg.dart';
-import 'package:ivis/view/components/empty_top_bar_view.dart';
-import 'package:ivis/view/components/layout.dart';
-import 'package:ivis/view/pages/signup_register_page.dart';
-import 'package:ivis/viewmodel/controller/infra_controller.dart';
-import 'package:ivis/viewmodel/controller/vehicle_controller.dart';
 import 'package:get/get.dart';
+
 import '../../constants/constants.dart';
 import '../../utils/utils.dart';
+import '../../viewmodel/controller/infra_controller.dart';
 import '../../viewmodel/controller/mqtt_controller.dart';
 import '../../viewmodel/controller/user_controller.dart';
+import '../../viewmodel/controller/vehicle_controller.dart';
+import '../components/empty_top_bar_view.dart';
 import '../components/input_edit_text_underline.dart';
 import 'home_page.dart';
 import 'login_find_id_page.dart';
 import 'login_find_pw_page.dart';
+import 'signup_register_page.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -26,68 +26,115 @@ class LoginPage extends StatefulWidget {
 }
 
 class _LoginPageState extends State<LoginPage> {
-  final TextEditingController idTextEditingController = TextEditingController();
-  final TextEditingController passwordTextEditingController = TextEditingController();
-  final FocusNode idFocusNode = FocusNode();
-  final FocusNode passwordFocusNode = FocusNode();
+  final TextEditingController _idTextEditingController = TextEditingController();
+  final TextEditingController _passwordTextEditingController = TextEditingController();
+  final FocusNode _idFocusNode = FocusNode();
+  final FocusNode _passwordFocusNode = FocusNode();
 
-  bool checkRememberMe = false;
-  bool showPassword = false;
-  bool loggingIn = false;
+  bool _checkRememberMe = false;
+  bool _showPassword = false;
+  bool _loggingIn = false;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      await loadRememberMe();
+      await _loadRememberMe();
       if (!mounted) {
         return;
       }
-      if (idTextEditingController.text.isNotEmpty) {
-        passwordFocusNode.requestFocus();
+      if (_idTextEditingController.text.isNotEmpty) {
+        _passwordFocusNode.requestFocus();
       } else {
-        idFocusNode.requestFocus();
+        _idFocusNode.requestFocus();
       }
     });
   }
 
   @override
   void dispose() {
-    idTextEditingController.dispose();
-    passwordTextEditingController.dispose();
-    idFocusNode.dispose();
-    passwordFocusNode.dispose();
+    _idTextEditingController.dispose();
+    _passwordTextEditingController.dispose();
+    _idFocusNode.dispose();
+    _passwordFocusNode.dispose();
     super.dispose();
   }
 
-  Future<void> loadRememberMe() async {
+  Future<void> _loadRememberMe() async {
     final UserController userController = Get.find<UserController>();
-    checkRememberMe = await userController.reqGetRememberMe();
-    if (checkRememberMe == true) {
-      idTextEditingController.text = await userController.reqGetLoginEmail();
+    _checkRememberMe = await userController.reqGetRememberMe();
+    if (_checkRememberMe == true) {
+      _idTextEditingController.text = await userController.reqGetLoginEmail();
     }
     if (mounted) {
       setState(() {});
     }
   }
 
+  Future<void> _requestLogin() async {
+    if (_idTextEditingController.text.isEmpty) {
+      Utils.showSnackBar('Enter your ID', isError: true);
+      _idFocusNode.requestFocus();
+      return;
+    }
+    if (_passwordTextEditingController.text.isEmpty) {
+      Utils.showSnackBar('Enter your password', isError: true);
+      _passwordFocusNode.requestFocus();
+      return;
+    }
+
+    setState(() {
+      _loggingIn = true;
+    });
+
+    final UserController userController = Get.find<UserController>();
+    final bool isLoginSuccessful = await userController.reqLoginById(
+      _idTextEditingController.text.trim(),
+      _passwordTextEditingController.text.trim(),
+    );
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _loggingIn = false;
+    });
+
+    if (!isLoginSuccessful) {
+      Utils.showSnackBar('Invalid ID or password', isError: true);
+      return;
+    }
+
+    final String? loginUserEmail = userController.loginUser?.email?.trim();
+    final String? loginUserId = userController.loginUser?.userId?.trim();
+    final String clientId = (loginUserEmail != null && loginUserEmail.isNotEmpty)
+        ? loginUserEmail
+        : (loginUserId != null && loginUserId.isNotEmpty ? loginUserId : 'fms-web');
+
+    final MqttController mqttController = Get.find<MqttController>();
+    mqttController.connect(clientId);
+
+    final VehicleController vehicleController = Get.find<VehicleController>();
+    await vehicleController.reqLoadVehicles();
+
+    final InfraController infraController = Get.find<InfraController>();
+    await infraController.reqLoadInfraIdentifiers();
+
+    userController.reqSaveRememberMe(_checkRememberMe);
+    if (_checkRememberMe) {
+      userController.reqSaveLoginEmail(_idTextEditingController.text.trim());
+    }
+
+    if (!mounted) {
+      return;
+    }
+
+    Get.offNamed(HomePage.routeName);
+  }
+
   @override
   Widget build(BuildContext context) {
-    if (context.isMobile()) {
-      return SafeArea(
-        top: false,
-        bottom: false,
-        child: Scaffold(
-          backgroundColor: kBackgroundColor,
-          body: Column(
-            children: <Widget>[
-              const EmptyTopBarView(),
-              Expanded(child: buildLoginBody()),
-            ],
-          ),
-        ),
-      );
-    }
     return SafeArea(
       top: false,
       bottom: false,
@@ -96,14 +143,14 @@ class _LoginPageState extends State<LoginPage> {
         body: Column(
           children: <Widget>[
             const EmptyTopBarView(),
-            Expanded(child: buildLoginBody()),
+            Expanded(child: _buildLoginBody()),
           ],
         ),
       ),
     );
   }
 
-  Widget buildLoginBody() {
+  Widget _buildLoginBody() {
     return Center(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 900),
@@ -123,8 +170,8 @@ class _LoginPageState extends State<LoginPage> {
           ),
           child: Row(
             children: <Widget>[
-              buildLeftPanel(),
-              buildRightPanel(),
+              _buildLeftPanel(),
+              _buildRightPanel(),
             ],
           ),
         ),
@@ -132,7 +179,7 @@ class _LoginPageState extends State<LoginPage> {
     );
   }
 
-  Widget buildLeftPanel() {
+  Widget _buildLeftPanel() {
     return SizedBox(
       width: 344,
       height: 554,
@@ -172,7 +219,7 @@ class _LoginPageState extends State<LoginPage> {
     );
   }
 
-  Widget buildRightPanel() {
+  Widget _buildRightPanel() {
     return SizedBox(
       width: 450,
       height: 554,
@@ -203,8 +250,8 @@ class _LoginPageState extends State<LoginPage> {
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 40),
                 child: InputEditTextUnderline(
-                  textController: idTextEditingController,
-                  focusNode: idFocusNode,
+                  textController: _idTextEditingController,
+                  focusNode: _idFocusNode,
                   hintText: '아이디를 입력하세요.',
                   icon: const Icon(
                     CupertinoIcons.person,
@@ -216,7 +263,7 @@ class _LoginPageState extends State<LoginPage> {
                   },
                   onSubmit: (String value) {
                     if (value.isNotEmpty) {
-                      passwordFocusNode.requestFocus();
+                      _passwordFocusNode.requestFocus();
                     }
                   },
                 ),
@@ -225,9 +272,9 @@ class _LoginPageState extends State<LoginPage> {
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 40),
                 child: InputEditTextUnderline(
-                  textController: passwordTextEditingController,
-                  focusNode: passwordFocusNode,
-                  obscureText: !showPassword,
+                  textController: _passwordTextEditingController,
+                  focusNode: _passwordFocusNode,
+                  obscureText: !_showPassword,
                   hintText: '비밀번호를 입력하세요.',
                   icon: const Icon(
                     CupertinoIcons.lock,
@@ -235,13 +282,13 @@ class _LoginPageState extends State<LoginPage> {
                     color: kDarkGrayColor,
                   ),
                   iconOnRight: Icon(
-                    showPassword ? Icons.visibility : Icons.visibility_off,
+                    _showPassword ? Icons.visibility : Icons.visibility_off,
                     size: 18,
                     color: kDarkGrayColor,
                   ),
                   onTapRightIcon: () {
                     setState(() {
-                      showPassword = !showPassword;
+                      _showPassword = !_showPassword;
                     });
                   },
                   onChanged: (String value) {
@@ -249,7 +296,7 @@ class _LoginPageState extends State<LoginPage> {
                   },
                   onSubmit: (String value) {
                     if (value.isNotEmpty) {
-                      requestLogin();
+                      _requestLogin();
                     }
                   },
                 ),
@@ -261,14 +308,14 @@ class _LoginPageState extends State<LoginPage> {
                   children: <Widget>[
                     GestureDetector(
                       onTap: () {
-                        checkRememberMe = !checkRememberMe;
+                        _checkRememberMe = !_checkRememberMe;
                         setState(() {});
                       },
                       child: Row(
                         children: <Widget>[
                           const SizedBox(width: 6),
                           SvgPicture.asset(
-                            checkRememberMe
+                            _checkRememberMe
                                 ? 'assets/images/icons_checkbox_checked.svg'
                                 : 'assets/images/icons_checkbox_unchecked.svg',
                             width: 14,
@@ -368,8 +415,8 @@ class _LoginPageState extends State<LoginPage> {
                       minimumSize: const Size.fromHeight(48),
                       disabledBackgroundColor: kBlueFontColor.withOpacity(0.5),
                     ),
-                    onPressed: loggingIn ? null : requestLogin,
-                    child: loggingIn
+                    onPressed: _loggingIn ? null : _requestLogin,
+                    child: _loggingIn
                         ? const SizedBox(
                             width: 18,
                             height: 18,
@@ -394,67 +441,5 @@ class _LoginPageState extends State<LoginPage> {
         ),
       ),
     );
-  }
-
-  Future<void> requestLogin() async {
-    if (idTextEditingController.text.isEmpty) {
-      Utils.showSnackBar('Enter your ID', isError: true);
-      idFocusNode.requestFocus();
-      return;
-    }
-    if (passwordTextEditingController.text.isEmpty) {
-      Utils.showSnackBar('Enter your password', isError: true);
-      passwordFocusNode.requestFocus();
-      return;
-    }
-
-    setState(() {
-      loggingIn = true;
-    });
-
-    final UserController userController = Get.find<UserController>();
-    final bool isLoginSuccessful = await userController.reqLoginById(
-      idTextEditingController.text.trim(),
-      passwordTextEditingController.text.trim(),
-    );
-
-    if (!mounted) {
-      return;
-    }
-
-    setState(() {
-      loggingIn = false;
-    });
-
-    if (!isLoginSuccessful) {
-      Utils.showSnackBar('Invalid ID or password', isError: true);
-      return;
-    }
-
-    final String? loginUserEmail = userController.loginUser?.email?.trim();
-    final String? loginUserId = userController.loginUser?.userId?.trim();
-    final String clientId = (loginUserEmail != null && loginUserEmail.isNotEmpty)
-        ? loginUserEmail
-        : (loginUserId != null && loginUserId.isNotEmpty ? loginUserId : 'fms-web');
-
-    final MqttController mqttController = Get.find<MqttController>();
-    mqttController.connect(clientId);
-
-    final VehicleController vehicleController = Get.find<VehicleController>();
-    await vehicleController.reqLoadVehicles();
-
-    final InfraController infraController = Get.find<InfraController>();
-    await infraController.refreshAll();
-
-    userController.reqSaveRememberMe(checkRememberMe);
-    if (checkRememberMe) {
-      userController.reqSaveLoginEmail(idTextEditingController.text.trim());
-    }
-
-    if (!mounted) {
-      return;
-    }
-
-    Get.offNamed(HomePage.routeName);
   }
 }

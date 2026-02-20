@@ -3,7 +3,7 @@ import 'package:ivis/view/components/empty_top_bar_view.dart';
 import 'package:ivis/view/components/layout.dart';
 import 'package:get/get.dart';
 
-import '../../constants/constants.dart'; // kBlueFontColor, etc.
+import '../../constants/constants.dart';
 import '../../utils/utils.dart';
 import '../../viewmodel/controller/user_controller.dart';
 import 'signup_final_page.dart';
@@ -138,7 +138,6 @@ class _SignUpPageState extends State<SignUpPage> {
           obscureText: false,
         ),
         const SizedBox(height: 16),
-        // 비밀번호
         buildFieldRowWithError(
           label: "비밀번호",
           errorMsg: _pwErrMsg,
@@ -148,7 +147,6 @@ class _SignUpPageState extends State<SignUpPage> {
           obscureText: true,
         ),
         const SizedBox(height: 16),
-        // 비밀번호 확인
         buildFieldRowWithError(
           label: "비밀번호 확인",
           errorMsg: _pwConfirmErrMsg,
@@ -158,13 +156,10 @@ class _SignUpPageState extends State<SignUpPage> {
           obscureText: true,
         ),
         const SizedBox(height: 16),
-        // 이름 (read-only)
         buildReadOnlyField(label: "이름", value: nameFromPrev),
         const SizedBox(height: 16),
-        // 메일 (read-only)
         buildReadOnlyField(label: "메일", value: emailFromPrev),
         const SizedBox(height: 16),
-        // 연락처
         buildFieldRowWithError(
           label: "연락처",
           errorMsg: _phoneErrMsg,
@@ -174,7 +169,6 @@ class _SignUpPageState extends State<SignUpPage> {
           obscureText: false,
         ),
         const SizedBox(height: 24),
-        // button "확인"
         SizedBox(
           width: double.infinity,
           height: 40,
