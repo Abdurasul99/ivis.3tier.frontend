@@ -1,153 +1,273 @@
-import 'dart:math';
-import 'package:get/get.dart';
+//ivis.3tier.frontend/lib/viewmodel/controller/object_controller.dart
 
+import 'dart:math';
+import 'package:flutter/foundation.dart';
+import 'package:get/get.dart';
 import '../../model/object_model.dart';
 import '../repository/object_repository.dart';
 import 'user_controller.dart';
 
-enum DetectedObjectScope { vehicleInfo, infraInfo }
+enum DetectedObjectScope {
+  vehicleInfo,
+  infraInfo,
+}
 
 class ObjectController extends GetxController {
-  final ObjectRepository objectRepository = ObjectRepository();
+  final ObjectRepository repositoryInternal = ObjectRepository();
 
-  List<DetectedObject> detectedObjects = <DetectedObject>[];
+  List<DetectedObject> detectedObjectsInternal = <DetectedObject>[];
+  bool isLoadingInternal = false;
+  int pageLimitInternal = 200;
+  int pageOffsetInternal = 0;
+  int totalCountInternal = 0;
+  DetectedObjectScope scopeInternal = DetectedObjectScope.vehicleInfo;
+  int? currentVehicleInfoIdInternal;
+  int? currentInfraInfoIdInternal;
 
-  bool isLoading = false;
+  List<DetectedObject> get detectedObjects {
+    return detectedObjectsInternal;
+  }
 
-  int pageLimit = 200;
-  int pageOffset = 0;
-  int totalCount = 0;
+  bool get isLoading {
+    return isLoadingInternal;
+  }
 
-  DetectedObjectScope scope = DetectedObjectScope.vehicleInfo;
+  int get pageLimit {
+    return pageLimitInternal;
+  }
 
-  int? currentVehicleInfoRowId;
-  int? currentInfraInfoRowId;
+  int get pageOffset {
+    return pageOffsetInternal;
+  }
+
+  int get totalCount {
+    return totalCountInternal;
+  }
+
+  DetectedObjectScope get scope {
+    return scopeInternal;
+  }
+
+  int? get currentVehicleInfoId {
+    return currentVehicleInfoIdInternal;
+  }
+
+  int? get currentInfraInfoId {
+    return currentInfraInfoIdInternal;
+  }
+
+  ObjectRepository get repository {
+    return repositoryInternal;
+  }
 
   bool get hasToken {
     try {
-      return (Get.find<UserController>().accessToken ?? '').isNotEmpty;
+      final UserController userController = Get.find<UserController>();
+      final String? token = userController.accessToken;
+      return token != null && token.isNotEmpty;
     } catch (_) {
       return false;
     }
   }
 
-  Future<void> setVehicleInfoRow(int vehicleInfoRowId) async {
-    scope = DetectedObjectScope.vehicleInfo;
-    currentVehicleInfoRowId = vehicleInfoRowId;
-    currentInfraInfoRowId = null;
-    pageOffset = 0;
-    totalCount = 0;
-    detectedObjects = <DetectedObject>[];
-    update();
-    await loadPage(offset: 0, limit: pageLimit);
+  bool get canGoPrevious {
+    if (isLoadingInternal) {
+      return false;
+    }
+    return pageOffsetInternal > 0;
   }
 
-  Future<void> setInfraInfoRow(int infraInfoRowId) async {
-    scope = DetectedObjectScope.infraInfo;
-    currentInfraInfoRowId = infraInfoRowId;
-    currentVehicleInfoRowId = null;
-    pageOffset = 0;
-    totalCount = 0;
-    detectedObjects = <DetectedObject>[];
-    update();
-    await loadPage(offset: 0, limit: pageLimit);
+  bool get canGoNext {
+    if (isLoadingInternal) {
+      return false;
+    }
+    if (totalCountInternal <= 0) {
+      return detectedObjectsInternal.length >= pageLimitInternal;
+    }
+    return (pageOffsetInternal + detectedObjectsInternal.length) < totalCountInternal;
   }
 
-  Future<void> loadPage({required int offset, required int limit}) async {
+  int get currentPageNumber {
+    if (pageLimitInternal <= 0) {
+      return 1;
+    }
+    return (pageOffsetInternal ~/ pageLimitInternal) + 1;
+  }
+
+  int get totalPages {
+    if (totalCountInternal <= 0 || pageLimitInternal <= 0) {
+      return 1;
+    }
+    final int pages = (totalCountInternal + pageLimitInternal - 1) ~/ pageLimitInternal;
+    return max(1, pages);
+  }
+
+  Future<void> setVehicleInfoRow(int vehicleInfoId) async {
+    scopeInternal = DetectedObjectScope.vehicleInfo;
+    currentVehicleInfoIdInternal = vehicleInfoId;
+    currentInfraInfoIdInternal = null;
+    pageOffsetInternal = 0;
+    totalCountInternal = 0;
+    detectedObjectsInternal = <DetectedObject>[];
+    update();
+    await loadPage(offset: 0, limit: pageLimitInternal);
+  }
+
+  Future<void> setInfraInfoRow(int infraInfoId) async {
+    scopeInternal = DetectedObjectScope.infraInfo;
+    currentInfraInfoIdInternal = infraInfoId;
+    currentVehicleInfoIdInternal = null;
+    pageOffsetInternal = 0;
+    totalCountInternal = 0;
+    detectedObjectsInternal = <DetectedObject>[];
+    update();
+    await loadPage(offset: 0, limit: pageLimitInternal);
+  }
+
+  Future<void> loadPage({
+    required int offset,
+    required int limit,
+  }) async {
     if (!hasToken) {
-      detectedObjects = <DetectedObject>[];
-      totalCount = 0;
-      pageOffset = 0;
+      detectedObjectsInternal = <DetectedObject>[];
+      totalCountInternal = 0;
+      pageOffsetInternal = 0;
       update();
       return;
     }
 
-    isLoading = true;
+    final bool isVehicleScope = scopeInternal == DetectedObjectScope.vehicleInfo;
+    if (isVehicleScope && currentVehicleInfoIdInternal == null) {
+      detectedObjectsInternal = <DetectedObject>[];
+      totalCountInternal = 0;
+      pageOffsetInternal = 0;
+      update();
+      return;
+    }
+    if (!isVehicleScope && currentInfraInfoIdInternal == null) {
+      detectedObjectsInternal = <DetectedObject>[];
+      totalCountInternal = 0;
+      pageOffsetInternal = 0;
+      update();
+      return;
+    }
+
+    isLoadingInternal = true;
     update();
 
     try {
-      if (scope == DetectedObjectScope.vehicleInfo) {
-        final int? vehicleInfoRowId = currentVehicleInfoRowId;
-        if (vehicleInfoRowId == null) {
-          detectedObjects = <DetectedObject>[];
-          totalCount = 0;
-          pageOffset = 0;
-          return;
-        }
+      DetectedObjectResult? result;
 
-        final Map<String, dynamic> meta = await objectRepository.requestByVehicleInfoWithMeta(
-          vehicleInfoId: vehicleInfoRowId,
+      if (isVehicleScope) {
+        final int vehicleInfoId = currentVehicleInfoIdInternal!;
+        result = await repositoryInternal.requestByVehicleInfo(
+          vehicleInfoId: vehicleInfoId,
           limit: limit,
           offset: offset,
         );
-
-        final dynamic itemsDynamic = meta['items'];
-        final dynamic totalDynamic = meta['totalCount'];
-
-        detectedObjects = itemsDynamic is List<DetectedObject> ? itemsDynamic : <DetectedObject>[];
-        totalCount = totalDynamic is int ? totalDynamic : int.tryParse(totalDynamic?.toString() ?? '') ?? 0;
-        pageOffset = offset;
-        pageLimit = limit;
-        return;
+      } else {
+        final int infraInfoId = currentInfraInfoIdInternal!;
+        result = await repositoryInternal.requestByInfraInfo(
+          infraInfoId: infraInfoId,
+          limit: limit,
+          offset: offset,
+        );
       }
 
-      final int? infraInfoRowId = currentInfraInfoRowId;
-      if (infraInfoRowId == null) {
-        detectedObjects = <DetectedObject>[];
-        totalCount = 0;
-        pageOffset = 0;
-        return;
+      if (result != null) {
+        detectedObjectsInternal = result.items;
+        totalCountInternal = result.totalCount;
+        pageOffsetInternal = offset;
+        pageLimitInternal = limit;
+      } else {
+        detectedObjectsInternal = <DetectedObject>[];
+        totalCountInternal = 0;
+        pageOffsetInternal = 0;
       }
-
-      final Map<String, dynamic> meta = await objectRepository.requestByInfraInfoWithMeta(
-        infraInfoId: infraInfoRowId,
-        limit: limit,
-        offset: offset,
-      );
-
-      final dynamic itemsDynamic = meta['items'];
-      final dynamic totalDynamic = meta['totalCount'];
-
-      detectedObjects = itemsDynamic is List<DetectedObject> ? itemsDynamic : <DetectedObject>[];
-      totalCount = totalDynamic is int ? totalDynamic : int.tryParse(totalDynamic?.toString() ?? '') ?? 0;
-      pageOffset = offset;
-      pageLimit = limit;
+    } catch (exception) {
+      if (kDebugMode) {
+        debugPrint('ObjectController.loadPage error: $exception');
+      }
+      detectedObjectsInternal = <DetectedObject>[];
+      totalCountInternal = 0;
+      pageOffsetInternal = 0;
     } finally {
-      isLoading = false;
+      isLoadingInternal = false;
       update();
     }
   }
 
-  bool get canGoPrevious {
-    return !isLoading && pageOffset > 0;
+  Future<DetectedObjectResult?> fetchByVehicleInfo({
+    required int vehicleInfoId,
+    int offset = 0,
+    int limit = 200,
+  }) async {
+    if (!hasToken) {
+      return null;
+    }
+
+    try {
+      return await repositoryInternal.requestByVehicleInfo(
+        vehicleInfoId: vehicleInfoId,
+        limit: limit,
+        offset: offset,
+      );
+    } catch (exception) {
+      if (kDebugMode) {
+        debugPrint('ObjectController.fetchByVehicleInfo error: $exception');
+      }
+      return null;
+    }
   }
 
-  bool get canGoNext {
-    if (isLoading) return false;
-    if (totalCount <= 0) return detectedObjects.length >= pageLimit;
-    return (pageOffset + detectedObjects.length) < totalCount;
-  }
+  Future<DetectedObjectResult?> fetchByInfraInfo({
+    required int infraInfoId,
+    int offset = 0,
+    int limit = 200,
+  }) async {
+    if (!hasToken) {
+      return null;
+    }
 
-  int get currentPageNumber {
-    if (pageLimit <= 0) return 1;
-    return (pageOffset ~/ pageLimit) + 1;
-  }
-
-  int get totalPages {
-    if (totalCount <= 0 || pageLimit <= 0) return 1;
-    final int pages = (totalCount + pageLimit - 1) ~/ pageLimit;
-    return max(1, pages);
+    try {
+      return await repositoryInternal.requestByInfraInfo(
+        infraInfoId: infraInfoId,
+        limit: limit,
+        offset: offset,
+      );
+    } catch (exception) {
+      if (kDebugMode) {
+        debugPrint('ObjectController.fetchByInfraInfo error: $exception');
+      }
+      return null;
+    }
   }
 
   Future<void> goPrevious() async {
-    if (!canGoPrevious) return;
-    final int nextOffset = max(0, pageOffset - pageLimit);
-    await loadPage(offset: nextOffset, limit: pageLimit);
+    if (!canGoPrevious) {
+      return;
+    }
+    final int nextOffset = max(0, pageOffsetInternal - pageLimitInternal);
+    await loadPage(offset: nextOffset, limit: pageLimitInternal);
   }
 
   Future<void> goNext() async {
-    if (!canGoNext) return;
-    final int nextOffset = pageOffset + pageLimit;
-    await loadPage(offset: nextOffset, limit: pageLimit);
+    if (!canGoNext) {
+      return;
+    }
+    final int nextOffset = pageOffsetInternal + pageLimitInternal;
+    await loadPage(offset: nextOffset, limit: pageLimitInternal);
+  }
+
+  void reset() {
+    detectedObjectsInternal = <DetectedObject>[];
+    isLoadingInternal = false;
+    pageLimitInternal = 200;
+    pageOffsetInternal = 0;
+    totalCountInternal = 0;
+    scopeInternal = DetectedObjectScope.vehicleInfo;
+    currentVehicleInfoIdInternal = null;
+    currentInfraInfoIdInternal = null;
+    update();
   }
 }
