@@ -1,56 +1,16 @@
-import 'package:flutter/material.dart';
-import 'package:ivis/view/components/empty_top_bar_view.dart';
-import 'package:ivis/view/components/layout.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:get/get.dart';
 
-import '../../constants/constants.dart';
+import '../../i18n/app_locale.dart';
 import '../../utils/utils.dart';
+import '../../viewmodel/controller/locale_controller.dart';
 import '../../viewmodel/controller/password_controller.dart';
-import '../components/gradient_button.dart';
-import '../components/input_edit_text_horizontal.dart';
-import '../components/line_button.dart';
+import '../components/auth_page_shell.dart';
+import 'login_page.dart';
 import 'login_reset_pw_page.dart';
 
-final TextStyle kTitleStyleFindID = TextStyle(
-  fontFamily: 'gm-medium',
-  fontWeight: FontWeight.w500,
-  fontSize: 20,
-  height: 23 / 20,
-  color: Color(0xFF005FB7),
-);
-
-final TextStyle kLabelStyle = TextStyle(
-  fontFamily: 'pretendard',
-  fontWeight: FontWeight.w400,
-  fontSize: 15,
-  height: 17.9 / 15,
-  color: Colors.black,
-);
-
-final TextStyle kPlaceholderStyle = TextStyle(
-  fontFamily: 'pretendard',
-  fontWeight: FontWeight.w400,
-  fontSize: 15,
-  height: 17.9 / 15,
-  color: Color(0xFF666565),
-);
-
-final TextStyle kButtonStyle = TextStyle(
-  fontFamily: 'pretendard',
-  fontWeight: FontWeight.w400,
-  fontSize: 15,
-  height: 17.9 / 15,
-  color: Colors.black,
-);
-
-final TextStyle kErrorStyle = TextStyle(
-  fontFamily: 'pretendard',
-  fontSize: 13,
-  color: Color(0xFFC42B1C),
-);
-
 class LoginFindPwPage extends StatefulWidget {
-  static const routeName = '/find-pw';
+  static const String routeName = '/find-pw';
 
   const LoginFindPwPage({super.key});
 
@@ -67,220 +27,137 @@ class _LoginFindPwPageState extends State<LoginFindPwPage> {
   final FocusNode _emailFocusNode = FocusNode();
   final FocusNode _codeFocusNode = FocusNode();
 
-  String _codeErrorMsg = "";
+  String _codeErrorMsg = '';
 
   @override
   void dispose() {
     _userIdCtrl.dispose();
     _emailCtrl.dispose();
     _codeCtrl.dispose();
-
     _userIdFocusNode.dispose();
     _emailFocusNode.dispose();
     _codeFocusNode.dispose();
-
     super.dispose();
+  }
+
+  Future<void> _onSendCode() async {
+    final String userId = _userIdCtrl.text.trim();
+    final String email = _emailCtrl.text.trim();
+    if (userId.isEmpty || email.isEmpty) {
+      Utils.showSnackBar(t('아이디와 메일을 입력하세요.'), isError: true);
+      return;
+    }
+
+    final PasswordController passwordCtrl = Get.find<PasswordController>();
+    final dynamic response = await passwordCtrl.reqResetPassword(email);
+    if (response == null) {
+      Utils.showSnackBar(t('서버 오류가 발생했습니다.'), isError: true);
+      return;
+    }
+    if (response.code == '0000') {
+      Utils.showSnackBar(t('인증메일을 보냈습니다. 메일을 확인해주세요.'));
+    } else {
+      Utils.showSnackBar(
+        l10n('메일 전송 실패: ${response.message}', 'Failed to send email: ${response.message}'),
+        isError: true,
+      );
+    }
+  }
+
+  Future<void> _onVerifyCode() async {
+    final String userId = _userIdCtrl.text.trim();
+    final String email = _emailCtrl.text.trim();
+    if (userId.isEmpty || email.isEmpty) {
+      Utils.showSnackBar(t('아이디와 메일을 입력하세요.'), isError: true);
+      return;
+    }
+
+    setState(() => _codeErrorMsg = '');
+    final String code = _codeCtrl.text.trim();
+    if (code.isEmpty) {
+      setState(() => _codeErrorMsg = t('인증번호를 입력하세요.'));
+      return;
+    }
+
+    final PasswordController passwordCtrl = Get.find<PasswordController>();
+    final dynamic verifyRes = await passwordCtrl.reqPasswordVerifyCode(email, code);
+    if (verifyRes == null) {
+      setState(() => _codeErrorMsg = t('서버 오류가 발생했습니다.'));
+      return;
+    }
+
+    if (verifyRes.code == '0000') {
+      Utils.showSnackBar(t('인증되었습니다! 비밀번호를 재설정하세요.'));
+      Get.offAllNamed(LoginResetPwPage.routeName);
+    } else {
+      setState(() => _codeErrorMsg = t('인증번호가 올바르지 않습니다.'));
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    if (context.isMobile()) {
-      return const LoginFindPwPage();
-    }
-    return SafeArea(
-      child: Scaffold(
-        backgroundColor: kBackgroundColor,
-        body: Column(
-          children: [
-            EmptyTopBarView(),
-            Expanded(
-              child: Center(
-                child: Container(
-                  width: 454,
-                  height: 430,
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(10),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.25),
-                        blurRadius: 8,
-                        offset: const Offset(0, 0),
-                      ),
-                    ],
-                  ),
-                  padding: const EdgeInsets.symmetric(horizontal: 42, vertical: 42),
-                  alignment: Alignment.center,
-                  child: buildFormContent(),
-                ),
+    return GetBuilder<LocaleController>(
+      init: Get.find<LocaleController>(),
+      builder: (_) => AuthPageShell(
+        formChild: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Text(
+              t('비밀번호 찾기'),
+              style: const TextStyle(
+                fontSize: 30,
+                fontWeight: FontWeight.w800,
+                color: Color(0xFF0A1628),
+                letterSpacing: -0.5,
+                height: 1.2,
               ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              t('아이디와 메일로 비밀번호를 재설정하세요.'),
+              style: const TextStyle(fontSize: 14, color: Color(0xFF8A94A6), height: 1.5),
+            ),
+            const SizedBox(height: 36),
+            AuthFieldLabel(text: t('아이디')),
+            const SizedBox(height: 8),
+            AuthTextField(
+              controller: _userIdCtrl,
+              focusNode: _userIdFocusNode,
+              hintText: t('아이디를 입력하세요.'),
+              prefixIconData: CupertinoIcons.person,
+            ),
+            const SizedBox(height: 20),
+            AuthFieldLabel(text: t('메일')),
+            const SizedBox(height: 8),
+            AuthTextField(
+              controller: _emailCtrl,
+              focusNode: _emailFocusNode,
+              hintText: t('가입에 사용한 메일을 입력하세요.'),
+              prefixIconData: CupertinoIcons.mail,
+            ),
+            const SizedBox(height: 10),
+            AuthOutlineButton(text: t('인증메일 보내기'), onTap: _onSendCode),
+            const SizedBox(height: 20),
+            AuthFieldLabel(text: t('인증번호')),
+            const SizedBox(height: 8),
+            AuthTextField(
+              controller: _codeCtrl,
+              focusNode: _codeFocusNode,
+              hintText: t('인증번호를 입력해 주세요.'),
+              prefixIconData: CupertinoIcons.shield,
+              errorText: _codeErrorMsg.isNotEmpty ? _codeErrorMsg : null,
+            ),
+            const SizedBox(height: 32),
+            AuthPrimaryButton(text: t('확인'), onTap: _onVerifyCode),
+            const SizedBox(height: 24),
+            AuthBackLink(
+              text: t('← 로그인으로 돌아가기'),
+              onTap: () => Get.offAllNamed(LoginPage.routeName),
             ),
           ],
         ),
       ),
     );
-  }
-
-  Widget buildFormContent() {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.center,
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        const SizedBox(height: 12),
-        const Text(
-          "비밀번호 찾기",
-          style: TextStyle(
-            fontFamily: 'gm-medium',
-            fontWeight: FontWeight.w500,
-            fontSize: 20,
-            color: Color(0xFF005FB7),
-          ),
-        ),
-        const SizedBox(height: 32),
-        InputEditTextHorizontal(
-          label: "아이디",
-          hint: "아이디를 입력하세요.",
-          controller: _userIdCtrl,
-          focusNode: _userIdFocusNode,
-        ),
-        const SizedBox(height: 16),
-        InputEditTextHorizontal(
-          label: "메일",
-          hint: "가입에 사용한 메일을 입력하세요.",
-          controller: _emailCtrl,
-          focusNode: _emailFocusNode,
-        ),
-        const SizedBox(height: 16),
-        Row(
-          children: [
-            const Spacer(),
-            SizedBox(
-              width: 286,
-              child: LineButton(
-                buttonText: "인증메일 보내기",
-                onTap: onSendCode,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 16),
-        InputEditTextHorizontal(
-          label: "인증번호",
-          hint: "인증번호를 입력해 주세요.",
-          controller: _codeCtrl,
-          focusNode: _codeFocusNode,
-          errorText: _codeErrorMsg,
-        ),
-        const SizedBox(height: 16),
-        GradientButton(
-          buttonText: "확인",
-          buttonColor: const Color(0xFF005FB8),
-          onTap: onVerifyCode,
-        ),
-      ],
-    );
-  }
-
-  /// "인증메일 보내기" button (Rounded + remove extra column)
-  Widget buildButtonSendCode() {
-    return SizedBox(
-      width: 365,
-      height: 40,
-      child: Row(
-        children: [
-          const SizedBox(width: 62),
-          const SizedBox(width: 16),
-          // Using OutlinedButton directly (borderRadius=3, blue border)
-          SizedBox(
-            width: 286,
-            height: 40,
-            child: OutlinedButton(
-              style: OutlinedButton.styleFrom(
-                side: const BorderSide(color: Color(0xFF005FB7), width: 1),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(3),
-                ),
-                backgroundColor: Colors.white,
-                padding: const EdgeInsets.fromLTRB(12, 5, 12, 7),
-                surfaceTintColor: Colors.transparent,
-              ).copyWith(
-                overlayColor: WidgetStateProperty.all(Colors.transparent),
-                splashFactory: NoSplash.splashFactory,
-              ),
-              onPressed: onSendCode,
-              child: Text(
-                "인증메일 보내기",
-                style: kButtonStyle.copyWith(color: Colors.black),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> onSendCode() async {
-    final userId = _userIdCtrl.text.trim();
-    final email = _emailCtrl.text.trim();
-    if (userId.isEmpty || email.isEmpty) {
-      Utils.showSnackBar("아이디와 메일을 입력하세요.", isError: true);
-      return;
-    }
-
-    final passwordCtrl = Get.find<PasswordController>();
-    final response = await passwordCtrl.reqResetPassword(email);
-    if (response == null) {
-      Utils.showSnackBar("서버 오류가 발생했습니다.", isError: true);
-      return;
-    }
-
-    if (response.code == "0000") {
-      Utils.showSnackBar("인증메일을 보냈습니다. 메일을 확인해주세요.");
-    } else {
-      Utils.showSnackBar("메일 전송 실패: ${response.message}", isError: true);
-    }
-  }
-
-  Future<void> onVerifyCode() async {
-    final userId = _userIdCtrl.text.trim();
-    final email = _emailCtrl.text.trim();
-    if (userId.isEmpty || email.isEmpty) {
-      Utils.showSnackBar("아이디와 메일을 입력하세요.", isError: true);
-      return;
-    }
-
-    _codeErrorMsg = "";
-
-    final code = _codeCtrl.text.trim();
-    if (code.isEmpty) {
-      _codeErrorMsg = "인증번호를 입력하세요.";
-      if (mounted) {
-        setState(() {});
-      }
-      return;
-    }
-
-    final passwordCtrl = Get.find<PasswordController>();
-    final verifyRes = await passwordCtrl.reqPasswordVerifyCode(_emailCtrl.text.trim(), code);
-    if (verifyRes == null) {
-      _codeErrorMsg = "서버 오류 (null).";
-
-      if (mounted) {
-        setState(() {});
-      }
-      return;
-    }
-
-    if (verifyRes.code == "0000") {
-      Utils.showSnackBar("인증되었습니다! 비밀번호를 재설정하세요.");
-      Get.offAllNamed(LoginResetPwPage.routeName);
-    } else {
-      _codeErrorMsg = "인증번호가 올바르지 않습니다.";
-
-      if (mounted) {
-        setState(() {});
-      }
-    }
   }
 }

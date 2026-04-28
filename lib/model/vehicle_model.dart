@@ -1,3 +1,5 @@
+import 'object_model.dart';
+
 class Vehicle {
   int? vehicleId;
   String? vehicleType;
@@ -21,7 +23,8 @@ class Vehicle {
     vehicleId = _parseInt(json['vehicle_id'] ?? json['id']);
     vehicleType = _parseString(json['vehicle_type'] ?? json['type']);
     make = _parseString(json['make'] ?? json['name']);
-    modelName = _parseString(json['model'] ?? json['model_name'] ?? json['description']);
+    modelName = _parseString(
+        json['model'] ?? json['model_name'] ?? json['description']);
     state = _parseString(json['state']);
     createdTimestamp = _parseString(json['created_ts'] ?? json['created_at']);
     updatedTs = _parseString(json['updated_ts'] ?? json['updated_at']);
@@ -81,6 +84,8 @@ class VehicleInfo {
   double? pedalAccel;
   double? brake;
   int? numberOfObjects;
+  bool? payloadCrcOk;
+  String? payloadBytesHex;
   String? createdTs;
   String? updatedTs;
 
@@ -112,6 +117,8 @@ class VehicleInfo {
     this.pedalAccel,
     this.brake,
     this.numberOfObjects,
+    this.payloadCrcOk,
+    this.payloadBytesHex,
     this.createdTs,
     this.updatedTs,
   });
@@ -130,7 +137,8 @@ class VehicleInfo {
     positionX = _parseDouble(json['pos_x_m'] ?? json['position_x']);
     positionY = _parseDouble(json['pos_y_m'] ?? json['position_y']);
     positionZ = _parseDouble(json['pos_z_m'] ?? json['position_z']);
-    orientationHeading = _parseDouble(json['heading_deg'] ?? json['orientation_heading']);
+    orientationHeading =
+        _parseDouble(json['heading_deg'] ?? json['orientation_heading']);
     accelX = _parseDouble(json['accel_x_mps2'] ?? json['accel_x']);
     accelY = _parseDouble(json['accel_y_mps2'] ?? json['accel_y']);
     accelZ = _parseDouble(json['accel_z_mps2'] ?? json['accel_z']);
@@ -144,6 +152,8 @@ class VehicleInfo {
     pedalAccel = _parseDouble(json['accel_pct'] ?? json['pedal_accel']);
     brake = _parseDouble(json['brake_pct'] ?? json['brake']);
     numberOfObjects = _parseInt(json['number_of_objects']);
+    payloadCrcOk = _parseBool(json['payload_crc_ok']);
+    payloadBytesHex = _parseString(json['payload_bytes_hex']);
     createdTs = _parseString(json['created_at'] ?? json['created_ts']);
     updatedTs = _parseString(json['updated_at'] ?? json['updated_ts']);
 
@@ -171,6 +181,16 @@ class VehicleInfo {
   static String? _parseString(dynamic value) {
     if (value == null) return null;
     return value.toString();
+  }
+
+  static bool? _parseBool(dynamic value) {
+    if (value == null) return null;
+    if (value is bool) return value;
+    if (value is num) return value != 0;
+    final String normalized = value.toString().trim().toLowerCase();
+    if (normalized == 'true' || normalized == '1') return true;
+    if (normalized == 'false' || normalized == '0') return false;
+    return null;
   }
 
   Map<String, dynamic> toJson() {
@@ -218,6 +238,8 @@ class VehicleInfo {
       'brake': brake,
       'brake_pct': brake,
       'number_of_objects': numberOfObjects,
+      'payload_crc_ok': payloadCrcOk,
+      'payload_bytes_hex': payloadBytesHex,
       'created_ts': createdTs,
       'updated_ts': updatedTs,
     };
@@ -236,7 +258,9 @@ class VehicleInfoResult {
   VehicleInfoResult.fromJson(Map<String, dynamic> json)
       : totalCount = 0,
         items = <VehicleInfo>[] {
-    totalCount = _parseInt(json['totalCount'] ?? json['total_count'] ?? json['total']) ?? 0;
+    totalCount =
+        _parseInt(json['totalCount'] ?? json['total_count'] ?? json['total']) ??
+            0;
     final dynamic itemsRaw = json['items'];
     if (itemsRaw is List) {
       items = <VehicleInfo>[];
@@ -289,6 +313,9 @@ class VehicleInfoHistory {
   double? pedalAccel;
   double? brake;
   int? numberOfObjects;
+  List<DetectedObject> objects = const <DetectedObject>[];
+  bool? payloadCrcOk;
+  String? payloadBytesHex;
   String? createdTs;
   String? updatedTs;
 
@@ -322,6 +349,9 @@ class VehicleInfoHistory {
     this.pedalAccel,
     this.brake,
     this.numberOfObjects,
+    this.objects = const <DetectedObject>[],
+    this.payloadCrcOk,
+    this.payloadBytesHex,
     this.createdTs,
     this.updatedTs,
   });
@@ -342,7 +372,8 @@ class VehicleInfoHistory {
     positionX = _parseDouble(json['pos_x_m'] ?? json['position_x']);
     positionY = _parseDouble(json['pos_y_m'] ?? json['position_y']);
     positionZ = _parseDouble(json['pos_z_m'] ?? json['position_z']);
-    orientationHeading = _parseDouble(json['heading_deg'] ?? json['orientation_heading']);
+    orientationHeading =
+        _parseDouble(json['heading_deg'] ?? json['orientation_heading']);
     accelX = _parseDouble(json['accel_x_mps2'] ?? json['accel_x']);
     accelY = _parseDouble(json['accel_y_mps2'] ?? json['accel_y']);
     accelZ = _parseDouble(json['accel_z_mps2'] ?? json['accel_z']);
@@ -356,6 +387,10 @@ class VehicleInfoHistory {
     pedalAccel = _parseDouble(json['accel_pct'] ?? json['pedal_accel']);
     brake = _parseDouble(json['brake_pct'] ?? json['brake']);
     numberOfObjects = _parseInt(json['number_of_objects']);
+    objects = _parseObjects(
+        json['objects'] ?? json['detected_objects'] ?? json['detectedObjects']);
+    payloadCrcOk = _parseBool(json['payload_crc_ok']);
+    payloadBytesHex = _parseString(json['payload_bytes_hex']);
     createdTs = _parseString(json['created_at'] ?? json['created_ts']);
     updatedTs = _parseString(json['updated_at'] ?? json['updated_ts']);
 
@@ -383,6 +418,31 @@ class VehicleInfoHistory {
   static String? _parseString(dynamic value) {
     if (value == null) return null;
     return value.toString();
+  }
+
+  static bool? _parseBool(dynamic value) {
+    if (value == null) return null;
+    if (value is bool) return value;
+    if (value is num) return value != 0;
+    final String normalized = value.toString().trim().toLowerCase();
+    if (normalized == 'true' || normalized == '1') return true;
+    if (normalized == 'false' || normalized == '0') return false;
+    return null;
+  }
+
+  static List<DetectedObject> _parseObjects(dynamic value) {
+    if (value is! List) return <DetectedObject>[];
+
+    final List<DetectedObject> parsed = <DetectedObject>[];
+    for (final dynamic element in value) {
+      if (element is Map) {
+        try {
+          parsed
+              .add(DetectedObject.fromJson(Map<String, dynamic>.from(element)));
+        } catch (_) {}
+      }
+    }
+    return parsed;
   }
 
   Map<String, dynamic> toJson() {
@@ -432,6 +492,9 @@ class VehicleInfoHistory {
       'brake': brake,
       'brake_pct': brake,
       'number_of_objects': numberOfObjects,
+      'objects': objects.map((DetectedObject item) => item.toJson()).toList(),
+      'payload_crc_ok': payloadCrcOk,
+      'payload_bytes_hex': payloadBytesHex,
       'created_ts': createdTs,
       'updated_ts': updatedTs,
     };
@@ -450,14 +513,17 @@ class VehicleInfoHistoryResult {
   VehicleInfoHistoryResult.fromJson(Map<String, dynamic> json)
       : totalCount = 0,
         items = <VehicleInfoHistory>[] {
-    totalCount = _parseInt(json['totalCount'] ?? json['total_count'] ?? json['total']) ?? 0;
+    totalCount =
+        _parseInt(json['totalCount'] ?? json['total_count'] ?? json['total']) ??
+            0;
     final dynamic itemsRaw = json['items'];
     if (itemsRaw is List) {
       items = <VehicleInfoHistory>[];
       for (final dynamic element in itemsRaw) {
         if (element is Map) {
           try {
-            items.add(VehicleInfoHistory.fromJson(Map<String, dynamic>.from(element)));
+            items.add(VehicleInfoHistory.fromJson(
+                Map<String, dynamic>.from(element)));
           } catch (_) {}
         }
       }

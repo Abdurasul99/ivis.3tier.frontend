@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/svg.dart';
 
+
 class EmptyTopBarView extends StatelessWidget {
   const EmptyTopBarView({super.key});
 
@@ -13,7 +14,7 @@ class EmptyTopBarView extends StatelessWidget {
         color: Colors.white,
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF00000D).withOpacity(0.05),
+            color: const Color(0xFF00000D).withValues(alpha: 0.05),
             offset: const Offset(0, 1),
             blurRadius: 3.0,
           ),
@@ -33,6 +34,8 @@ class EmptyTopBarView extends StatelessWidget {
               color: Colors.black,
             ),
           ),
+          const Spacer(),
+          const SizedBox(width: 24),
         ],
       ),
     );

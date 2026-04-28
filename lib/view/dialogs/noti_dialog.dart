@@ -5,6 +5,7 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
+import '../../i18n/app_locale.dart';
 import '../components/gradient_button.dart';
 
 class NotiDialog extends StatelessWidget {
@@ -32,12 +33,12 @@ class NotiDialog extends StatelessWidget {
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(10),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.1),
-              offset: const Offset(0, 0),
-              blurRadius: 5,
-              spreadRadius: 0,
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.1),
+                offset: const Offset(0, 0),
+                blurRadius: 5,
+                spreadRadius: 0,
             ),
           ],
         ),
@@ -80,7 +81,7 @@ class NotiDialog extends StatelessWidget {
             SizedBox(
               width: 157,
               child: GradientButton(
-                buttonText: "확인",
+                buttonText: isEnglishLocale ? 'OK' : '확인',
                 buttonColor: const Color(0xFF005FB8),
                 onTap: () {
                   Get.back();

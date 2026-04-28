@@ -1,0 +1,37 @@
+<svg width="128" height="160" viewBox="0 0 128 160" xmlns="http://www.w3.org/2000/svg">
+
+  <!-- Marker base -->
+  <path d="M64 8C34 8 10 32 10 62C10 75 15 87 24 97L64 152L104 97C113 87 118 75 118 62C118 32 94 8 64 8Z" fill="#FF4A4A"/>
+
+  <!-- Bottom darker part -->
+  <path d="M64 152L104 97C108 91 112 83 114 75L64 90L14 75C16 83 20 91 24 97L64 152Z" fill="#E03A3A"/>
+
+  <!-- Inner circle -->
+  <circle cx="64" cy="62" r="36" fill="#E6E6E6"/>
+
+  <!-- Fuel icon -->
+  <g fill="#B52A2A">
+    <!-- Pump body -->
+    <rect x="48" y="44" width="24" height="40" rx="3"/>
+
+    <!-- Screen -->
+    <rect x="52" y="48" width="16" height="10" fill="#E6E6E6"/>
+
+    <!-- Base -->
+    <rect x="46" y="84" width="28" height="6"/>
+
+    <!-- Hose -->
+    <path d="M72 50
+             C80 55, 82 60, 82 66
+             L82 74
+             C82 80, 78 82, 74 82
+             C70 82, 68 78, 68 74
+             L68 64
+             C68 60, 66 56, 62 54"
+          fill="none"
+          stroke="#B52A2A"
+          stroke-width="4"
+          stroke-linecap="round"/>
+  </g>
+
+</svg>

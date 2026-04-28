@@ -3,7 +3,6 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
-import '../../constants/constants.dart';
 import '../../model/infra_model.dart';
 import 'base_repository.dart';
 
@@ -12,16 +11,17 @@ class InfraRepository extends BaseRepository {
   final String infraLatestPath = '/api/infra/latest';
   final String infraStatusPath = '/api/infra/status';
   final String infraHistoryPath = '/api/infra/history';
+  final String infraManageListPath = '/api/infra/manage/list';
+  final String infraManageDeletePath = '/api/infra/manage/delete';
 
   Future<List<int>> requestInfraIdentifiers() async {
-    final Uri url = Uri.http(kApiServer, infraIdentifiersPath);
+    final Uri url = buildApiUri(infraIdentifiersPath);
 
     try {
-      final http.Response response = await http.post(
+      final http.Response response = await safePost(
         url,
-        headers: getHeader(),
         body: jsonEncode(<String, dynamic>{}),
-      );
+      ).timeout(requestTimeout);
 
       if (response.statusCode != 200) {
         debugPrint('[Error] requestInfraIdentifiers() statusCode ${response.statusCode}');
@@ -69,14 +69,13 @@ class InfraRepository extends BaseRepository {
   }
 
   Future<InfraInfo?> requestLatestInfraInfo(int infraId) async {
-    final Uri url = Uri.http(kApiServer, infraLatestPath);
+    final Uri url = buildApiUri(infraLatestPath);
 
     try {
-      final http.Response response = await http.post(
+      final http.Response response = await safePost(
         url,
-        headers: getHeader(),
         body: jsonEncode(<String, dynamic>{'infra_id': infraId}),
-      );
+      ).timeout(requestTimeout);
 
       if (response.statusCode != 200) {
         debugPrint('[Error] requestLatestInfraInfo() statusCode ${response.statusCode}');
@@ -105,7 +104,7 @@ class InfraRepository extends BaseRepository {
     String? searchText,
     String? searchColumnName,
   }) async {
-    final Uri url = Uri.http(kApiServer, infraStatusPath);
+    final Uri url = buildApiUri(infraStatusPath);
 
     final Map<String, dynamic> payload = <String, dynamic>{
       'limit': limit,
@@ -133,11 +132,10 @@ class InfraRepository extends BaseRepository {
     }
 
     try {
-      final http.Response response = await http.post(
+      final http.Response response = await safePost(
         url,
-        headers: getHeader(),
         body: jsonEncode(payload),
-      );
+      ).timeout(requestTimeout);
 
       if (response.statusCode != 200) {
         debugPrint('[Error] requestInfraStatus() statusCode ${response.statusCode}');
@@ -183,7 +181,7 @@ class InfraRepository extends BaseRepository {
     String? searchText,
     String? searchColumnName,
   }) async {
-    final Uri url = Uri.http(kApiServer, infraHistoryPath);
+    final Uri url = buildApiUri(infraHistoryPath);
 
     final Map<String, dynamic> payload = <String, dynamic>{
       'limit': limit,
@@ -211,11 +209,10 @@ class InfraRepository extends BaseRepository {
     }
 
     try {
-      final http.Response response = await http.post(
+      final http.Response response = await safePost(
         url,
-        headers: getHeader(),
         body: jsonEncode(payload),
-      );
+      ).timeout(requestTimeout);
 
       if (response.statusCode != 200) {
         debugPrint('[Error] requestInfraHistory() statusCode ${response.statusCode}');
@@ -266,5 +263,92 @@ class InfraRepository extends BaseRepository {
       return int.tryParse(value);
     }
     return int.tryParse(value.toString());
+  }
+
+  // 관리 페이지: 인프라 목록 (infra_id별 집계)
+  Future<List<Map<String, dynamic>>> requestInfraManageList() async {
+    final Uri url = buildApiUri(infraManageListPath);
+    try {
+      final http.Response response = await safePost(url, body: jsonEncode(<String, dynamic>{})).timeout(requestTimeout);
+      if (response.statusCode != 200) return <Map<String, dynamic>>[];
+      return handleResponse(response, (dynamic j) {
+        final dynamic body = j['body'];
+        if (body is List) return body.map((dynamic e) => Map<String, dynamic>.from(e as Map)).toList();
+        return <Map<String, dynamic>>[];
+      });
+    } catch (e) {
+      debugPrint('[Exception] requestInfraManageList $e');
+      return <Map<String, dynamic>>[];
+    }
+  }
+
+  // 인프라 일별 감지 객체 합계 (KST 기준, 차트용)
+  // 반환: [{ 'date_kst': 'YYYY-MM-DD', 'total_objects': int }, ...]
+  Future<List<Map<String, dynamic>>> requestInfraDailyObjectCounts({
+    required int infraId,
+    int days = 30,
+  }) async {
+    final Uri url = buildApiUri('/api/infra/dailyObjectCounts');
+    try {
+      final http.Response response = await safePost(
+        url,
+        body: jsonEncode(<String, dynamic>{
+          'infra_id': infraId,
+          'days': days,
+        }),
+      ).timeout(requestTimeout);
+      if (response.statusCode != 200) return <Map<String, dynamic>>[];
+      final dynamic decoded = jsonDecode(utf8.decode(response.bodyBytes));
+      final dynamic body = decoded is Map ? decoded['body'] : decoded;
+      if (body is List) {
+        return body
+            .whereType<Map>()
+            .map((dynamic e) => Map<String, dynamic>.from(e as Map))
+            .toList();
+      }
+      return <Map<String, dynamic>>[];
+    } catch (e) {
+      debugPrint('[Exception] requestInfraDailyObjectCounts $e');
+      return <Map<String, dynamic>>[];
+    }
+  }
+
+  // 인프라별 전체 감지 객체 합계 (비교 차트용)
+  // 반환: [{ 'infra_id': int, 'total_objects': int }] - total_objects 내림차순
+  Future<List<Map<String, dynamic>>> requestInfraTotalByInfra({int days = 30}) async {
+    final Uri url = buildApiUri('/api/infra/totalByInfra');
+    try {
+      final http.Response response = await safePost(
+        url,
+        body: jsonEncode(<String, dynamic>{'days': days}),
+      ).timeout(requestTimeout);
+      if (response.statusCode != 200) return <Map<String, dynamic>>[];
+      final dynamic decoded = jsonDecode(utf8.decode(response.bodyBytes));
+      final dynamic body = decoded is Map ? decoded['body'] : decoded;
+      if (body is List) {
+        return body
+            .whereType<Map>()
+            .map((dynamic e) => Map<String, dynamic>.from(e as Map))
+            .toList();
+      }
+      return <Map<String, dynamic>>[];
+    } catch (e) {
+      debugPrint('[Exception] requestInfraTotalByInfra $e');
+      return <Map<String, dynamic>>[];
+    }
+  }
+
+  // 관리 페이지: 인프라 데이터 삭제
+  Future<bool> requestInfraManageDelete(int infraId) async {
+    final Uri url = buildApiUri(infraManageDeletePath);
+    try {
+      final http.Response response = await safePost(url, body: jsonEncode(<String, dynamic>{'infra_id': infraId})).timeout(requestTimeout);
+      if (response.statusCode != 200) return false;
+      final dynamic j = jsonDecode(utf8.decode(response.bodyBytes));
+      return j?['code'] == '0000';
+    } catch (e) {
+      debugPrint('[Exception] requestInfraManageDelete $e');
+      return false;
+    }
   }
 }

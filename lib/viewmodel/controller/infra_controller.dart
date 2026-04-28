@@ -6,7 +6,10 @@ import '../repository/infra_repository.dart';
 import 'user_controller.dart';
 
 class InfraController extends GetxController {
-  final InfraRepository repository = InfraRepository();
+  final InfraRepository repository;
+
+  InfraController({InfraRepository? repository})
+      : repository = repository ?? InfraRepository();
 
   bool isLoadingInternal = false;
   List<int> infraIdentifiersInternal = <int>[];

@@ -1,17 +1,22 @@
-import 'package:extended_image/extended_image.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/svg.dart';
 import 'package:get/get.dart';
 import 'package:intl/intl.dart';
+import 'package:ivis/i18n/app_locale.dart';
+import 'package:ivis/view/tabs/tab_activity.dart';
 import 'package:ivis/view/tabs/tab_dashboard.dart';
+import 'package:ivis/view/tabs/tab_device_management.dart';
 import 'package:ivis/view/tabs/tab_setting.dart';
-import 'package:ivis/viewmodel/repository/log_repository.dart';
 
 import '../../constants/constants.dart';
-import '../../viewmodel/controller/log_controller.dart';
+import '../../utils/utils.dart';
+import '../../viewmodel/controller/activity_controller.dart';
+import '../../viewmodel/controller/infra_controller.dart';
+import '../../viewmodel/controller/locale_controller.dart';
 import '../../viewmodel/controller/time_controller.dart';
 import '../../viewmodel/controller/user_controller.dart';
+import '../../viewmodel/controller/vehicle_controller.dart';
 import 'login_page.dart';
 
 class HomePage extends StatefulWidget {
@@ -29,8 +34,15 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   static const double headerHeight = 60;
   static const double avatarSize = 40;
 
-  final List<String> menuTitles = <String>['대시보드', '설정'];
-  final List<String> menuIcons = <String>['dashboard', 'setting'];
+  final List<String> menuIcons = <String>['dashboard', '', '', 'setting'];
+  final List<IconData?> menuGlyphs = <IconData?>[
+    null,
+    Icons.devices_rounded,
+    Icons.timeline_rounded,
+    null,
+  ];
+  // SVG가 없는 항목은 IconData로 대체
+  final List<IconData?> menuIconData = <IconData?>[null, Icons.devices_rounded, Icons.timeline_rounded, null];
 
   int selectedMenuIndex = 0;
   late TabController tabController;
@@ -39,13 +51,18 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   late AnimationController profileMenuAnimationController;
   late Animation<Offset> profileMenuAnimation;
 
-  late LogController logController;
+  List<String> get navigationTitles => <String>[
+        l10n('대시보드', 'Dashboard'),
+        l10n('장치 관리', 'Device Mgmt'),
+        l10n('활동', 'Activity'),
+        l10n('설정', 'Settings'),
+      ];
 
   @override
   void initState() {
     super.initState();
 
-    tabController = TabController(vsync: this, length: menuTitles.length);
+    tabController = TabController(vsync: this, length: 4);
     profileMenuAnimationController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 220),
@@ -60,7 +77,9 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       ),
     );
 
-    logController = Get.isRegistered<LogController>() ? Get.find<LogController>() : Get.put(LogController());
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await _ensureSessionOnDirectRefresh();
+    });
   }
 
   @override
@@ -70,49 +89,94 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     super.dispose();
   }
 
+  Future<void> _ensureSessionOnDirectRefresh() async {
+    final UserController userController = Get.find<UserController>();
+
+    // Normal navigation after login/start already has an in-memory session.
+    final bool hasMemorySession = (userController.accessToken?.isNotEmpty ?? false) &&
+        userController.loginUser != null;
+    if (hasMemorySession) {
+      return;
+    }
+
+    final bool hasStoredToken = await userController.ensureAccessTokenLoaded();
+    if (!hasStoredToken) {
+      if (!mounted) return;
+      Get.offAllNamed(LoginPage.routeName);
+      return;
+    }
+
+    final bool isTokenValid = await userController.reqLoginByToken();
+    if (!mounted) return;
+    if (!isTokenValid) {
+      await userController.logout();
+      if (!mounted) return;
+      Get.offAllNamed(LoginPage.routeName);
+      return;
+    }
+
+    final VehicleController vehicleController = Get.find<VehicleController>();
+    final InfraController infraController = Get.find<InfraController>();
+
+    if (vehicleController.vehicles.isEmpty) {
+      await vehicleController.reqLoadVehicles();
+    }
+    if (infraController.infraIdentifiers.isEmpty) {
+      await infraController.reqLoadInfraIdentifiers();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    return SafeArea(
-      child: Scaffold(
-        backgroundColor: kBackgroundColor,
-        body: Column(
-          children: <Widget>[
-            buildHeaderBar(),
-            Expanded(
-              child: Stack(
-                children: <Widget>[
-                  Row(
+    return GetBuilder<LocaleController>(
+      init: Get.find<LocaleController>(),
+      builder: (_) {
+        return SafeArea(
+          child: Scaffold(
+            backgroundColor: kBackgroundColor,
+            body: Column(
+              children: <Widget>[
+                buildHeaderBar(),
+                Expanded(
+                  child: Stack(
                     children: <Widget>[
-                      buildSideMenu(),
-                      Expanded(
-                        child: buildTabHost(),
+                      Row(
+                        children: <Widget>[
+                          buildSideMenu(),
+                          Expanded(
+                            child: buildTabHost(),
+                          ),
+                        ],
                       ),
+                      buildProfilePanel(),
                     ],
                   ),
-                  buildProfilePanel(),
-                ],
-              ),
+                ),
+              ],
             ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 
   Widget buildSideMenu() {
-    return Container(
-      width: menuWidth,
-      color: Colors.white,
-      child: Column(
-        children: List<Widget>.generate(
-          menuTitles.length,
-          (int index) => buildMenuItem(index),
+    return GetBuilder<ActivityController>(
+      init: Get.find<ActivityController>(),
+      builder: (ActivityController ac) => Container(
+        width: menuWidth,
+        color: Colors.white,
+        child: Column(
+          children: List<Widget>.generate(
+            navigationTitles.length,
+            (int index) => buildMenuItem(index, unreadBadge: index == 2 ? ac.unreadCount : 0),
+          ),
         ),
       ),
     );
   }
 
-  Widget buildMenuItem(int index) {
+  Widget buildMenuItem(int index, {int unreadBadge = 0}) {
     final bool selected = selectedMenuIndex == index;
     final Color backgroundColor = selected ? const Color(0xFFF3F4F6) : Colors.white;
     final Color borderColor = selected ? const Color(0xFFE5E7EB) : Colors.white;
@@ -149,14 +213,41 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: <Widget>[
-                    SvgPicture.asset(
-                      selected
-                          ? 'assets/images/icons_menu_${menuIcons[index]}_selected.svg'
-                          : 'assets/images/icons_menu_${menuIcons[index]}_unselected.svg',
+                    Stack(
+                      clipBehavior: Clip.none,
+                      children: <Widget>[
+                        if (menuGlyphs[index] != null)
+                          Icon(
+                            menuGlyphs[index],
+                            size: 26,
+                            color: selected
+                                ? const Color(0xFF005CB2)
+                                : const Color(0xFF6B7280),
+                          )
+                        else
+                          SvgPicture.asset(
+                            selected
+                                ? 'assets/images/icons_menu_${menuIcons[index]}_selected.svg'
+                                : 'assets/images/icons_menu_${menuIcons[index]}_unselected.svg',
+                          ),
+                        if (unreadBadge > 0)
+                          Positioned(
+                            top: -3,
+                            right: -3,
+                            child: Container(
+                              width: 8,
+                              height: 8,
+                              decoration: const BoxDecoration(
+                                color: Color(0xFFC42B1C),
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                          ),
+                      ],
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      menuTitles[index],
+                      navigationTitles[index],
                       style: TextStyle(
                         fontFamily: 'gm-medium',
                         fontSize: 12,
@@ -197,7 +288,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             color: Colors.white,
             boxShadow: <BoxShadow>[
               BoxShadow(
-                color: const Color(0xFF000000).withOpacity(0.04),
+                color: const Color(0xFF000000).withValues(alpha: 0.04),
                 offset: const Offset(0, 1),
                 blurRadius: 4,
               ),
@@ -221,43 +312,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                 ),
               ),
               const Spacer(),
-              GetBuilder<LogController>(
-                init: logController,
-                builder: (LogController controller) {
-                  return SizedBox(
-                    height: 32,
-                    child: ElevatedButton.icon(
-                      onPressed: controller.isDownloading
-                          ? null
-                          : () {
-                              controller.downloadLatestLog();
-                            },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF005CB2),
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                        textStyle: const TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                      icon: const Icon(
-                        Icons.download,
-                        size: 16,
-                        color: Colors.white,
-                      ),
-                      label: const Text(
-                        '데이터 다운로드',
-                        style: TextStyle(
-                          color: Colors.white,
-                        ),
-                      ),
-                    ),
-                  );
-                },
-              ),
-              const SizedBox(width: 16),
               GetBuilder<TimeController>(
-                init: TimeController(),
+                init: Get.find<TimeController>(),
                 builder: (TimeController controller) {
                   final String formattedTime = DateFormat('yyyy.MM.dd  HH:mm').format(DateTime.now());
                   return Text(
@@ -271,9 +327,58 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                   );
                 },
               ),
-              const SizedBox(width: 24),
+              const SizedBox(width: 16),
+              // 알림 벨 배지
+              GetBuilder<ActivityController>(
+                init: Get.find<ActivityController>(),
+                builder: (ActivityController ac) {
+                  return GestureDetector(
+                    onTap: () {
+                      selectedMenuIndex = 2;
+                      tabController.index = 2;
+                      if (mounted) setState(() {});
+                    },
+                    child: Stack(
+                      clipBehavior: Clip.none,
+                      children: <Widget>[
+                        Icon(
+                          Icons.notifications_rounded,
+                          size: 24,
+                          color: ac.unreadCount > 0
+                              ? const Color(0xFF005CB2)
+                              : const Color(0xFF9CA3AF),
+                        ),
+                        if (ac.unreadCount > 0)
+                          Positioned(
+                            top: -4,
+                            right: -4,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFC42B1C),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              constraints: const BoxConstraints(minWidth: 16, minHeight: 14),
+                              child: Text(
+                                ac.unreadCount > 99 ? '99+' : '${ac.unreadCount}',
+                                style: const TextStyle(
+                                  fontSize: 9,
+                                  color: Colors.white,
+                                  fontFamily: 'pretendard',
+                                  fontWeight: FontWeight.w600,
+                                ),
+                                textAlign: TextAlign.center,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+              const SizedBox(width: 16),
               GetBuilder<UserController>(
-                init: UserController(),
+                init: Get.find<UserController>(),
                 builder: (UserController controller) {
                   Widget avatar;
                   if (controller.loginUser != null &&
@@ -281,11 +386,16 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                       controller.loginUser!.imageUrl!.isNotEmpty) {
                     avatar = ClipRRect(
                       borderRadius: BorderRadius.circular(avatarSize / 2),
-                      child: ExtendedImage.network(
-                        controller.loginUser!.imageUrl!,
+                      child: Image.network(
+                        Utils.proxyImageUrl(controller.loginUser!.imageUrl!),
                         width: avatarSize,
                         height: avatarSize,
                         fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => SvgPicture.asset(
+                          'assets/images/icons_small_profile.svg',
+                          width: avatarSize,
+                          fit: BoxFit.fitWidth,
+                        ),
                       ),
                     );
                   } else {
@@ -324,12 +434,14 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 
   Widget buildTabHost() {
     return DefaultTabController(
-      length: menuTitles.length,
+      length: 4,
       child: TabBarView(
         controller: tabController,
         physics: const NeverScrollableScrollPhysics(),
         children: const <Widget>[
           TabDashboard(),
+          TabDeviceManagement(),
+          TabActivity(),
           TabSetting(),
         ],
       ),
@@ -357,7 +469,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             ),
             boxShadow: <BoxShadow>[
               BoxShadow(
-                color: Colors.black.withOpacity(0.08),
+                color: Colors.black.withValues(alpha: 0.08),
                 blurRadius: 8,
                 offset: const Offset(0, 4),
               ),
@@ -367,7 +479,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
               GetBuilder<UserController>(
-                init: UserController(),
+                init: Get.find<UserController>(),
                 builder: (UserController controller) {
                   if (controller.loginUser == null) {
                     return const SizedBox.shrink();
@@ -378,11 +490,16 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                   if (controller.loginUser!.imageUrl != null && controller.loginUser!.imageUrl!.isNotEmpty) {
                     avatar = ClipRRect(
                       borderRadius: BorderRadius.circular(44),
-                      child: ExtendedImage.network(
-                        controller.loginUser!.imageUrl!,
+                      child: Image.network(
+                        Utils.proxyImageUrl(controller.loginUser!.imageUrl!),
                         width: 88,
                         height: 88,
                         fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => SvgPicture.asset(
+                          'assets/images/icons_profile.svg',
+                          width: 88,
+                          fit: BoxFit.fitWidth,
+                        ),
                       ),
                     );
                   } else {
@@ -431,8 +548,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
               const SizedBox(height: 16),
               GestureDetector(
                 onTap: () {
-                  tabController.index = 1;
-                  selectedMenuIndex = 1;
+                  tabController.index = 3;
+                  selectedMenuIndex = 3;
                   isProfileMenuVisible = false;
                   profileMenuAnimationController.reverse();
                   if (mounted) {
@@ -440,24 +557,24 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                   }
                 },
                 child: Row(
-                  children: const <Widget>[
+                  children: <Widget>[
                     SizedBox(width: 6),
-                    Icon(
+                    const Icon(
                       CupertinoIcons.gear,
                       size: 22,
                       color: kBlackFontColor,
                     ),
-                    SizedBox(width: 10),
+                    const SizedBox(width: 10),
                     Text(
-                      'My account',
-                      style: TextStyle(
+                      l10n('내 계정', 'My account'),
+                      style: const TextStyle(
                         fontFamily: 'pretendard',
                         fontSize: 15,
                         fontWeight: FontWeight.w400,
                         color: kBlackFontColor,
                       ),
                     ),
-                    Spacer(),
+                    const Spacer(),
                   ],
                 ),
               ),
@@ -468,24 +585,24 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                   Get.offAllNamed(LoginPage.routeName);
                 },
                 child: Row(
-                  children: const <Widget>[
+                  children: <Widget>[
                     SizedBox(width: 6),
-                    Icon(
+                    const Icon(
                       Icons.logout,
                       size: 22,
                       color: kBlackFontColor,
                     ),
-                    SizedBox(width: 10),
+                    const SizedBox(width: 10),
                     Text(
-                      'Log out',
-                      style: TextStyle(
+                      l10n('로그아웃', 'Log out'),
+                      style: const TextStyle(
                         fontFamily: 'pretendard',
                         fontSize: 15,
                         fontWeight: FontWeight.w400,
                         color: kBlackFontColor,
                       ),
                     ),
-                    Spacer(),
+                    const Spacer(),
                   ],
                 ),
               ),

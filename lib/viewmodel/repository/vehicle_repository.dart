@@ -1,7 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
-import '../../constants/constants.dart';
 import '../../model/vehicle_model.dart';
 import 'base_repository.dart';
 
@@ -13,21 +12,17 @@ class VehicleRepository extends BaseRepository {
   final String vehicleStatusPath = '/api/vehicle/status';
   final String vehicleHistoryPath = '/api/vehicle/history';
   final String vehicleLatestPath = '/api/vehicle/latest';
+  final String vehicleManageListPath = '/api/vehicle/manage/list';
+  final String vehicleManageDeletePath = '/api/vehicle/manage/delete';
 
   Future<List<Vehicle>> requestVehicleList() async {
-    final Uri url = Uri.http(kApiServer, vehicleListPath);
+    final Uri url = buildApiUri(vehicleListPath);
 
     try {
-      final http.Response response = await http.post(
+      final http.Response response = await safePost(
         url,
-        headers: getHeader(),
         body: jsonEncode(<String, dynamic>{}),
-      );
-
-      if (response.statusCode == 401 || response.statusCode == 403) {
-        debugPrint('[Error] requestVehicleList() unauthorized statusCode ${response.statusCode}');
-        return <Vehicle>[];
-      }
+      ).timeout(requestTimeout);
 
       if (response.statusCode != 200) {
         debugPrint('[Error] requestVehicleList() statusCode ${response.statusCode}');
@@ -61,14 +56,13 @@ class VehicleRepository extends BaseRepository {
   }
 
   Future<Vehicle?> requestVehicleById(int vehicleId) async {
-    final Uri url = Uri.http(kApiServer, vehicleByIdPath);
+    final Uri url = buildApiUri(vehicleByIdPath);
 
     try {
-      final http.Response response = await http.post(
+      final http.Response response = await safePost(
         url,
-        headers: getHeader(),
         body: jsonEncode(<String, dynamic>{'vehicle_id': vehicleId}),
-      );
+      ).timeout(requestTimeout);
 
       if (response.statusCode != 200) {
         debugPrint('[Error] requestVehicleById() statusCode ${response.statusCode}');
@@ -91,14 +85,13 @@ class VehicleRepository extends BaseRepository {
   /// Fetches the latest vehicle info.
   /// IMPORTANT: Uses POST to /api/vehicle/latest (not GET to /api/vehicle-status/latest).
   Future<VehicleInfo?> requestLatestVehicleInfo(int vehicleId) async {
-    final Uri url = Uri.http(kApiServer, vehicleLatestPath);
+    final Uri url = buildApiUri(vehicleLatestPath);
 
     try {
-      final http.Response response = await http.post(
+      final http.Response response = await safePost(
         url,
-        headers: getHeader(),
         body: jsonEncode(<String, dynamic>{'vehicle_id': vehicleId}),
-      );
+      ).timeout(requestTimeout);
 
       if (response.statusCode != 200) {
         debugPrint('[Error] requestLatestVehicleInfo() statusCode ${response.statusCode}');
@@ -121,17 +114,16 @@ class VehicleRepository extends BaseRepository {
   /// Fetches all latest vehicle statuses for map display.
   /// Use this instead of direct http.get to /api/vehicle-status/latest.
   Future<List<VehicleInfo>> requestAllLatestVehicleInfo() async {
-    final Uri url = Uri.http(kApiServer, vehicleStatusPath);
+    final Uri url = buildApiUri(vehicleStatusPath);
 
     try {
-      final http.Response response = await http.post(
+      final http.Response response = await safePost(
         url,
-        headers: getHeader(),
         body: jsonEncode(<String, dynamic>{
           'limit': 1000,
           'offset': 0,
         }),
-      );
+      ).timeout(requestTimeout);
 
       if (response.statusCode != 200) {
         debugPrint('[Error] requestAllLatestVehicleInfo() statusCode ${response.statusCode}');
@@ -178,7 +170,7 @@ class VehicleRepository extends BaseRepository {
     String? searchText,
     String? searchColumnName,
   }) async {
-    final Uri url = Uri.http(kApiServer, vehicleStatusPath);
+    final Uri url = buildApiUri(vehicleStatusPath);
 
     final Map<String, dynamic> payload = <String, dynamic>{
       'limit': limit,
@@ -206,11 +198,10 @@ class VehicleRepository extends BaseRepository {
     }
 
     try {
-      final http.Response response = await http.post(
+      final http.Response response = await safePost(
         url,
-        headers: getHeader(),
         body: jsonEncode(payload),
-      );
+      ).timeout(requestTimeout);
 
       if (response.statusCode != 200) {
         debugPrint('[Error] requestVehicleStatus() statusCode ${response.statusCode}');
@@ -256,7 +247,7 @@ class VehicleRepository extends BaseRepository {
     String? searchText,
     String? searchColumnName,
   }) async {
-    final Uri url = Uri.http(kApiServer, vehicleHistoryPath);
+    final Uri url = buildApiUri(vehicleHistoryPath);
 
     final Map<String, dynamic> payload = <String, dynamic>{
       'limit': limit,
@@ -284,11 +275,10 @@ class VehicleRepository extends BaseRepository {
     }
 
     try {
-      final http.Response response = await http.post(
+      final http.Response response = await safePost(
         url,
-        headers: getHeader(),
         body: jsonEncode(payload),
-      );
+      ).timeout(requestTimeout);
 
       if (response.statusCode != 200) {
         debugPrint('[Error] requestVehicleHistory() statusCode ${response.statusCode}');
@@ -322,6 +312,93 @@ class VehicleRepository extends BaseRepository {
     } catch (exception) {
       debugPrint('[Exception] requestVehicleHistory $exception');
       return null;
+    }
+  }
+
+  // 관리 페이지: 차량 목록 (vehicle_id별 집계)
+  Future<List<Map<String, dynamic>>> requestVehicleManageList() async {
+    final Uri url = buildApiUri(vehicleManageListPath);
+    try {
+      final http.Response response = await safePost(url, body: jsonEncode(<String, dynamic>{})).timeout(requestTimeout);
+      if (response.statusCode != 200) return <Map<String, dynamic>>[];
+      return handleResponse(response, (dynamic j) {
+        final dynamic body = j['body'];
+        if (body is List) return body.map((dynamic e) => Map<String, dynamic>.from(e as Map)).toList();
+        return <Map<String, dynamic>>[];
+      });
+    } catch (e) {
+      debugPrint('[Exception] requestVehicleManageList $e');
+      return <Map<String, dynamic>>[];
+    }
+  }
+
+  // 차량 일별 운행 통계 (운행 시간/평균속도/최대속도)
+  // 반환: [{ date_kst, operation_time_min, avg_kph, max_kph, moving_records, total_records }]
+  Future<List<Map<String, dynamic>>> requestDailyOperationStats({
+    required int vehicleId,
+    int days = 30,
+  }) async {
+    final Uri url = buildApiUri('/api/vehicle/dailyOperationStats');
+    try {
+      final http.Response response = await safePost(
+        url,
+        body: jsonEncode(<String, dynamic>{'vehicle_id': vehicleId, 'days': days}),
+      ).timeout(requestTimeout);
+      if (response.statusCode != 200) return <Map<String, dynamic>>[];
+      final dynamic decoded = jsonDecode(utf8.decode(response.bodyBytes));
+      final dynamic body = decoded is Map ? decoded['body'] : decoded;
+      if (body is List) {
+        return body
+            .whereType<Map>()
+            .map((dynamic e) => Map<String, dynamic>.from(e as Map))
+            .toList();
+      }
+      return <Map<String, dynamic>>[];
+    } catch (e) {
+      debugPrint('[Exception] requestDailyOperationStats $e');
+      return <Map<String, dynamic>>[];
+    }
+  }
+
+  // 차량 일별 감지 객체 합계 (KST 기준, 차트용)
+  // 반환: [{ date_kst, total_objects }]
+  Future<List<Map<String, dynamic>>> requestVehicleDailyObjectCounts({
+    required int vehicleId,
+    int days = 30,
+  }) async {
+    final Uri url = buildApiUri('/api/vehicle/dailyObjectCounts');
+    try {
+      final http.Response response = await safePost(
+        url,
+        body: jsonEncode(<String, dynamic>{'vehicle_id': vehicleId, 'days': days}),
+      ).timeout(requestTimeout);
+      if (response.statusCode != 200) return <Map<String, dynamic>>[];
+      final dynamic decoded = jsonDecode(utf8.decode(response.bodyBytes));
+      final dynamic body = decoded is Map ? decoded['body'] : decoded;
+      if (body is List) {
+        return body
+            .whereType<Map>()
+            .map((dynamic e) => Map<String, dynamic>.from(e as Map))
+            .toList();
+      }
+      return <Map<String, dynamic>>[];
+    } catch (e) {
+      debugPrint('[Exception] requestVehicleDailyObjectCounts $e');
+      return <Map<String, dynamic>>[];
+    }
+  }
+
+  // 관리 페이지: 차량 데이터 삭제
+  Future<bool> requestVehicleManageDelete(int vehicleId) async {
+    final Uri url = buildApiUri(vehicleManageDeletePath);
+    try {
+      final http.Response response = await safePost(url, body: jsonEncode(<String, dynamic>{'vehicle_id': vehicleId})).timeout(requestTimeout);
+      if (response.statusCode != 200) return false;
+      final dynamic j = jsonDecode(utf8.decode(response.bodyBytes));
+      return j?['code'] == '0000';
+    } catch (e) {
+      debugPrint('[Exception] requestVehicleManageDelete $e');
+      return false;
     }
   }
 }

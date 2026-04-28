@@ -9,6 +9,7 @@ class DetectedObject {
 
   int? msgId;
   int? msgSeq;
+  int? timeStampMs;
 
   int? age;
   double? score;
@@ -38,6 +39,7 @@ class DetectedObject {
     this.objectId,
     this.msgId,
     this.msgSeq,
+    this.timeStampMs,
     this.age,
     this.score,
     this.width,
@@ -68,6 +70,7 @@ class DetectedObject {
 
     msgId = _parseInt(json['msg_id']);
     msgSeq = _parseInt(json['msg_seq']);
+    timeStampMs = _parseInt(json['time_stamp_ms'] ?? json['time_stamp']);
 
     age = _parseInt(json['age']);
     score = _parseDouble(json['score']);
@@ -120,6 +123,7 @@ class DetectedObject {
       'object_id': objectId,
       'msg_id': msgId,
       'msg_seq': msgSeq,
+      'time_stamp_ms': timeStampMs,
       'age': age,
       'score': score,
       'width': width,
@@ -144,7 +148,7 @@ class DetectedObject {
 
   @override
   String toString() {
-    return 'DetectedObject{detectedObjectId: $detectedObjectId, objectId: $objectId, msgId: $msgId, msgSeq: $msgSeq, vehicleInfoId: $vehicleInfoId, infraInfoId: $infraInfoId}';
+    return 'DetectedObject{detectedObjectId: $detectedObjectId, objectId: $objectId, msgId: $msgId, msgSeq: $msgSeq, timeStampMs: $timeStampMs, vehicleInfoId: $vehicleInfoId, infraInfoId: $infraInfoId}';
   }
 }
 
@@ -167,7 +171,8 @@ class DetectedObjectResult {
       for (final dynamic element in itemsRaw) {
         if (element is Map) {
           try {
-            items.add(DetectedObject.fromJson(Map<String, dynamic>.from(element)));
+            items.add(
+                DetectedObject.fromJson(Map<String, dynamic>.from(element)));
           } catch (_) {}
         }
       }
@@ -351,7 +356,8 @@ class DetectedObjectHistoryResult {
       for (final dynamic element in itemsRaw) {
         if (element is Map) {
           try {
-            items.add(DetectedObjectHistory.fromJson(Map<String, dynamic>.from(element)));
+            items.add(DetectedObjectHistory.fromJson(
+                Map<String, dynamic>.from(element)));
           } catch (_) {}
         }
       }

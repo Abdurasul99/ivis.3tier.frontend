@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
 import '../../constants/constants.dart';
+import '../../i18n/app_locale.dart';
 import '../components/gradient_button.dart';
 
 class AskDialog extends StatelessWidget {
@@ -86,7 +87,7 @@ class AskDialog extends StatelessWidget {
                 SizedBox(
                   width: 157,
                   child: GradientButton(
-                    buttonText: leftText ?? "예",
+                    buttonText: leftText ?? l10n('예', 'Yes'),
                     buttonColor: const Color(0xFF005FB8),
                     onTap: () {
                       Get.back(result: "LEFT");
@@ -97,7 +98,7 @@ class AskDialog extends StatelessWidget {
                 SizedBox(
                   width: 157,
                   child: GradientButton(
-                    buttonText: rightText ?? "아니요",
+                    buttonText: rightText ?? l10n('아니오', 'No'),
                     onTap: () {
                       Get.back(result: "RIGHT");
                     },

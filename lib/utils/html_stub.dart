@@ -68,6 +68,10 @@ class MessageEvent {
 
 class Window {
   Stream<MessageEvent> get onMessage => _DummyStream<MessageEvent>();
+
+  dynamic open(String url, String name, [String? options]) {
+    return null;
+  }
 }
 
 final Window window = Window();
