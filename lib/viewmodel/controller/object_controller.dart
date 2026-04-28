@@ -13,7 +13,12 @@ enum DetectedObjectScope {
 }
 
 class ObjectController extends GetxController {
-  final ObjectRepository repositoryInternal = ObjectRepository();
+  // 생산 코드는 ObjectRepository()를 사용하고,
+  // 테스트에서는 FakeObjectRepository를 주입한다.
+  final ObjectRepository repositoryInternal;
+
+  ObjectController({ObjectRepository? repository})
+      : repositoryInternal = repository ?? ObjectRepository();
 
   List<DetectedObject> detectedObjectsInternal = <DetectedObject>[];
   bool isLoadingInternal = false;
@@ -84,7 +89,8 @@ class ObjectController extends GetxController {
     if (totalCountInternal <= 0) {
       return detectedObjectsInternal.length >= pageLimitInternal;
     }
-    return (pageOffsetInternal + detectedObjectsInternal.length) < totalCountInternal;
+    return (pageOffsetInternal + detectedObjectsInternal.length) <
+        totalCountInternal;
   }
 
   int get currentPageNumber {
@@ -98,7 +104,8 @@ class ObjectController extends GetxController {
     if (totalCountInternal <= 0 || pageLimitInternal <= 0) {
       return 1;
     }
-    final int pages = (totalCountInternal + pageLimitInternal - 1) ~/ pageLimitInternal;
+    final int pages =
+        (totalCountInternal + pageLimitInternal - 1) ~/ pageLimitInternal;
     return max(1, pages);
   }
 
@@ -136,7 +143,8 @@ class ObjectController extends GetxController {
       return;
     }
 
-    final bool isVehicleScope = scopeInternal == DetectedObjectScope.vehicleInfo;
+    final bool isVehicleScope =
+        scopeInternal == DetectedObjectScope.vehicleInfo;
     if (isVehicleScope && currentVehicleInfoIdInternal == null) {
       detectedObjectsInternal = <DetectedObject>[];
       totalCountInternal = 0;
@@ -201,6 +209,11 @@ class ObjectController extends GetxController {
     required int vehicleInfoId,
     int offset = 0,
     int limit = 200,
+    bool latestOnly = false,
+    int? vehicleTimeStampMs,
+    int? vehicleId,
+    int? msgSeq,
+    int? expectedObjectCount,
   }) async {
     if (!hasToken) {
       return null;
@@ -211,6 +224,11 @@ class ObjectController extends GetxController {
         vehicleInfoId: vehicleInfoId,
         limit: limit,
         offset: offset,
+        latestOnly: latestOnly,
+        vehicleTimeStampMs: vehicleTimeStampMs,
+        vehicleId: vehicleId,
+        msgSeq: msgSeq,
+        expectedObjectCount: expectedObjectCount,
       );
     } catch (exception) {
       if (kDebugMode) {
@@ -224,6 +242,11 @@ class ObjectController extends GetxController {
     required int infraInfoId,
     int offset = 0,
     int limit = 200,
+    bool latestOnly = false,
+    int? infraTimeStampMs,
+    int? infraId,
+    int? msgSeq,
+    int? expectedObjectCount,
   }) async {
     if (!hasToken) {
       return null;
@@ -234,6 +257,11 @@ class ObjectController extends GetxController {
         infraInfoId: infraInfoId,
         limit: limit,
         offset: offset,
+        latestOnly: latestOnly,
+        infraTimeStampMs: infraTimeStampMs,
+        infraId: infraId,
+        msgSeq: msgSeq,
+        expectedObjectCount: expectedObjectCount,
       );
     } catch (exception) {
       if (kDebugMode) {

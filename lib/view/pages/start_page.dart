@@ -1,12 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
-import 'package:ivis/viewmodel/controller/vehicle_controller.dart';
-import 'package:ivis/viewmodel/controller/infra_controller.dart';
 import 'package:get/get.dart';
 
-import '../../viewmodel/controller/mqtt_controller.dart';
 import '../../viewmodel/controller/user_controller.dart';
-import 'home_page.dart';
 import 'login_page.dart';
 
 class StartPage extends StatefulWidget {
@@ -29,48 +27,10 @@ class _StartPageState extends State<StartPage> {
   }
 
   Future<void> _initializeApp() async {
-    final UserController userController = Get.find<UserController>();
-
-    final bool isTokenValid = await userController.reqLoginByToken();
-
-    if (!mounted) {
-      return;
-    }
-
-    if (isTokenValid) {
-      await _loadEssentialData();
-
-      if (!mounted) {
-        return;
-      }
-
-      Get.offAllNamed(HomePage.routeName);
-
-      _connectMqttInBackground();
-    } else {
-      Get.offAllNamed(LoginPage.routeName);
-    }
-  }
-
-  Future<void> _loadEssentialData() async {
-    VehicleController vehicleController = Get.find<VehicleController>();
-    InfraController infraController = Get.find<InfraController>();
-
-    await vehicleController.reqLoadVehicles();
-    await infraController.reqLoadInfraIdentifiers();
-  }
-
-  void _connectMqttInBackground() {
-    final UserController userController = Get.find<UserController>();
-    final MqttController mqttController = Get.find<MqttController>();
-
-    final String? email = userController.loginUser?.email?.trim();
-    final String? userId = userController.loginUser?.userId?.trim();
-
-    final String clientId =
-        (email != null && email.isNotEmpty) ? email : (userId != null && userId.isNotEmpty ? userId : 'fms-web');
-
-    mqttController.connect(clientId);
+    // 페이지 새로고침 시 항상 로그아웃 처리 — 세션 자동 복원 없음
+    await Get.find<UserController>().logout();
+    if (!mounted) return;
+    Get.offAllNamed(LoginPage.routeName);
   }
 
   @override

@@ -1,104 +1,66 @@
 import 'package:flutter/material.dart';
-import 'package:ivis/view/components/empty_top_bar_view.dart';
-import 'package:ivis/view/components/layout.dart';
 import 'package:get/get.dart';
-import '../../constants/constants.dart';
+
+import '../../i18n/app_locale.dart';
+import '../../viewmodel/controller/locale_controller.dart';
+import '../components/auth_page_shell.dart';
 import 'login_page.dart';
 
 class LoginResetFinalPage extends StatelessWidget {
-  static const routeName = '/reset-final';
+  static const String routeName = '/reset-final';
 
   const LoginResetFinalPage({super.key});
 
   @override
   Widget build(BuildContext context) {
-    if (context.isMobile()) {
-      return const LoginResetFinalPage();
-    }
-    return SafeArea(
-      top: false,
-      bottom: false,
-      child: Scaffold(
-        backgroundColor: kBackgroundColor,
-        body: Column(
-          children: [
-            EmptyTopBarView(),
-            Expanded(
-              child: Center(
-                child: Container(
-                  width: 454,
-                  height: 430,
-                  padding: const EdgeInsets.all(24),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(10),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.1),
-                        blurRadius: 8,
-                        offset: const Offset(0, 4),
-                      ),
-                    ],
-                  ),
-                  child: buildContent(),
+    return GetBuilder<LocaleController>(
+      init: Get.find<LocaleController>(),
+      builder: (_) => AuthPageShell(
+        formChild: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Text(
+              t('비밀번호 재설정'),
+              style: const TextStyle(
+                fontSize: 30,
+                fontWeight: FontWeight.w800,
+                color: Color(0xFF0A1628),
+                letterSpacing: -0.5,
+                height: 1.2,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              t('비밀번호 재설정이 완료되었습니다.'),
+              style: const TextStyle(fontSize: 14, color: Color(0xFF8A94A6), height: 1.5),
+            ),
+            const SizedBox(height: 48),
+            const Icon(
+              Icons.lock_open_outlined,
+              size: 72,
+              color: Color(0xFF48BB78),
+            ),
+            const SizedBox(height: 16),
+            Center(
+              child: Text(
+                t('비밀번호가 성공적으로 변경되었습니다!\n새 비밀번호로 로그인하세요.'),
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 15,
+                  color: Color(0xFF4A5568),
+                  height: 1.6,
                 ),
               ),
+            ),
+            const SizedBox(height: 48),
+            AuthPrimaryButton(
+              text: t('로그인'),
+              onTap: () => Get.offAllNamed(LoginPage.routeName),
             ),
           ],
         ),
       ),
     );
-  }
-
-  Widget buildContent() {
-    return Column(
-      children: [
-        const SizedBox(height: 40),
-        const Text(
-          "비밀번호 재설정",
-          style: TextStyle(
-            fontFamily: 'gm-medium',
-            fontSize: 20,
-            fontWeight: FontWeight.w500,
-            color: kBlueFontColor,
-          ),
-        ),
-        const SizedBox(height: 20),
-        const Text(
-          "비밀번호 재설정이 완료되었습니다!",
-          style: TextStyle(
-            fontFamily: 'pretendard',
-            fontSize: 16,
-            color: Colors.black,
-          ),
-        ),
-        const SizedBox(height: 200),
-        SizedBox(
-          width: 358,
-          height: 40,
-          child: ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: kBlueFontColor,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(4),
-              ),
-            ),
-            onPressed: onTapLogin,
-            child: const Text(
-              "로그인",
-              style: TextStyle(
-                fontFamily: 'pretendard',
-                fontSize: 15,
-                color: Colors.white,
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  void onTapLogin() {
-    Get.offAllNamed(LoginPage.routeName);
   }
 }

@@ -1,38 +1,16 @@
-import 'package:flutter/material.dart';
-import 'package:ivis/view/components/empty_top_bar_view.dart';
-import 'package:ivis/view/components/layout.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:get/get.dart';
 
-import '../../constants/constants.dart';
+import '../../i18n/app_locale.dart';
 import '../../utils/utils.dart';
+import '../../viewmodel/controller/locale_controller.dart';
 import '../../viewmodel/controller/user_controller.dart';
+import '../components/auth_page_shell.dart';
+import 'login_page.dart';
 import 'signup_final_page.dart';
 
-final TextStyle kPlaceholderStyle = TextStyle(
-  fontFamily: 'pretendard',
-  fontWeight: FontWeight.w400,
-  fontSize: 15,
-  height: 17.9 / 15,
-  color: Color(0xFF666565),
-);
-
-final TextStyle kLabelStyle = TextStyle(
-  fontFamily: 'pretendard',
-  fontWeight: FontWeight.w400,
-  fontSize: 15,
-  height: 17.9 / 15,
-  color: Colors.black,
-);
-
-final TextStyle kLabelErrorStyle = TextStyle(
-  fontFamily: 'pretendard',
-  fontSize: 14,
-  color: Color(0xFFC42B1C),
-  fontWeight: FontWeight.w400,
-);
-
 class SignUpPage extends StatefulWidget {
-  static const routeName = '/signup';
+  static const String routeName = '/signup';
 
   const SignUpPage({super.key});
 
@@ -46,25 +24,28 @@ class _SignUpPageState extends State<SignUpPage> {
   final TextEditingController _confirmCtrl = TextEditingController();
   final TextEditingController _phoneCtrl = TextEditingController();
 
-  String nameFromPrev = "";
-  String emailFromPrev = "";
+  final FocusNode _idFocusNode = FocusNode();
+  final FocusNode _passwordFocusNode = FocusNode();
+  final FocusNode _confirmFocusNode = FocusNode();
+  final FocusNode _phoneFocusNode = FocusNode();
 
-  bool _idError = false;
-  bool _pwError = false;
-  bool _pwConfirmError = false;
-  bool _phoneError = false;
+  String nameFromPrev = '';
+  String emailFromPrev = '';
 
-  String _idErrMsg = "";
-  String _pwErrMsg = "";
-  String _pwConfirmErrMsg = "";
-  String _phoneErrMsg = "";
+  bool _showPassword = false;
+  bool _showConfirm = false;
+
+  String _idErrMsg = '';
+  String _pwErrMsg = '';
+  String _pwConfirmErrMsg = '';
+  String _phoneErrMsg = '';
 
   @override
   void initState() {
     super.initState();
-    final args = Get.arguments ?? {};
-    nameFromPrev = args['name'] ?? "";
-    emailFromPrev = args['email'] ?? "";
+    final Map<dynamic, dynamic> args = Get.arguments ?? <String, dynamic>{};
+    nameFromPrev = args['name']?.toString() ?? '';
+    emailFromPrev = args['email']?.toString() ?? '';
   }
 
   @override
@@ -73,265 +54,47 @@ class _SignUpPageState extends State<SignUpPage> {
     _passwordCtrl.dispose();
     _confirmCtrl.dispose();
     _phoneCtrl.dispose();
+    _idFocusNode.dispose();
+    _passwordFocusNode.dispose();
+    _confirmFocusNode.dispose();
+    _phoneFocusNode.dispose();
     super.dispose();
   }
 
-  @override
-  Widget build(BuildContext context) {
-    if (context.isMobile()) {
-      return const SignUpPage();
-    }
-    return SafeArea(
-      child: Scaffold(
-        backgroundColor: kBackgroundColor,
-        body: Column(
-          children: [
-            EmptyTopBarView(),
-            Expanded(
-              child: Center(
-                child: Container(
-                  width: 454,
-                  height: 685,
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(10),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.25),
-                        blurRadius: 8,
-                        offset: const Offset(0, 0),
-                      ),
-                    ],
-                  ),
-                  padding: const EdgeInsets.symmetric(horizontal: 42, vertical: 42),
-                  alignment: Alignment.center,
-                  child: buildContent(),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget buildContent() {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        const Text(
-          "회원가입",
-          style: TextStyle(
-            fontFamily: 'gm-medium',
-            fontSize: 20,
-            fontWeight: FontWeight.w500,
-            color: kBlueFontColor,
-          ),
-        ),
-        const SizedBox(height: 24),
-        buildFieldRowWithError(
-          label: "아이디",
-          errorMsg: _idErrMsg,
-          isError: _idError,
-          controller: _idCtrl,
-          hintText: "아이디를 입력하세요.",
-          obscureText: false,
-        ),
-        const SizedBox(height: 16),
-        buildFieldRowWithError(
-          label: "비밀번호",
-          errorMsg: _pwErrMsg,
-          isError: _pwError,
-          controller: _passwordCtrl,
-          hintText: "비밀번호를 입력하세요.",
-          obscureText: true,
-        ),
-        const SizedBox(height: 16),
-        buildFieldRowWithError(
-          label: "비밀번호 확인",
-          errorMsg: _pwConfirmErrMsg,
-          isError: _pwConfirmError,
-          controller: _confirmCtrl,
-          hintText: "비밀번호를 다시 입력하세요.",
-          obscureText: true,
-        ),
-        const SizedBox(height: 16),
-        buildReadOnlyField(label: "이름", value: nameFromPrev),
-        const SizedBox(height: 16),
-        buildReadOnlyField(label: "메일", value: emailFromPrev),
-        const SizedBox(height: 16),
-        buildFieldRowWithError(
-          label: "연락처",
-          errorMsg: _phoneErrMsg,
-          isError: _phoneError,
-          controller: _phoneCtrl,
-          hintText: "연락처를 입력해주세요.",
-          obscureText: false,
-        ),
-        const SizedBox(height: 24),
-        SizedBox(
-          width: double.infinity,
-          height: 40,
-          child: ElevatedButton(
-            onPressed: onTapSignUp,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: kBlueFontColor,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(6),
-              ),
-            ),
-            child: const Text(
-              "확인",
-              style: TextStyle(
-                fontFamily: 'pretendard',
-                fontSize: 15,
-                color: Colors.white,
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget buildFieldRowWithError({
-    required String label,
-    required String errorMsg,
-    required bool isError,
-    required TextEditingController controller,
-    required String hintText,
-    required bool obscureText,
-  }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(label, style: kLabelStyle),
-            if (isError && errorMsg.isNotEmpty)
-              Flexible(
-                child: Text(
-                  errorMsg,
-                  style: kLabelErrorStyle,
-                  textAlign: TextAlign.right,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-          ],
-        ),
-        const SizedBox(height: 4),
-        TextField(
-          controller: controller,
-          obscureText: obscureText,
-          style: TextStyle(
-            fontFamily: 'pretendard',
-            fontSize: 15,
-            color: isError ? const Color(0xFFC42B1C) : Colors.black,
-            height: 17.9 / 15,
-            fontWeight: FontWeight.w400,
-          ),
-          decoration: InputDecoration(
-            hintText: hintText,
-            hintStyle: kPlaceholderStyle,
-            border: borderStyle(normal: !isError),
-            enabledBorder: borderStyle(normal: !isError),
-            focusedBorder: borderStyle(normal: !isError),
-            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget buildReadOnlyField({
-    required String label,
-    required String value,
-  }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(label, style: kLabelStyle),
-        const SizedBox(height: 4),
-        Container(
-          height: 40,
-          decoration: BoxDecoration(
-            color: const Color(0xFFF5F5F5),
-            borderRadius: BorderRadius.circular(6),
-          ),
-          alignment: Alignment.centerLeft,
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          child: Text(
-            value,
-            style: kLabelStyle,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-        ),
-      ],
-    );
-  }
-
-  OutlineInputBorder borderStyle({required bool normal}) {
-    return OutlineInputBorder(
-      borderRadius: BorderRadius.circular(6),
-      borderSide: BorderSide(
-        color: normal ? Colors.grey : const Color(0xFFC42B1C),
-        width: 1.0,
-      ),
-    );
-  }
-
-  Future<void> onTapSignUp() async {
+  Future<void> _onTapSignUp() async {
     setState(() {
-      _idError = false;
-      _idErrMsg = "";
-      _pwError = false;
-      _pwErrMsg = "";
-      _pwConfirmError = false;
-      _pwConfirmErrMsg = "";
-      _phoneError = false;
-      _phoneErrMsg = "";
+      _idErrMsg = '';
+      _pwErrMsg = '';
+      _pwConfirmErrMsg = '';
+      _phoneErrMsg = '';
     });
 
-    final idVal = _idCtrl.text.trim();
-    final pwVal = _passwordCtrl.text.trim();
-    final pw2Val = _confirmCtrl.text.trim();
-    final phoneVal = _phoneCtrl.text.trim();
+    final String idVal = _idCtrl.text.trim();
+    final String pwVal = _passwordCtrl.text.trim();
+    final String pw2Val = _confirmCtrl.text.trim();
+    final String phoneVal = _phoneCtrl.text.trim();
 
+    bool hasError = false;
     if (idVal.isEmpty) {
-      setState(() {
-        _idError = true;
-        _idErrMsg = "사용이 불가능한 아이디입니다.";
-      });
+      setState(() => _idErrMsg = t('사용이 불가능한 아이디입니다.'));
+      hasError = true;
     }
     if (pwVal.isEmpty) {
-      setState(() {
-        _pwError = true;
-        _pwErrMsg = "사용이 불가능한 비밀번호입니다.";
-      });
+      setState(() => _pwErrMsg = t('사용이 불가능한 비밀번호입니다.'));
+      hasError = true;
     }
     if (pw2Val.isEmpty || pw2Val != pwVal) {
-      setState(() {
-        _pwConfirmError = true;
-        _pwConfirmErrMsg = "비밀번호를 확인해주세요.";
-      });
+      setState(() => _pwConfirmErrMsg = t('비밀번호를 확인해주세요.'));
+      hasError = true;
     }
     if (phoneVal.isEmpty) {
-      setState(() {
-        _phoneError = true;
-        _phoneErrMsg = "연락처를 입력해주세요.";
-      });
+      setState(() => _phoneErrMsg = t('연락처를 입력해주세요.'));
+      hasError = true;
     }
+    if (hasError) return;
 
-    if (_idError || _pwError || _pwConfirmError || _phoneError) {
-      return;
-    }
-
-    final userCtrl = Get.find<UserController>();
-    final success = await userCtrl.reqSignUpByIdAndEmail(
+    final UserController userCtrl = Get.find<UserController>();
+    final bool success = await userCtrl.reqSignUpByIdAndEmail(
       idVal,
       emailFromPrev,
       nameFromPrev,
@@ -339,11 +102,111 @@ class _SignUpPageState extends State<SignUpPage> {
       pwVal,
     );
     if (!success) {
-      Utils.showSnackBar("회원가입 실패: ID/EMAIL 중복이거나 서버 오류", isError: true);
+      Utils.showSnackBar(t('회원가입 실패: ID/EMAIL 중복이거나 서버 오류'), isError: true);
       return;
     }
-
-    Utils.showSnackBar("회원가입 성공!");
+    Utils.showSnackBar(t('회원가입 성공!'));
     Get.offAllNamed(SignUpFinalPage.routeName);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GetBuilder<LocaleController>(
+      init: Get.find<LocaleController>(),
+      builder: (_) => AuthPageShell(
+        formChild: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Text(
+              t('회원가입'),
+              style: const TextStyle(
+                fontSize: 30,
+                fontWeight: FontWeight.w800,
+                color: Color(0xFF0A1628),
+                letterSpacing: -0.5,
+                height: 1.2,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              t('계정 정보를 입력하여 회원가입을 완료하세요.'),
+              style: const TextStyle(fontSize: 14, color: Color(0xFF8A94A6), height: 1.5),
+            ),
+            const SizedBox(height: 32),
+            AuthFieldLabel(text: t('아이디')),
+            const SizedBox(height: 8),
+            AuthTextField(
+              controller: _idCtrl,
+              focusNode: _idFocusNode,
+              hintText: t('아이디를 입력하세요.'),
+              prefixIconData: CupertinoIcons.person,
+              errorText: _idErrMsg.isNotEmpty ? _idErrMsg : null,
+            ),
+            const SizedBox(height: 16),
+            AuthFieldLabel(text: t('비밀번호')),
+            const SizedBox(height: 8),
+            AuthTextField(
+              controller: _passwordCtrl,
+              focusNode: _passwordFocusNode,
+              hintText: t('비밀번호를 입력하세요.'),
+              prefixIconData: CupertinoIcons.lock,
+              obscureText: !_showPassword,
+              suffixIconData: _showPassword ? CupertinoIcons.eye : CupertinoIcons.eye_slash,
+              onSuffixTapped: () => setState(() => _showPassword = !_showPassword),
+              errorText: _pwErrMsg.isNotEmpty ? _pwErrMsg : null,
+            ),
+            const SizedBox(height: 16),
+            AuthFieldLabel(text: t('비밀번호 확인')),
+            const SizedBox(height: 8),
+            AuthTextField(
+              controller: _confirmCtrl,
+              focusNode: _confirmFocusNode,
+              hintText: t('비밀번호를 다시 입력하세요.'),
+              prefixIconData: CupertinoIcons.lock,
+              obscureText: !_showConfirm,
+              suffixIconData: _showConfirm ? CupertinoIcons.eye : CupertinoIcons.eye_slash,
+              onSuffixTapped: () => setState(() => _showConfirm = !_showConfirm),
+              errorText: _pwConfirmErrMsg.isNotEmpty ? _pwConfirmErrMsg : null,
+            ),
+            const SizedBox(height: 16),
+            AuthFieldLabel(text: t('이름')),
+            const SizedBox(height: 8),
+            AuthTextField(
+              controller: TextEditingController(text: nameFromPrev),
+              hintText: t('이름'),
+              prefixIconData: CupertinoIcons.person_alt,
+              readOnly: true,
+            ),
+            const SizedBox(height: 16),
+            AuthFieldLabel(text: t('메일')),
+            const SizedBox(height: 8),
+            AuthTextField(
+              controller: TextEditingController(text: emailFromPrev),
+              hintText: t('메일'),
+              prefixIconData: CupertinoIcons.mail,
+              readOnly: true,
+            ),
+            const SizedBox(height: 16),
+            AuthFieldLabel(text: t('연락처')),
+            const SizedBox(height: 8),
+            AuthTextField(
+              controller: _phoneCtrl,
+              focusNode: _phoneFocusNode,
+              hintText: t('연락처를 입력해주세요.'),
+              prefixIconData: CupertinoIcons.phone,
+              errorText: _phoneErrMsg.isNotEmpty ? _phoneErrMsg : null,
+            ),
+            const SizedBox(height: 32),
+            AuthPrimaryButton(text: t('확인'), onTap: _onTapSignUp),
+            const SizedBox(height: 24),
+            AuthBackLink(
+              text: t('← 로그인으로 돌아가기'),
+              onTap: () => Get.offAllNamed(LoginPage.routeName),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }

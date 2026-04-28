@@ -1,3 +1,5 @@
+import 'object_model.dart';
+
 class InfraInfo {
   int? id;
   int? infraId;
@@ -7,6 +9,8 @@ class InfraInfo {
   int? timeStamp;
   int? timeStampMs;
   int? numberOfObjects;
+  bool? payloadCrcOk;
+  String? payloadBytesHex;
   String? createdTs;
   String? updatedTs;
 
@@ -19,6 +23,8 @@ class InfraInfo {
     this.timeStamp,
     this.timeStampMs,
     this.numberOfObjects,
+    this.payloadCrcOk,
+    this.payloadBytesHex,
     this.createdTs,
     this.updatedTs,
   });
@@ -32,6 +38,8 @@ class InfraInfo {
     timeStamp = _parseInt(json['time_stamp']);
     timeStampMs = _parseInt(json['time_stamp_ms']);
     numberOfObjects = _parseInt(json['number_of_objects']);
+    payloadCrcOk = _parseBool(json['payload_crc_ok']);
+    payloadBytesHex = _parseString(json['payload_bytes_hex']);
     createdTs = _parseString(json['created_ts'] ?? json['created_at']);
     updatedTs = _parseString(json['updated_ts'] ?? json['updated_at']);
 
@@ -53,6 +61,16 @@ class InfraInfo {
     return value.toString();
   }
 
+  static bool? _parseBool(dynamic value) {
+    if (value == null) return null;
+    if (value is bool) return value;
+    if (value is num) return value != 0;
+    final String normalized = value.toString().trim().toLowerCase();
+    if (normalized == 'true' || normalized == '1') return true;
+    if (normalized == 'false' || normalized == '0') return false;
+    return null;
+  }
+
   Map<String, dynamic> toJson() {
     return <String, dynamic>{
       'id': id,
@@ -63,6 +81,8 @@ class InfraInfo {
       'time_stamp': timeStamp,
       'time_stamp_ms': timeStampMs,
       'number_of_objects': numberOfObjects,
+      'payload_crc_ok': payloadCrcOk,
+      'payload_bytes_hex': payloadBytesHex,
       'created_ts': createdTs,
       'updated_ts': updatedTs,
     };
@@ -81,7 +101,9 @@ class InfraInfoResult {
   InfraInfoResult.fromJson(Map<String, dynamic> json)
       : totalCount = 0,
         items = <InfraInfo>[] {
-    totalCount = _parseInt(json['totalCount'] ?? json['total_count'] ?? json['total']) ?? 0;
+    totalCount =
+        _parseInt(json['totalCount'] ?? json['total_count'] ?? json['total']) ??
+            0;
     final dynamic itemsRaw = json['items'];
     if (itemsRaw is List) {
       items = <InfraInfo>[];
@@ -115,6 +137,9 @@ class InfraInfoHistory {
   int? timeStamp;
   int? timeStampMs;
   int? numberOfObjects;
+  List<DetectedObject> objects = const <DetectedObject>[];
+  bool? payloadCrcOk;
+  String? payloadBytesHex;
   String? createdTs;
   String? updatedTs;
 
@@ -129,6 +154,9 @@ class InfraInfoHistory {
     this.timeStamp,
     this.timeStampMs,
     this.numberOfObjects,
+    this.objects = const <DetectedObject>[],
+    this.payloadCrcOk,
+    this.payloadBytesHex,
     this.createdTs,
     this.updatedTs,
   });
@@ -144,6 +172,10 @@ class InfraInfoHistory {
     timeStamp = _parseInt(json['time_stamp']);
     timeStampMs = _parseInt(json['time_stamp_ms']);
     numberOfObjects = _parseInt(json['number_of_objects']);
+    objects = _parseObjects(
+        json['objects'] ?? json['detected_objects'] ?? json['detectedObjects']);
+    payloadCrcOk = _parseBool(json['payload_crc_ok']);
+    payloadBytesHex = _parseString(json['payload_bytes_hex']);
     createdTs = _parseString(json['created_ts'] ?? json['created_at']);
     updatedTs = _parseString(json['updated_ts'] ?? json['updated_at']);
 
@@ -165,6 +197,31 @@ class InfraInfoHistory {
     return value.toString();
   }
 
+  static bool? _parseBool(dynamic value) {
+    if (value == null) return null;
+    if (value is bool) return value;
+    if (value is num) return value != 0;
+    final String normalized = value.toString().trim().toLowerCase();
+    if (normalized == 'true' || normalized == '1') return true;
+    if (normalized == 'false' || normalized == '0') return false;
+    return null;
+  }
+
+  static List<DetectedObject> _parseObjects(dynamic value) {
+    if (value is! List) return <DetectedObject>[];
+
+    final List<DetectedObject> parsed = <DetectedObject>[];
+    for (final dynamic element in value) {
+      if (element is Map) {
+        try {
+          parsed
+              .add(DetectedObject.fromJson(Map<String, dynamic>.from(element)));
+        } catch (_) {}
+      }
+    }
+    return parsed;
+  }
+
   Map<String, dynamic> toJson() {
     return <String, dynamic>{
       'history_id': historyId,
@@ -177,6 +234,9 @@ class InfraInfoHistory {
       'time_stamp': timeStamp,
       'time_stamp_ms': timeStampMs,
       'number_of_objects': numberOfObjects,
+      'objects': objects.map((DetectedObject item) => item.toJson()).toList(),
+      'payload_crc_ok': payloadCrcOk,
+      'payload_bytes_hex': payloadBytesHex,
       'created_ts': createdTs,
       'updated_ts': updatedTs,
     };
@@ -195,14 +255,17 @@ class InfraInfoHistoryResult {
   InfraInfoHistoryResult.fromJson(Map<String, dynamic> json)
       : totalCount = 0,
         items = <InfraInfoHistory>[] {
-    totalCount = _parseInt(json['totalCount'] ?? json['total_count'] ?? json['total']) ?? 0;
+    totalCount =
+        _parseInt(json['totalCount'] ?? json['total_count'] ?? json['total']) ??
+            0;
     final dynamic itemsRaw = json['items'];
     if (itemsRaw is List) {
       items = <InfraInfoHistory>[];
       for (final dynamic element in itemsRaw) {
         if (element is Map) {
           try {
-            items.add(InfraInfoHistory.fromJson(Map<String, dynamic>.from(element)));
+            items.add(
+                InfraInfoHistory.fromJson(Map<String, dynamic>.from(element)));
           } catch (_) {}
         }
       }

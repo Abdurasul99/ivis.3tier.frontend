@@ -7,7 +7,12 @@ import '../repository/vehicle_repository.dart';
 import 'user_controller.dart';
 
 class VehicleController extends GetxController {
-  final VehicleRepository repository = VehicleRepository();
+  // 생산 코드는 VehicleRepository()를 사용하고,
+  // 테스트에서는 FakeVehicleRepository를 주입한다.
+  final VehicleRepository repository;
+
+  VehicleController({VehicleRepository? repository})
+      : repository = repository ?? VehicleRepository();
 
   bool isLoadingInternal = false;
   List<Vehicle> vehiclesInternal = <Vehicle>[];

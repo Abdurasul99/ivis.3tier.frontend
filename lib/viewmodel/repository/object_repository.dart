@@ -2,7 +2,6 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
-import '../../constants/constants.dart';
 import '../../model/object_model.dart';
 import 'base_repository.dart';
 
@@ -17,22 +16,46 @@ class ObjectRepository extends BaseRepository {
     required int vehicleInfoId,
     int limit = 50000,
     int offset = 0,
+    bool latestOnly = false,
+    int? vehicleTimeStampMs,
+    int? vehicleId,
+    int? msgSeq,
+    int? expectedObjectCount,
   }) async {
-    final Uri url = Uri.http(kApiServer, _byVehicleInfoPath);
+    final Uri url = buildApiUri(_byVehicleInfoPath);
 
     try {
+      final Map<String, dynamic> payload = <String, dynamic>{
+        'vehicle_info_id': vehicleInfoId,
+        'limit': limit,
+        'offset': offset,
+      };
+
+      if (latestOnly) {
+        payload['latest_only'] = true;
+      }
+      if (vehicleTimeStampMs != null) {
+        payload['vehicle_time_stamp_ms'] = vehicleTimeStampMs;
+      }
+      if (vehicleId != null) {
+        payload['vehicle_id'] = vehicleId;
+      }
+      if (msgSeq != null) {
+        payload['msg_seq'] = msgSeq;
+      }
+      if (expectedObjectCount != null) {
+        payload['expected_object_count'] = expectedObjectCount;
+      }
+
       final http.Response response = await http.post(
         url,
         headers: getHeader(),
-        body: jsonEncode(<String, dynamic>{
-          'vehicle_info_id': vehicleInfoId,
-          'limit': limit,
-          'offset': offset,
-        }),
-      );
+        body: jsonEncode(payload),
+      ).timeout(requestTimeout);
 
       if (response.statusCode != 200) {
-        debugPrint('[Error] requestByVehicleInfo() statusCode ${response.statusCode}');
+        debugPrint(
+            '[Error] requestByVehicleInfo() statusCode ${response.statusCode}');
         return null;
       }
 
@@ -48,7 +71,8 @@ class ObjectRepository extends BaseRepository {
           for (final dynamic element in body) {
             if (element is Map) {
               try {
-                items.add(DetectedObject.fromJson(Map<String, dynamic>.from(element)));
+                items.add(DetectedObject.fromJson(
+                    Map<String, dynamic>.from(element)));
               } catch (_) {}
             }
           }
@@ -67,22 +91,46 @@ class ObjectRepository extends BaseRepository {
     required int infraInfoId,
     int limit = 200,
     int offset = 0,
+    bool latestOnly = false,
+    int? infraTimeStampMs,
+    int? infraId,
+    int? msgSeq,
+    int? expectedObjectCount,
   }) async {
-    final Uri url = Uri.http(kApiServer, _byInfraInfoPath);
+    final Uri url = buildApiUri(_byInfraInfoPath);
 
     try {
+      final Map<String, dynamic> payload = <String, dynamic>{
+        'infra_info_id': infraInfoId,
+        'limit': limit,
+        'offset': offset,
+      };
+
+      if (latestOnly) {
+        payload['latest_only'] = true;
+      }
+      if (infraTimeStampMs != null) {
+        payload['infra_time_stamp_ms'] = infraTimeStampMs;
+      }
+      if (infraId != null) {
+        payload['infra_id'] = infraId;
+      }
+      if (msgSeq != null) {
+        payload['msg_seq'] = msgSeq;
+      }
+      if (expectedObjectCount != null) {
+        payload['expected_object_count'] = expectedObjectCount;
+      }
+
       final http.Response response = await http.post(
         url,
         headers: getHeader(),
-        body: jsonEncode(<String, dynamic>{
-          'infra_info_id': infraInfoId,
-          'limit': limit,
-          'offset': offset,
-        }),
-      );
+        body: jsonEncode(payload),
+      ).timeout(requestTimeout);
 
       if (response.statusCode != 200) {
-        debugPrint('[Error] requestByInfraInfo() statusCode ${response.statusCode}');
+        debugPrint(
+            '[Error] requestByInfraInfo() statusCode ${response.statusCode}');
         return null;
       }
 
@@ -98,7 +146,8 @@ class ObjectRepository extends BaseRepository {
           for (final dynamic element in body) {
             if (element is Map) {
               try {
-                items.add(DetectedObject.fromJson(Map<String, dynamic>.from(element)));
+                items.add(DetectedObject.fromJson(
+                    Map<String, dynamic>.from(element)));
               } catch (_) {}
             }
           }
@@ -118,7 +167,7 @@ class ObjectRepository extends BaseRepository {
     int limit = 200,
     int offset = 0,
   }) async {
-    final Uri url = Uri.http(kApiServer, _byVehicleHistoryPath);
+    final Uri url = buildApiUri(_byVehicleHistoryPath);
 
     try {
       final http.Response response = await http.post(
@@ -129,10 +178,11 @@ class ObjectRepository extends BaseRepository {
           'limit': limit,
           'offset': offset,
         }),
-      );
+      ).timeout(requestTimeout);
 
       if (response.statusCode != 200) {
-        debugPrint('[Error] requestByVehicleHistory() statusCode ${response.statusCode}');
+        debugPrint(
+            '[Error] requestByVehicleHistory() statusCode ${response.statusCode}');
         return null;
       }
 
@@ -140,7 +190,8 @@ class ObjectRepository extends BaseRepository {
         final dynamic body = jsonResponse['body'];
 
         if (body is Map) {
-          return DetectedObjectHistoryResult.fromJson(Map<String, dynamic>.from(body));
+          return DetectedObjectHistoryResult.fromJson(
+              Map<String, dynamic>.from(body));
         }
 
         if (body is List) {
@@ -148,11 +199,13 @@ class ObjectRepository extends BaseRepository {
           for (final dynamic element in body) {
             if (element is Map) {
               try {
-                items.add(DetectedObjectHistory.fromJson(Map<String, dynamic>.from(element)));
+                items.add(DetectedObjectHistory.fromJson(
+                    Map<String, dynamic>.from(element)));
               } catch (_) {}
             }
           }
-          return DetectedObjectHistoryResult(totalCount: items.length, items: items);
+          return DetectedObjectHistoryResult(
+              totalCount: items.length, items: items);
         }
 
         return DetectedObjectHistoryResult();
@@ -168,7 +221,7 @@ class ObjectRepository extends BaseRepository {
     int limit = 200,
     int offset = 0,
   }) async {
-    final Uri url = Uri.http(kApiServer, _byInfraHistoryPath);
+    final Uri url = buildApiUri(_byInfraHistoryPath);
 
     try {
       final http.Response response = await http.post(
@@ -179,10 +232,11 @@ class ObjectRepository extends BaseRepository {
           'limit': limit,
           'offset': offset,
         }),
-      );
+      ).timeout(requestTimeout);
 
       if (response.statusCode != 200) {
-        debugPrint('[Error] requestByInfraHistory() statusCode ${response.statusCode}');
+        debugPrint(
+            '[Error] requestByInfraHistory() statusCode ${response.statusCode}');
         return null;
       }
 
@@ -190,7 +244,8 @@ class ObjectRepository extends BaseRepository {
         final dynamic body = jsonResponse['body'];
 
         if (body is Map) {
-          return DetectedObjectHistoryResult.fromJson(Map<String, dynamic>.from(body));
+          return DetectedObjectHistoryResult.fromJson(
+              Map<String, dynamic>.from(body));
         }
 
         if (body is List) {
@@ -198,11 +253,13 @@ class ObjectRepository extends BaseRepository {
           for (final dynamic element in body) {
             if (element is Map) {
               try {
-                items.add(DetectedObjectHistory.fromJson(Map<String, dynamic>.from(element)));
+                items.add(DetectedObjectHistory.fromJson(
+                    Map<String, dynamic>.from(element)));
               } catch (_) {}
             }
           }
-          return DetectedObjectHistoryResult(totalCount: items.length, items: items);
+          return DetectedObjectHistoryResult(
+              totalCount: items.length, items: items);
         }
 
         return DetectedObjectHistoryResult();
@@ -219,7 +276,7 @@ class ObjectRepository extends BaseRepository {
     int limit = 200,
     int offset = 0,
   }) async {
-    final Uri url = Uri.http(kApiServer, _historyPath);
+    final Uri url = buildApiUri(_historyPath);
 
     final Map<String, dynamic> payload = <String, dynamic>{
       'limit': limit,
@@ -239,10 +296,11 @@ class ObjectRepository extends BaseRepository {
         url,
         headers: getHeader(),
         body: jsonEncode(payload),
-      );
+      ).timeout(requestTimeout);
 
       if (response.statusCode != 200) {
-        debugPrint('[Error] requestHistory() statusCode ${response.statusCode}');
+        debugPrint(
+            '[Error] requestHistory() statusCode ${response.statusCode}');
         return <DetectedObject>[];
       }
 
@@ -264,7 +322,8 @@ class ObjectRepository extends BaseRepository {
         for (final dynamic element in rawList) {
           if (element is Map) {
             try {
-              result.add(DetectedObject.fromJson(Map<String, dynamic>.from(element)));
+              result.add(
+                  DetectedObject.fromJson(Map<String, dynamic>.from(element)));
             } catch (_) {}
           }
         }

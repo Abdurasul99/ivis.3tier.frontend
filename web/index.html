@@ -57,6 +57,55 @@
     async
     defer
   ></script>
+
+  <script>
+    (function () {
+      let daumPostcodeLoader;
+
+      function ensureDaumPostcodeLoaded() {
+        if (window.daum && window.daum.Postcode) {
+          return Promise.resolve();
+        }
+
+        if (daumPostcodeLoader) {
+          return daumPostcodeLoader;
+        }
+
+        daumPostcodeLoader = new Promise(function (resolve, reject) {
+          const script = document.createElement('script');
+          script.src =
+            'https://t1.daumcdn.net/mapjsapi/bundle/postcode/prod/postcode.v2.js';
+          script.async = true;
+          script.onload = function () {
+            resolve();
+          };
+          script.onerror = function () {
+            reject(new Error('Failed to load Daum postcode script.'));
+          };
+          document.head.appendChild(script);
+        });
+
+        return daumPostcodeLoader;
+      }
+
+      // Dart에서 호출: 필요할 때만 카카오 주소 검색 스크립트를 비동기로 로드
+      window.openDaumPostcode = function (callback) {
+        ensureDaumPostcodeLoaded()
+          .then(function () {
+            new daum.Postcode({
+              oncomplete: function (data) {
+                var road = data.roadAddress || '';
+                var jibun = data.jibunAddress || '';
+                callback(road, jibun);
+              },
+            }).open();
+          })
+          .catch(function (error) {
+            console.error(error);
+          });
+      };
+    })();
+  </script>
 </head>
 <body>
   <script src="flutter_bootstrap.js"></script>
