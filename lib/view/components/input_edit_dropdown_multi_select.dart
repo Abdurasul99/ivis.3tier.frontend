@@ -290,7 +290,7 @@ class _InputEditDropDownMultiSelectState extends State<InputEditDropDownMultiSel
                         children: [
                           Expanded(
                             child: GradientButton(
-                              buttonText: '적용',
+                              buttonText: 'Apply',
                               buttonColor: const Color(0xFF005FB8),
                               onTap: _applySelection,
                             ),
@@ -298,7 +298,7 @@ class _InputEditDropDownMultiSelectState extends State<InputEditDropDownMultiSel
                           const SizedBox(width: 16),
                           Expanded(
                             child: GradientButton(
-                              buttonText: '취소',
+                              buttonText: 'Cancel',
                               onTap: _cancelSelection,
                             ),
                           ),

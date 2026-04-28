@@ -26,7 +26,7 @@ class _PeriodSelectDialogState extends State<PeriodSelectDialog> {
   String _startDate = "";
   String _endDate = "";
 
-  // 현재 열려있는 날짜 선택기 상태 추적
+  // Track which date picker is currently open
   bool _isStartDatePickerShown = false;
   bool _isEndDatePickerShown = false;
 

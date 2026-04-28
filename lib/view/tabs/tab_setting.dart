@@ -1,8 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/svg.dart';
+import 'package:get/get.dart';
 
+import 'package:ivis/i18n/app_locale.dart';
 import 'package:ivis/view/tabs/tab_setting_member.dart';
 import 'package:ivis/view/tabs/tab_setting_profile.dart';
+
+import '../../viewmodel/controller/locale_controller.dart';
 
 class TabSetting extends StatefulWidget {
   const TabSetting({super.key});
@@ -12,24 +16,24 @@ class TabSetting extends StatefulWidget {
 }
 
 class _TabSettingState extends State<TabSetting> with TickerProviderStateMixin {
-  final List<String> _menuTitles = ["프로필 설정", "맴버 관리"];
-  final List<String> _menuIcons = ["profile", "member"];
-  static const double _expandedW = 280;
-  static const double _collapsedW = 72;
-  static const double _rowH = 48;
+  final List<String> _menuIcons = <String>['profile', 'member'];
+  final List<IconData?> _menuIconData = <IconData?>[null, null];
+  static const double _menuWidth = 280;
+  static const double _rowHeight = 48;
   static const double _iconSide = 28;
 
   late TabController _tabController;
   int _selectedIndex = 0;
-  bool _collapsed = false;
+
+  List<String> get _menuTitles => <String>[
+        t('프로필 설정'),
+        t('멤버 관리'),
+      ];
 
   @override
   void initState() {
     super.initState();
-    // стартуем всегда с 0 (без NotificationController)
-    _selectedIndex = 0;
-    _tabController = TabController(vsync: this, length: _menuTitles.length);
-    _tabController.index = _selectedIndex;
+    _tabController = TabController(vsync: this, length: 2);
   }
 
   @override
@@ -38,85 +42,53 @@ class _TabSettingState extends State<TabSetting> with TickerProviderStateMixin {
     super.dispose();
   }
 
-  void _toggleCollapsed() {
-    setState(() => _collapsed = !_collapsed);
-  }
-
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        AnimatedContainer(
-          duration: const Duration(milliseconds: 220),
-          curve: Curves.easeInOutCubic,
-          width: _collapsed ? _collapsedW : _expandedW,
-          color: const Color(0xFFFAFAFA),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                height: 44,
-                padding: EdgeInsets.symmetric(horizontal: _collapsed ? 12 : 16),
-                alignment: _collapsed ? Alignment.center : Alignment.centerRight,
-                child: InkWell(
-                  onTap: _toggleCollapsed,
-                  borderRadius: BorderRadius.circular(6),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(6),
-                      border: Border.all(color: const Color(0xFFE6E6E6)),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.04),
-                          blurRadius: 3,
-                          offset: const Offset(0, 1),
-                        ),
-                      ],
-                    ),
-                    child: Icon(
-                      _collapsed ? Icons.chevron_right : Icons.chevron_left,
-                      size: 18,
-                      color: const Color(0xFF005FB8),
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 6),
-              ...List.generate(_menuTitles.length, (i) {
-                return _buildMenuItem(
-                  iconName: _menuIcons[i],
-                  title: _menuTitles[i],
-                  selected: _selectedIndex == i,
-                  collapsed: _collapsed,
-                  onTap: () {
-                    _selectedIndex = i;
-                    _tabController.animateTo(i);
-                    setState(() {});
-                  },
-                );
-              }),
-              const SizedBox(height: 12),
-            ],
-          ),
-        ),
-
-        // RIGHT: content
-        Expanded(
-          child: DefaultTabController(
-            length: _menuTitles.length,
-            child: TabBarView(
-              controller: _tabController,
-              physics: const NeverScrollableScrollPhysics(),
-              children: const [
-                TabSettingProfile(),
-                TabSettingMember(),
+    return GetBuilder<LocaleController>(
+      init: Get.find<LocaleController>(),
+      builder: (_) => Row(
+        children: <Widget>[
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 220),
+            curve: Curves.easeInOutCubic,
+            width: _menuWidth,
+            color: const Color(0xFFFAFAFA),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                const SizedBox(height: 16),
+                ...List<Widget>.generate(_menuTitles.length, (int index) {
+                  return _buildMenuItem(
+                    iconName: _menuIcons[index],
+                    title: _menuTitles[index],
+                    selected: _selectedIndex == index,
+                    onTap: () {
+                      _selectedIndex = index;
+                      _tabController.animateTo(index);
+                      setState(() {});
+                    },
+                    iconData: _menuIconData[index],
+                  );
+                }),
+                const SizedBox(height: 12),
               ],
             ),
           ),
-        ),
-      ],
+          Expanded(
+            child: DefaultTabController(
+              length: 2,
+              child: TabBarView(
+                controller: _tabController,
+                physics: const NeverScrollableScrollPhysics(),
+                children: const <Widget>[
+                  TabSettingProfile(),
+                  TabSettingMember(),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -124,47 +96,42 @@ class _TabSettingState extends State<TabSetting> with TickerProviderStateMixin {
     required String iconName,
     required String title,
     required bool selected,
-    required bool collapsed,
     required VoidCallback onTap,
+    IconData? iconData,
   }) {
-    final Color lineColor = selected ? const Color(0xFF005FB8) : Colors.transparent;
     final Color textColor = selected ? const Color(0xFF005FB8) : const Color(0xFF222222);
-    final Color bgColor = selected ? const Color(0xFFF2F6FD) : Colors.transparent;
+    final Color backgroundColor = selected ? const Color(0xFFF2F6FD) : Colors.transparent;
 
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        height: _rowH,
+        height: _rowHeight,
         margin: const EdgeInsets.symmetric(vertical: 6),
-        decoration: BoxDecoration(
-          color: bgColor,
-          border: Border(left: BorderSide(color: lineColor, width: 4)),
-        ),
-        padding: EdgeInsets.symmetric(horizontal: collapsed ? 0 : 20),
+        decoration: BoxDecoration(color: backgroundColor),
+        padding: const EdgeInsets.symmetric(horizontal: 20),
         child: Row(
-          mainAxisAlignment: collapsed ? MainAxisAlignment.center : MainAxisAlignment.start,
-          children: [
+          children: <Widget>[
             SizedBox(
               width: _iconSide,
               height: _iconSide,
-              child: SvgPicture.asset(
-                "assets/images/icons_setting_${iconName}${selected ? "_selected" : "_unselected"}.svg",
-                width: _iconSide,
-                height: _iconSide,
-                fit: BoxFit.contain,
-              ),
+              child: iconData != null
+                  ? Icon(iconData, size: _iconSide, color: textColor)
+                  : SvgPicture.asset(
+                      'assets/images/icons_setting_$iconName${selected ? "_selected" : "_unselected"}.svg',
+                      width: _iconSide,
+                      height: _iconSide,
+                      fit: BoxFit.contain,
+                    ),
             ),
-            if (!collapsed) ...[
-              const SizedBox(width: 12),
-              Text(
-                title,
-                style: const TextStyle(
-                  fontFamily: 'pretendard',
-                  fontSize: 16,
-                  fontWeight: FontWeight.w500,
-                ).copyWith(color: textColor),
-              ),
-            ],
+            const SizedBox(width: 12),
+            Text(
+              title,
+              style: const TextStyle(
+                fontFamily: 'pretendard',
+                fontSize: 16,
+                fontWeight: FontWeight.w500,
+              ).copyWith(color: textColor),
+            ),
           ],
         ),
       ),

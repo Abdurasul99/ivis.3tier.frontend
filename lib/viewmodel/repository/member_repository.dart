@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:ivis/viewmodel/repository/base_repository.dart';
 import 'package:http/http.dart' as http;
 
-import '../../constants/constants.dart';
 import '../../model/user_model.dart';
 
 class MemberRepository extends BaseRepository {
@@ -18,10 +17,11 @@ class MemberRepository extends BaseRepository {
   final String deleteMemberPath = "/api/member/deleteMember";
 
   Future<List<Member>> requestUnApprovedMemberList() async {
-    var url = Uri.http(kApiServer, unApprovedMemberListPath);
+    final Uri url = buildApiUri(unApprovedMemberListPath);
 
     try {
-      final response = await http.get(url, headers: getHeader());
+      final http.Response response =
+          await http.get(url, headers: getHeader()).timeout(requestTimeout);
       if (response.statusCode != 200) {
         debugPrint('[Error] requestUnApprovedMemberList() statusCode ${response.statusCode}');
         return [];
@@ -40,10 +40,11 @@ class MemberRepository extends BaseRepository {
   }
 
   Future<List<Member>> requestMemberList() async {
-    var url = Uri.http(kApiServer, memberListPath);
+    final Uri url = buildApiUri(memberListPath);
 
     try {
-      final response = await http.get(url, headers: getHeader());
+      final http.Response response =
+          await http.get(url, headers: getHeader()).timeout(requestTimeout);
       if (response.statusCode != 200) {
         debugPrint('[Error] requestMemberList() statusCode ${response.statusCode}');
         return [];
@@ -67,10 +68,12 @@ class MemberRepository extends BaseRepository {
 
     String body = jsonEncode(params);
 
-    var url = Uri.http(kApiServer, approvePath);
+    final Uri url = buildApiUri(approvePath);
 
     try {
-      final response = await http.post(url, body: body, headers: getHeader());
+      final http.Response response = await http
+          .post(url, body: body, headers: getHeader())
+          .timeout(requestTimeout);
       if (response.statusCode != 200) {
         debugPrint('[Error] requestApproveMember() statusCode ${response.statusCode}');
         return false;
@@ -90,10 +93,12 @@ class MemberRepository extends BaseRepository {
     params['id'] = id;
 
     String body = jsonEncode(params);
-    var url = Uri.http(kApiServer, rejectPath);
+    final Uri url = buildApiUri(rejectPath);
 
     try {
-      final response = await http.post(url, body: body, headers: getHeader());
+      final http.Response response = await http
+          .post(url, body: body, headers: getHeader())
+          .timeout(requestTimeout);
       if (response.statusCode != 200) {
         debugPrint('[Error] requestRejectMember() statusCode ${response.statusCode}');
         return false;
@@ -114,10 +119,12 @@ class MemberRepository extends BaseRepository {
     params['role'] = (role == "관리자") ? "admin" : "user";
 
     String body = jsonEncode(params);
-    var url = Uri.http(kApiServer, changeRolePath);
+    final Uri url = buildApiUri(changeRolePath);
 
     try {
-      final response = await http.patch(url, body: body, headers: getHeader());
+      final http.Response response = await http
+          .patch(url, body: body, headers: getHeader())
+          .timeout(requestTimeout);
       if (response.statusCode != 200) {
         debugPrint('[Error] requestChangeRole() statusCode ${response.statusCode}');
         return false;
@@ -137,10 +144,12 @@ class MemberRepository extends BaseRepository {
     params['id'] = id;
 
     String body = jsonEncode(params);
-    var url = Uri.http(kApiServer, deleteMemberPath);
+    final Uri url = buildApiUri(deleteMemberPath);
 
     try {
-      final response = await http.delete(url, body: body, headers: getHeader());
+      final http.Response response = await http
+          .delete(url, body: body, headers: getHeader())
+          .timeout(requestTimeout);
       if (response.statusCode != 200) {
         debugPrint('[Error] requestDeleteMember() statusCode ${response.statusCode}');
         return false;

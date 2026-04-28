@@ -8,4 +8,8 @@ class UploadController extends GetxController {
   Future<List<UploadModel>> reqUploadImage(List<PickImageFile> files) {
     return UploadRepository().requestUploadImage(files);
   }
+
+  Future<bool> reqDeleteImage(String imageUrl) {
+    return UploadRepository().requestDeleteImage(imageUrl);
+  }
 }

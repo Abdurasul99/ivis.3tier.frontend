@@ -2,14 +2,12 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:flutter/material.dart';
 
-import '../../constants/constants.dart';
 import '../../model/common_model.dart';
+import 'base_repository.dart';
 
-class RegisterRepository {
-  final String _baseUrl = kApiServer;
-
+class RegisterRepository extends BaseRepository {
   Future<CommonResponse?> requestRegisterSendCode(String name, String email) async {
-    final url = Uri.http(_baseUrl, "/api/findId/sendCode");
+    final Uri url = buildApiUri("/api/findId/sendCode");
     final body = jsonEncode({"name": name, "email": email});
 
     try {
@@ -17,7 +15,7 @@ class RegisterRepository {
         url,
         headers: {"Content-Type": "application/json"},
         body: body,
-      );
+      ).timeout(requestTimeout);
       debugPrint("requestRegisterSendCode => ${response.body}");
       if (response.statusCode == 200) {
         final jsonResp = jsonDecode(response.body);
@@ -33,7 +31,7 @@ class RegisterRepository {
   }
 
   Future<CommonResponse?> requestRegisterVerifyCode(String email, String code) async {
-    final url = Uri.http(_baseUrl, "/api/findId/verify");
+    final Uri url = buildApiUri("/api/findId/verify");
     final body = jsonEncode({"email": email, "code": code});
 
     try {
@@ -41,7 +39,7 @@ class RegisterRepository {
         url,
         headers: {"Content-Type": "application/json"},
         body: body,
-      );
+      ).timeout(requestTimeout);
       debugPrint("requestRegisterVerifyCode => ${response.body}");
       if (response.statusCode == 200) {
         final jsonResp = jsonDecode(response.body);
@@ -64,7 +62,7 @@ class RegisterRepository {
     required String password,
     required String verifyToken,
   }) async {
-    final url = Uri.http(_baseUrl, "/api/findId/complete");
+    final Uri url = buildApiUri("/api/findId/complete");
     final body = jsonEncode({
       "email": email,
       "user_id": userId,
@@ -79,7 +77,7 @@ class RegisterRepository {
         url,
         headers: {"Content-Type": "application/json"},
         body: body,
-      );
+      ).timeout(requestTimeout);
       debugPrint("requestRegisterComplete => ${response.body}");
       if (response.statusCode == 200) {
         final jsonResp = jsonDecode(response.body);

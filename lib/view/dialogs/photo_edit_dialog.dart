@@ -1,7 +1,5 @@
 import 'dart:typed_data';
-import 'dart:ui';
 
-import 'package:extended_image/extended_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:get/get.dart';
@@ -24,6 +22,7 @@ class PhotoEditDialog extends StatefulWidget {
 
 class _PhotoEditDialogState extends State<PhotoEditDialog> {
   String _imageUrl = "";
+  String _originalImageUrl = ""; // 기존 프로필 이미지 URL (삭제 시 S3에서 제거)
   Uint8List? _imageBytes;
 
   @override
@@ -31,6 +30,7 @@ class _PhotoEditDialogState extends State<PhotoEditDialog> {
     super.initState();
     final LoginUser? loginUser = Get.find<UserController>().loginUser;
     _imageUrl = loginUser?.imageUrl ?? "";
+    _originalImageUrl = _imageUrl;
   }
 
   @override
@@ -129,8 +129,8 @@ class _PhotoEditDialogState extends State<PhotoEditDialog> {
                     buttonText: "저장",
                     buttonColor: const Color(0xFF005FB8),
                     onTap: () async {
-                      // If user picked local bytes, upload first
-                      if (_imageUrl.isEmpty && (_imageBytes != null && _imageBytes!.isNotEmpty)) {
+                      // 새 이미지 bytes가 있으면 S3에 업로드
+                      if (_imageBytes != null && _imageBytes!.isNotEmpty) {
                         final PickImageFile selImageFile = PickImageFile(
                           fileType: PickImageFileType.imageBytes,
                           imageBytes: _imageBytes,
@@ -149,6 +149,11 @@ class _PhotoEditDialogState extends State<PhotoEditDialog> {
                           Utils.showSnackBar("이미지 업로드에 실패했습니다.", isError: true);
                           return;
                         }
+                      }
+
+                      // 기존 S3 파일 삭제 (이미지 교체 또는 삭제 시)
+                      if (_originalImageUrl.isNotEmpty && _originalImageUrl != _imageUrl) {
+                        await Get.find<UploadController>().reqDeleteImage(_originalImageUrl);
                       }
 
                       final Map<String, dynamic> params = {
@@ -190,105 +195,25 @@ class _PhotoEditDialogState extends State<PhotoEditDialog> {
   }
 
   Widget buildProfileByUrl(String url) {
-    return Container(
-      width: 160,
-      height: 160,
-      alignment: Alignment.center,
-      child: Stack(
-        children: [
-          ClipRRect(
-            borderRadius: BorderRadius.circular(8),
-            child: ImageFiltered(
-              imageFilter: ImageFilter.blur(sigmaX: 5, sigmaY: 5),
-              child: ExtendedImage.network(
-                url,
-                width: 160,
-                height: 160,
-                fit: BoxFit.contain,
-              ),
-            ),
-          ),
-          Container(
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(4),
-              color: Colors.black.withOpacity(0.3),
-            ),
-            child: ClipOval(
-              child: Container(
-                width: 160,
-                height: 160,
-                alignment: Alignment.center,
-                child: ExtendedImage.network(
-                  url,
-                  width: 160,
-                  height: 160,
-                  fit: BoxFit.contain,
-                ),
-              ),
-            ),
-          ),
-          Container(
-            width: 160,
-            height: 160,
-            decoration: BoxDecoration(
-              color: Colors.transparent,
-              border: Border.all(color: Colors.white, width: 1.0),
-              borderRadius: const BorderRadius.all(Radius.circular(160.0)),
-            ),
-          ),
-        ],
+    return ClipOval(
+      child: Image.network(
+        Utils.proxyImageUrl(url),
+        width: 160,
+        height: 160,
+        fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) => buildProfileDefault(),
       ),
     );
   }
 
   Widget buildProfileByBytes(Uint8List bytes) {
-    return Container(
-      width: 160,
-      height: 160,
-      alignment: Alignment.center,
-      child: Stack(
-        children: [
-          ClipRRect(
-            borderRadius: BorderRadius.circular(4),
-            child: ImageFiltered(
-              imageFilter: ImageFilter.blur(sigmaX: 1, sigmaY: 1),
-              child: Image.memory(
-                bytes,
-                width: 160,
-                height: 160,
-                fit: BoxFit.contain,
-              ),
-            ),
-          ),
-          Container(
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(4),
-              color: Colors.black.withOpacity(0.3),
-            ),
-            child: ClipOval(
-              child: Container(
-                width: 160,
-                height: 160,
-                alignment: Alignment.center,
-                child: Image.memory(
-                  bytes,
-                  width: 160,
-                  height: 160,
-                  fit: BoxFit.contain,
-                ),
-              ),
-            ),
-          ),
-          Container(
-            width: 160,
-            height: 160,
-            decoration: BoxDecoration(
-              color: Colors.transparent,
-              border: Border.all(color: Colors.white, width: 1.0),
-              borderRadius: const BorderRadius.all(Radius.circular(160.0)),
-            ),
-          ),
-        ],
+    // HTML renderer에서 ImageFilter 미지원 → ClipOval + Image.memory으로 단순화
+    return ClipOval(
+      child: Image.memory(
+        bytes,
+        width: 160,
+        height: 160,
+        fit: BoxFit.cover,
       ),
     );
   }
