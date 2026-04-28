@@ -3,8 +3,21 @@ import 'package:flutter/material.dart';
 String _formatCellValue(dynamic value) {
   if (value == null) return '';
   if (value is num) return value.toString();
-  if (value is String) return value;
+  if (value is String) return _formatDateTimeString(value);
   return value.toString();
+}
+
+// "2026-03-17T12:34:56.123456" → "2026-03-17 12:34:56" 형태로 정규화
+String _formatDateTimeString(String value) {
+  final String trimmed = value.trim();
+  if (!RegExp(r'^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}').hasMatch(trimmed)) {
+    return trimmed;
+  }
+  return trimmed
+      .replaceFirst('T', ' ')
+      .replaceFirst(RegExp(r'\.\d+'), '')
+      .replaceFirst('Z', '')
+      .trim();
 }
 
 int _parseInt(dynamic value) {
@@ -17,11 +30,16 @@ int _parseInt(dynamic value) {
 List<String> _getPreferredVehicleColumns() {
   return <String>[
     'id',
+    'history_id',
+    'vehicle_info_id',
+    'vehicle_id',
+    'msg_id',
     'msg_seq',
     'msg_length',
+    'changed_at_date',
+    'changed_at_time',
     'time_stamp_ms',
     'time_stamp',
-    'vehicle_id',
     'navsat',
     'kph',
     'mps',
@@ -42,8 +60,12 @@ List<String> _getPreferredVehicleColumns() {
     'accel_pct',
     'brake_pct',
     'number_of_objects',
-    'created_at',
-    'updated_at',
+    'created_ts_date',
+    'created_ts_time',
+    'updated_ts_date',
+    'updated_ts_time',
+    'created_ts',
+    'updated_ts',
   ];
 }
 
@@ -51,15 +73,20 @@ List<String> _getPreferredInfraColumns() {
   return <String>[
     'history_id',
     'infra_info_id',
-    'changed_at',
+    'changed_at_date',
+    'changed_at_time',
     'msg_seq',
     'msg_length',
     'time_stamp_ms',
     'time_stamp',
     'infra_id',
     'number_of_objects',
-    'created_at',
-    'updated_at',
+    'created_ts_date',
+    'created_ts_time',
+    'updated_ts_date',
+    'updated_ts_time',
+    'created_ts',
+    'updated_ts',
   ];
 }
 
@@ -277,21 +304,9 @@ Widget _buildRowSummaryCard(String entityType, Map<String, dynamic> row) {
 Widget _buildRowDetailTable(String entityType, Map<String, dynamic> row) {
   List<String> columns;
   if (entityType == 'vehicle') {
-    final List<String> preferred = _getPreferredVehicleColumns();
-    columns = <String>[];
-    for (final String name in preferred) {
-      if (row.containsKey(name)) {
-        columns.add(name);
-      }
-    }
+    columns = _buildColumnsFromRow(row, _getPreferredVehicleColumns());
   } else if (entityType == 'infra') {
-    final List<String> preferred = _getPreferredInfraColumns();
-    columns = <String>[];
-    for (final String name in preferred) {
-      if (row.containsKey(name)) {
-        columns.add(name);
-      }
-    }
+    columns = _buildColumnsFromRow(row, _getPreferredInfraColumns());
   } else {
     columns = _buildColumnsFromRow(row, _getPreferredObjectColumns());
   }

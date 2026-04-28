@@ -1,4 +1,7 @@
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'dart:ui';
+
+import 'package:flutter/foundation.dart'
+    show ErrorDescription, kDebugMode, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -14,6 +17,8 @@ import 'package:ivis/view/pages/signup_final_page.dart';
 import 'package:ivis/view/pages/signup_page.dart';
 import 'package:ivis/view/pages/signup_register_page.dart';
 import 'package:ivis/view/pages/start_page.dart';
+import 'package:ivis/viewmodel/controller/activity_controller.dart';
+import 'package:ivis/viewmodel/controller/locale_controller.dart';
 import 'package:ivis/viewmodel/controller/member_controller.dart';
 import 'package:ivis/viewmodel/controller/mqtt_controller.dart';
 import 'package:ivis/viewmodel/controller/password_controller.dart';
@@ -22,17 +27,48 @@ import 'package:ivis/viewmodel/controller/time_controller.dart';
 import 'package:ivis/viewmodel/controller/user_controller.dart';
 import 'package:ivis/viewmodel/controller/vehicle_controller.dart';
 import 'package:ivis/viewmodel/controller/infra_controller.dart';
+import 'package:ivis/viewmodel/controller/object_controller.dart';
+import 'package:ivis/viewmodel/controller/dashboard_controller.dart';
 import 'package:get/get.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   FlutterError.onError = (FlutterErrorDetails details) {
     FlutterError.dumpErrorToConsole(details);
   };
 
+  PlatformDispatcher.instance.onError = (Object error, StackTrace stackTrace) {
+    FlutterError.reportError(
+      FlutterErrorDetails(
+        exception: error,
+        stack: stackTrace,
+        library: 'platform',
+        context: ErrorDescription('while handling an uncaught platform error'),
+      ),
+    );
+    return true;
+  };
+
   ErrorWidget.builder = (FlutterErrorDetails details) {
-    return const SizedBox.shrink();
+    final String message =
+        kDebugMode ? details.exceptionAsString() : 'Unexpected UI error';
+    return Material(
+      color: Colors.white,
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Text(
+            message,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: Colors.red,
+              fontSize: 14,
+            ),
+          ),
+        ),
+      ),
+    );
   };
 
   SystemChrome.setSystemUIOverlayStyle(
@@ -51,6 +87,12 @@ void main() {
   Get.put(VehicleController(), permanent: true);
   Get.put(InfraController(), permanent: true);
   Get.put(MqttController(), permanent: true);
+  final LocaleController localeController =
+      Get.put(LocaleController(), permanent: true);
+  await localeController.loadSavedLocale();
+  Get.lazyPut<ObjectController>(() => ObjectController(), fenix: true);
+  Get.lazyPut<DashboardController>(() => DashboardController(), fenix: true);
+  Get.lazyPut<ActivityController>(() => ActivityController(), fenix: true);
   runApp(const IvisFmsApp());
 }
 
@@ -74,7 +116,9 @@ class IvisFmsApp extends StatelessWidget {
       title: '3tier Data Dashboard',
       debugShowCheckedModeBanner: false,
       scrollBehavior: CustomScrollBehavior(),
-      locale: const Locale('ko', 'KR'),
+      initialRoute: StartPage.routeName,
+      locale: Get.find<LocaleController>().locale,
+      fallbackLocale: const Locale('ko', 'KR'),
       supportedLocales: const [
         Locale('ko', 'KR'),
         Locale('en', 'US'),
@@ -131,7 +175,6 @@ class IvisFmsApp extends StatelessWidget {
           transition: Transition.noTransition,
         ),
       ],
-      home: const StartPage(),
     );
   }
 }

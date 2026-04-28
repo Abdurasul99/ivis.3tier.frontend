@@ -1,10 +1,23 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:get/get.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart' as UrlLauncher;
 import 'package:url_launcher/url_launcher_string.dart';
 
+import '../constants/constants.dart';
+
 class Utils {
+  /// S3 URL을 백엔드 프록시 URL로 변환 (웹 CORS 우회)
+  static String proxyImageUrl(String imageUrl) {
+    if (!kIsWeb || imageUrl.isEmpty) return imageUrl;
+    final String encoded = Uri.encodeComponent(imageUrl);
+    final String server = kApiServer.trim();
+    if (server.startsWith('http://') || server.startsWith('https://')) {
+      return '$server/api/upload/proxy?url=$encoded';
+    }
+    return 'http://$server/api/upload/proxy?url=$encoded';
+  }
   static String numberWithComma(int? param) {
     if (param == null) {
       return '0';
@@ -275,7 +288,7 @@ class Utils {
     int minutes = (time % 3600) ~/ 60;
     int seconds = time % 60;
 
-    // 각 값을 2자리 문자열로 변환 (padLeft 사용)
+    // Format each value as a 2-digit string using padLeft
     String hoursStr = hours.toString().padLeft(2, '0');
     String minutesStr = minutes.toString().padLeft(2, '0');
     String secondsStr = seconds.toString().padLeft(2, '0');

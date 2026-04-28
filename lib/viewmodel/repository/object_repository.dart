@@ -1,122 +1,273 @@
+//ivis.3tier.frontend/lib/viewmodel/repository/object_repository.dart
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
-
-import '../../constants/constants.dart';
 import '../../model/object_model.dart';
 import 'base_repository.dart';
 
 class ObjectRepository extends BaseRepository {
-  String get apiServerHost => kApiServer;
+  final String _byVehicleInfoPath = '/api/detectedObjects/byVehicleInfo';
+  final String _byInfraInfoPath = '/api/detectedObjects/byInfraInfo';
+  final String _byVehicleHistoryPath = '/api/detectedObjects/byVehicleHistory';
+  final String _byInfraHistoryPath = '/api/detectedObjects/byInfraHistory';
+  final String _historyPath = '/api/detectedObjects/history';
 
-  Uri buildUri(String path) => Uri.http(apiServerHost, path);
-
-  int _toInteger(dynamic value) {
-    if (value == null) return 0;
-    if (value is int) return value;
-    if (value is num) return value.toInt();
-    return int.tryParse(value.toString()) ?? 0;
-  }
-
-  List<DetectedObject> _parseDetectedObjectList(dynamic node) {
-    if (node is! List) return <DetectedObject>[];
-    return node
-        .whereType<Map>()
-        .map((dynamic element) => DetectedObject.fromJson(Map<String, dynamic>.from(element as Map)))
-        .toList();
-  }
-
-  Future<Map<String, dynamic>> requestByVehicleInfoWithMeta({
+  Future<DetectedObjectResult?> requestByVehicleInfo({
     required int vehicleInfoId,
-    int limit = 200,
+    int limit = 50000,
     int offset = 0,
+    bool latestOnly = false,
+    int? vehicleTimeStampMs,
+    int? vehicleId,
+    int? msgSeq,
+    int? expectedObjectCount,
   }) async {
-    final http.Response response = await http.post(
-      buildUri('/api/detectedObjects/byVehicleInfo'),
-      headers: getHeader(),
-      body: jsonEncode(<String, dynamic>{
+    final Uri url = buildApiUri(_byVehicleInfoPath);
+
+    try {
+      final Map<String, dynamic> payload = <String, dynamic>{
         'vehicle_info_id': vehicleInfoId,
         'limit': limit,
         'offset': offset,
-      }),
-    );
+      };
 
-    return handleResponse(response, (json) {
-      final dynamic body = json['body'];
-
-      if (body is Map) {
-        final List<DetectedObject> items = _parseDetectedObjectList(body['items']);
-        final int totalCount = _toInteger(body['totalCount'] ?? body['total']);
-        return <String, dynamic>{'items': items, 'totalCount': totalCount};
+      if (latestOnly) {
+        payload['latest_only'] = true;
+      }
+      if (vehicleTimeStampMs != null) {
+        payload['vehicle_time_stamp_ms'] = vehicleTimeStampMs;
+      }
+      if (vehicleId != null) {
+        payload['vehicle_id'] = vehicleId;
+      }
+      if (msgSeq != null) {
+        payload['msg_seq'] = msgSeq;
+      }
+      if (expectedObjectCount != null) {
+        payload['expected_object_count'] = expectedObjectCount;
       }
 
-      if (body is List) {
-        final List<DetectedObject> items = _parseDetectedObjectList(body);
-        return <String, dynamic>{'items': items, 'totalCount': 0};
+      final http.Response response = await http.post(
+        url,
+        headers: getHeader(),
+        body: jsonEncode(payload),
+      ).timeout(requestTimeout);
+
+      if (response.statusCode != 200) {
+        debugPrint(
+            '[Error] requestByVehicleInfo() statusCode ${response.statusCode}');
+        return null;
       }
 
-      return <String, dynamic>{'items': <DetectedObject>[], 'totalCount': 0};
-    });
+      return handleResponse(response, (jsonResponse) {
+        final dynamic body = jsonResponse['body'];
+
+        if (body is Map) {
+          return DetectedObjectResult.fromJson(Map<String, dynamic>.from(body));
+        }
+
+        if (body is List) {
+          final List<DetectedObject> items = <DetectedObject>[];
+          for (final dynamic element in body) {
+            if (element is Map) {
+              try {
+                items.add(DetectedObject.fromJson(
+                    Map<String, dynamic>.from(element)));
+              } catch (_) {}
+            }
+          }
+          return DetectedObjectResult(totalCount: items.length, items: items);
+        }
+
+        return DetectedObjectResult();
+      });
+    } catch (exception) {
+      debugPrint('[Exception] requestByVehicleInfo $exception');
+      return null;
+    }
   }
 
-  Future<Map<String, dynamic>> requestByInfraInfoWithMeta({
+  Future<DetectedObjectResult?> requestByInfraInfo({
     required int infraInfoId,
     int limit = 200,
     int offset = 0,
+    bool latestOnly = false,
+    int? infraTimeStampMs,
+    int? infraId,
+    int? msgSeq,
+    int? expectedObjectCount,
   }) async {
-    final http.Response response = await http.post(
-      buildUri('/api/detectedObjects/byInfraInfo'),
-      headers: getHeader(),
-      body: jsonEncode(<String, dynamic>{
+    final Uri url = buildApiUri(_byInfraInfoPath);
+
+    try {
+      final Map<String, dynamic> payload = <String, dynamic>{
         'infra_info_id': infraInfoId,
         'limit': limit,
         'offset': offset,
-      }),
-    );
+      };
 
-    return handleResponse(response, (json) {
-      final dynamic body = json['body'];
-
-      if (body is Map) {
-        final List<DetectedObject> items = _parseDetectedObjectList(body['items']);
-        final int totalCount = _toInteger(body['totalCount'] ?? body['total']);
-        return <String, dynamic>{'items': items, 'totalCount': totalCount};
+      if (latestOnly) {
+        payload['latest_only'] = true;
+      }
+      if (infraTimeStampMs != null) {
+        payload['infra_time_stamp_ms'] = infraTimeStampMs;
+      }
+      if (infraId != null) {
+        payload['infra_id'] = infraId;
+      }
+      if (msgSeq != null) {
+        payload['msg_seq'] = msgSeq;
+      }
+      if (expectedObjectCount != null) {
+        payload['expected_object_count'] = expectedObjectCount;
       }
 
-      if (body is List) {
-        final List<DetectedObject> items = _parseDetectedObjectList(body);
-        return <String, dynamic>{'items': items, 'totalCount': 0};
+      final http.Response response = await http.post(
+        url,
+        headers: getHeader(),
+        body: jsonEncode(payload),
+      ).timeout(requestTimeout);
+
+      if (response.statusCode != 200) {
+        debugPrint(
+            '[Error] requestByInfraInfo() statusCode ${response.statusCode}');
+        return null;
       }
 
-      return <String, dynamic>{'items': <DetectedObject>[], 'totalCount': 0};
-    });
+      return handleResponse(response, (jsonResponse) {
+        final dynamic body = jsonResponse['body'];
+
+        if (body is Map) {
+          return DetectedObjectResult.fromJson(Map<String, dynamic>.from(body));
+        }
+
+        if (body is List) {
+          final List<DetectedObject> items = <DetectedObject>[];
+          for (final dynamic element in body) {
+            if (element is Map) {
+              try {
+                items.add(DetectedObject.fromJson(
+                    Map<String, dynamic>.from(element)));
+              } catch (_) {}
+            }
+          }
+          return DetectedObjectResult(totalCount: items.length, items: items);
+        }
+
+        return DetectedObjectResult();
+      });
+    } catch (exception) {
+      debugPrint('[Exception] requestByInfraInfo $exception');
+      return null;
+    }
   }
 
-  Future<List<DetectedObject>> requestByVehicleInfo({
-    required int vehicleInfoId,
+  Future<DetectedObjectHistoryResult?> requestByVehicleHistory({
+    required int vehicleHistoryId,
     int limit = 200,
     int offset = 0,
   }) async {
-    final Map<String, dynamic> meta = await requestByVehicleInfoWithMeta(
-      vehicleInfoId: vehicleInfoId,
-      limit: limit,
-      offset: offset,
-    );
-    final dynamic items = meta['items'];
-    return items is List<DetectedObject> ? items : <DetectedObject>[];
+    final Uri url = buildApiUri(_byVehicleHistoryPath);
+
+    try {
+      final http.Response response = await http.post(
+        url,
+        headers: getHeader(),
+        body: jsonEncode(<String, dynamic>{
+          'vehicle_history_id': vehicleHistoryId,
+          'limit': limit,
+          'offset': offset,
+        }),
+      ).timeout(requestTimeout);
+
+      if (response.statusCode != 200) {
+        debugPrint(
+            '[Error] requestByVehicleHistory() statusCode ${response.statusCode}');
+        return null;
+      }
+
+      return handleResponse(response, (jsonResponse) {
+        final dynamic body = jsonResponse['body'];
+
+        if (body is Map) {
+          return DetectedObjectHistoryResult.fromJson(
+              Map<String, dynamic>.from(body));
+        }
+
+        if (body is List) {
+          final List<DetectedObjectHistory> items = <DetectedObjectHistory>[];
+          for (final dynamic element in body) {
+            if (element is Map) {
+              try {
+                items.add(DetectedObjectHistory.fromJson(
+                    Map<String, dynamic>.from(element)));
+              } catch (_) {}
+            }
+          }
+          return DetectedObjectHistoryResult(
+              totalCount: items.length, items: items);
+        }
+
+        return DetectedObjectHistoryResult();
+      });
+    } catch (exception) {
+      debugPrint('[Exception] requestByVehicleHistory $exception');
+      return null;
+    }
   }
 
-  Future<List<DetectedObject>> requestByInfraInfo({
-    required int infraInfoId,
+  Future<DetectedObjectHistoryResult?> requestByInfraHistory({
+    required int infraHistoryId,
     int limit = 200,
     int offset = 0,
   }) async {
-    final Map<String, dynamic> meta = await requestByInfraInfoWithMeta(
-      infraInfoId: infraInfoId,
-      limit: limit,
-      offset: offset,
-    );
-    final dynamic items = meta['items'];
-    return items is List<DetectedObject> ? items : <DetectedObject>[];
+    final Uri url = buildApiUri(_byInfraHistoryPath);
+
+    try {
+      final http.Response response = await http.post(
+        url,
+        headers: getHeader(),
+        body: jsonEncode(<String, dynamic>{
+          'infra_history_id': infraHistoryId,
+          'limit': limit,
+          'offset': offset,
+        }),
+      ).timeout(requestTimeout);
+
+      if (response.statusCode != 200) {
+        debugPrint(
+            '[Error] requestByInfraHistory() statusCode ${response.statusCode}');
+        return null;
+      }
+
+      return handleResponse(response, (jsonResponse) {
+        final dynamic body = jsonResponse['body'];
+
+        if (body is Map) {
+          return DetectedObjectHistoryResult.fromJson(
+              Map<String, dynamic>.from(body));
+        }
+
+        if (body is List) {
+          final List<DetectedObjectHistory> items = <DetectedObjectHistory>[];
+          for (final dynamic element in body) {
+            if (element is Map) {
+              try {
+                items.add(DetectedObjectHistory.fromJson(
+                    Map<String, dynamic>.from(element)));
+              } catch (_) {}
+            }
+          }
+          return DetectedObjectHistoryResult(
+              totalCount: items.length, items: items);
+        }
+
+        return DetectedObjectHistoryResult();
+      });
+    } catch (exception) {
+      debugPrint('[Exception] requestByInfraHistory $exception');
+      return null;
+    }
   }
 
   Future<List<DetectedObject>> requestHistory({
@@ -125,23 +276,62 @@ class ObjectRepository extends BaseRepository {
     int limit = 200,
     int offset = 0,
   }) async {
-    final http.Response response = await http.post(
-      buildUri('/api/detectedObjects/history'),
-      headers: getHeader(),
-      body: jsonEncode({
-        if (from != null) 'from': from,
-        if (to != null) 'to': to,
-        'limit': limit,
-        'offset': offset,
-      }),
-    );
+    final Uri url = buildApiUri(_historyPath);
 
-    return handleResponse(response, (json) {
-      final dynamic body = json['body'];
-      if (body is Map) {
-        return _parseDetectedObjectList(body['items']);
+    final Map<String, dynamic> payload = <String, dynamic>{
+      'limit': limit,
+      'offset': offset,
+    };
+
+    if (from != null) {
+      payload['from'] = from;
+    }
+
+    if (to != null) {
+      payload['to'] = to;
+    }
+
+    try {
+      final http.Response response = await http.post(
+        url,
+        headers: getHeader(),
+        body: jsonEncode(payload),
+      ).timeout(requestTimeout);
+
+      if (response.statusCode != 200) {
+        debugPrint(
+            '[Error] requestHistory() statusCode ${response.statusCode}');
+        return <DetectedObject>[];
       }
-      return _parseDetectedObjectList(body);
-    });
+
+      return handleResponse(response, (jsonResponse) {
+        final dynamic body = jsonResponse['body'];
+
+        List<dynamic>? rawList;
+        if (body is Map) {
+          rawList = body['items'] as List<dynamic>?;
+        } else if (body is List) {
+          rawList = body;
+        }
+
+        if (rawList == null) {
+          return <DetectedObject>[];
+        }
+
+        final List<DetectedObject> result = <DetectedObject>[];
+        for (final dynamic element in rawList) {
+          if (element is Map) {
+            try {
+              result.add(
+                  DetectedObject.fromJson(Map<String, dynamic>.from(element)));
+            } catch (_) {}
+          }
+        }
+        return result;
+      });
+    } catch (exception) {
+      debugPrint('[Exception] requestHistory $exception');
+      return <DetectedObject>[];
+    }
   }
 }

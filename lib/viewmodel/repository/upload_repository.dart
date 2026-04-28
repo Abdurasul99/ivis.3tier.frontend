@@ -7,16 +7,16 @@ import 'package:ivis/viewmodel/controller/user_controller.dart';
 import 'package:get/get.dart';
 import 'package:http/http.dart' as http;
 
-import '../../constants/constants.dart';
 import '../../model/pick_image_model.dart';
 import '../../model/upload_model.dart';
 import 'base_repository.dart';
 
 class UploadRepository extends BaseRepository {
   final String fileUploadPath = "/api/upload/file";
+  final String fileDeletePath = "/api/upload/file";
 
   Future<List<UploadModel>> requestUploadImage(List<PickImageFile> files) async {
-    var url = Uri.http(kApiServer, fileUploadPath);
+    final Uri url = buildApiUri(fileUploadPath);
 
     try {
       var request = http.MultipartRequest('POST', url);
@@ -52,10 +52,16 @@ class UploadRepository extends BaseRepository {
         index++;
       }
 
-      request.headers.addAll(getHeader());
+      // Content-Type은 multipart/form-data로 자동 설정됨 — json 헤더 추가하면 덮어써짐
+      final String? token = Get.find<UserController>().accessToken;
+      if (token != null && token.isNotEmpty) {
+        request.headers['x-access-token'] = token;
+      }
 
-      final streamed = await request.send();
-      final response = await http.Response.fromStream(streamed);
+      final http.StreamedResponse streamed =
+          await request.send().timeout(requestTimeout);
+      final http.Response response =
+          await http.Response.fromStream(streamed).timeout(requestTimeout);
 
       if (response.statusCode != 200) {
         debugPrint('[Error] requestUploadImage() statusCode ${response.statusCode}');
@@ -69,11 +75,39 @@ class UploadRepository extends BaseRepository {
       }
 
       debugPrint("requestUploadImage() ${jsonResponse.toString()}");
-      List<dynamic> items = jsonResponse['result'];
-      return items.map((e) => UploadModel.fromJson(e)).toList();
+      // buildResponse가 'body' 키를 사용함 — 'result' 아님
+      final dynamic raw = jsonResponse['body'];
+      if (raw == null || raw is! List) {
+        debugPrint('[Error] requestUploadImage() body is null or not a list');
+        return [];
+      }
+      return raw.map((e) => UploadModel.fromJson(e as Map<String, dynamic>)).toList();
     } catch (e) {
       debugPrint("[Exception] requestUploadImage() ${e.toString()}");
       return [];
+    }
+  }
+
+  // S3에서 이미지 삭제
+  Future<bool> requestDeleteImage(String imageUrl) async {
+    final Uri url = buildApiUri(fileDeletePath);
+    try {
+      final http.Response response = await http.delete(
+        url,
+        headers: getHeader(),
+        body: json.encode({'imageUrl': imageUrl}),
+      ).timeout(requestTimeout);
+
+      if (response.statusCode != 200) {
+        debugPrint('[Error] requestDeleteImage() statusCode ${response.statusCode}');
+        return false;
+      }
+
+      final dynamic jsonResponse = json.decode(utf8.decode(response.bodyBytes));
+      return jsonResponse?['code'] == '0000';
+    } catch (e) {
+      debugPrint('[Exception] requestDeleteImage() ${e.toString()}');
+      return false;
     }
   }
 }

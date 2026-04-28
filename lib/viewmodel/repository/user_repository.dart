@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
-import '../../constants/constants.dart';
 import '../../model/common_model.dart';
 import '../../model/user_model.dart';
 import 'base_repository.dart';
@@ -12,6 +11,7 @@ class UserRepository extends BaseRepository {
   final String signUpByIdEmailPath = "/api/users/signUpByIdAndEmail";
   final String loginByIdPath = "/api/users/signInById";
   final String loginByTokenPath = "/api/users/signInByToken";
+  final String refreshTokenPath = "/api/users/accessToken";
   final String changePasswordPath = "/api/users/update";
   final String changePhoneNumberPath = "/api/users/updatePhoneNumber";
   final String changeProfilePath = "/api/users/updateProfile";
@@ -19,7 +19,7 @@ class UserRepository extends BaseRepository {
   final String findIdVerifyCodePath = "/api/findid/verify";
 
   Future<CommonResponse?> requestSignUpByIdAndEmail(Map<String, dynamic> params) async {
-    final url = Uri.http(kApiServer, signUpByIdEmailPath);
+    final Uri url = buildApiUri(signUpByIdEmailPath);
     final body = jsonEncode(params);
 
     try {
@@ -27,7 +27,7 @@ class UserRepository extends BaseRepository {
         url,
         headers: getHeader(includeToken: false),
         body: body,
-      );
+      ).timeout(requestTimeout);
       return handleResponse(response, (jsonResp) {
         return CommonResponse.fromJson(jsonResp);
       });
@@ -38,7 +38,7 @@ class UserRepository extends BaseRepository {
   }
 
   Future<LoginResult?> requestLoginById(Map<String, dynamic> params) async {
-    final url = Uri.http(kApiServer, loginByIdPath);
+    final Uri url = buildApiUri(loginByIdPath);
     final body = jsonEncode(params);
 
     try {
@@ -46,7 +46,7 @@ class UserRepository extends BaseRepository {
         url,
         headers: getHeader(includeToken: false),
         body: body,
-      );
+      ).timeout(requestTimeout);
       return handleResponse(response, (jsonResp) {
         return LoginResult.fromJson(jsonResp);
       });
@@ -56,15 +56,39 @@ class UserRepository extends BaseRepository {
     }
   }
 
+  /// 리프레시 토큰으로 새 액세스 토큰을 발급받는다.
+  /// 반환값: 새 accessToken 문자열, 실패 시 null
+  Future<String?> requestRefreshAccessToken(String refreshToken) async {
+    final Uri url = buildApiUri(refreshTokenPath);
+    final headers = {
+      'Content-Type': 'application/json; charset=utf-8',
+      'x-access-token': refreshToken,
+    };
+    try {
+      final http.Response response =
+          await http.post(url, headers: headers).timeout(requestTimeout);
+      if (response.statusCode != 200) return null;
+      final dynamic json = jsonDecode(utf8.decode(response.bodyBytes));
+      final dynamic body = json?['body'];
+      if (body == null) return null;
+      final String? newToken = body['accessToken']?.toString();
+      return (newToken != null && newToken.isNotEmpty) ? newToken : null;
+    } catch (e) {
+      debugPrint("[Exception] requestRefreshAccessToken => $e");
+      return null;
+    }
+  }
+
   Future<LoginResult?> requestLoginByToken(String token) async {
-    final url = Uri.http(kApiServer, loginByTokenPath);
+    final Uri url = buildApiUri(loginByTokenPath);
     final headers = {
       'Content-Type': 'application/json; charset=utf-8',
       'x-access-token': token,
     };
 
     try {
-      final response = await http.post(url, headers: headers);
+      final http.Response response =
+          await http.post(url, headers: headers).timeout(requestTimeout);
       return handleResponse(response, (jsonResp) {
         return LoginResult.fromJson(jsonResp);
       });
@@ -75,11 +99,13 @@ class UserRepository extends BaseRepository {
   }
 
   Future<String> requestChangePassword(Map<String, dynamic> params) async {
-    final url = Uri.http(kApiServer, changePasswordPath);
+    final Uri url = buildApiUri(changePasswordPath);
     final body = jsonEncode(params);
 
     try {
-      final response = await http.post(url, headers: getHeader(), body: body);
+      final http.Response response = await http
+          .post(url, headers: getHeader(), body: body)
+          .timeout(requestTimeout);
 
       return handleResponse(response, (jsonResp) {
         final cr = CommonResponse.fromJson(jsonResp);
@@ -97,11 +123,13 @@ class UserRepository extends BaseRepository {
   }
 
   Future<bool> requestChangePhoneNumber(Map<String, dynamic> params) async {
-    final url = Uri.http(kApiServer, changePhoneNumberPath);
+    final Uri url = buildApiUri(changePhoneNumberPath);
     final body = jsonEncode(params);
 
     try {
-      final response = await http.post(url, headers: getHeader(), body: body);
+      final http.Response response = await http
+          .post(url, headers: getHeader(), body: body)
+          .timeout(requestTimeout);
 
       return handleResponse(response, (jsonResp) {
         final cr = CommonResponse.fromJson(jsonResp);
@@ -115,11 +143,13 @@ class UserRepository extends BaseRepository {
   }
 
   Future<bool> requestUpdateProfileImage(Map<String, dynamic> params) async {
-    final url = Uri.http(kApiServer, changeProfilePath);
+    final Uri url = buildApiUri(changeProfilePath);
     final body = jsonEncode(params);
 
     try {
-      final response = await http.post(url, headers: getHeader(), body: body);
+      final http.Response response = await http
+          .post(url, headers: getHeader(), body: body)
+          .timeout(requestTimeout);
       return handleResponse(response, (jsonResp) {
         final cr = CommonResponse.fromJson(jsonResp);
         return (cr.code == "0000");
@@ -131,11 +161,13 @@ class UserRepository extends BaseRepository {
   }
 
   Future<bool> requestFindIdSendCode(Map<String, dynamic> params) async {
-    final url = Uri.http(kApiServer, findIdSendCodePath);
+    final Uri url = buildApiUri(findIdSendCodePath);
     final body = jsonEncode(params);
 
     try {
-      final response = await http.post(url, headers: getHeader(), body: body);
+      final http.Response response = await http
+          .post(url, headers: getHeader(), body: body)
+          .timeout(requestTimeout);
       return handleResponse(response, (jsonResp) {
         final cr = CommonResponse.fromJson(jsonResp);
         return (cr.code == "0000");
@@ -147,11 +179,13 @@ class UserRepository extends BaseRepository {
   }
 
   Future<Map<String, dynamic>> requestFindIdVerifyCodeWithData(Map<String, dynamic> params) async {
-    final url = Uri.http(kApiServer, findIdVerifyCodePath);
+    final Uri url = buildApiUri(findIdVerifyCodePath);
     final body = jsonEncode(params);
 
     try {
-      final response = await http.post(url, headers: getHeader(), body: body);
+      final http.Response response = await http
+          .post(url, headers: getHeader(), body: body)
+          .timeout(requestTimeout);
       return handleResponse(response, (jsonResp) {
         final cr = CommonResponse.fromJson(jsonResp);
 

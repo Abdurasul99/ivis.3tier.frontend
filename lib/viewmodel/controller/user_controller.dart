@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:ivis/viewmodel/controller/password_controller.dart';
 import 'package:get/get.dart';
 
@@ -12,8 +13,32 @@ class UserController extends GetxController {
   String foundUserId = '';
   String foundJoinDate = '';
 
+  /// 테스트 전용 — 로그인 유저 직접 주입
+  @visibleForTesting
+  set loginUserForTest(LoginUser? user) => _loginUser = user;
+
+  /// 테스트 전용 — 액세스 토큰 직접 주입
+  @visibleForTesting
+  set accessTokenForTest(String? token) => _accessToken = token;
+
   LoginUser? get loginUser => _loginUser;
   String? get accessToken => _accessToken;
+
+  /// Load token from local storage into memory for direct route refresh cases.
+  Future<bool> ensureAccessTokenLoaded() async {
+    if (_accessToken != null && _accessToken!.isNotEmpty) {
+      return true;
+    }
+
+    final String storedToken = await LocalRepository().getAccessToken();
+    if (storedToken.isEmpty) {
+      return false;
+    }
+
+    _accessToken = storedToken;
+    update();
+    return true;
+  }
 
   Future<bool> reqSignUpByIdAndEmail(
     String userId,
@@ -47,27 +72,82 @@ class UserController extends GetxController {
     if (loginResult != null && loginResult.code == "0000") {
       _loginUser = loginResult.loginUser;
       _accessToken = loginResult.loginUser?.accessToken ?? "";
+      final refreshToken = loginResult.loginUser?.refreshToken ?? "";
       await LocalRepository().saveAccessToken(_accessToken!);
+      if (refreshToken.isNotEmpty) {
+        await LocalRepository().saveRefreshToken(refreshToken);
+      }
       update();
       return true;
     }
     return false;
   }
 
+  /// 리프레시 토큰으로 액세스 토큰을 갱신한다.
+  /// 성공 시 새 토큰을 저장하고 true 반환. 실패 시 false.
+  Future<bool> refreshAccessToken() async {
+    final storedRefresh = await LocalRepository().getRefreshToken();
+    if (storedRefresh.isEmpty) return false;
+
+    final newAccessToken = await UserRepository().requestRefreshAccessToken(storedRefresh);
+    if (newAccessToken == null || newAccessToken.isEmpty) return false;
+
+    _accessToken = newAccessToken;
+    await LocalRepository().saveAccessToken(newAccessToken);
+    update();
+    return true;
+  }
+
+  /// 앱 시작/새로고침 시 저장된 토큰으로 자동 로그인을 시도한다.
+  /// 1단계: 액세스 토큰으로 signInByToken 시도
+  /// 2단계: 실패 시 리프레시 토큰으로 새 액세스 토큰 발급 후 재시도
+  /// 3단계: 모두 실패 시 false 반환 → 로그인 페이지로
   Future<bool> reqLoginByToken() async {
     final storedToken = await LocalRepository().getAccessToken();
-    if (storedToken.isEmpty) {
-      return false;
-    }
+    if (storedToken.isEmpty) return false;
 
+    // 메모리에 토큰 즉시 세팅 (API 헤더 준비)
+    _accessToken = storedToken;
+    update();
+
+    // 1단계: 액세스 토큰으로 직접 로그인 시도
     final loginResult = await UserRepository().requestLoginByToken(storedToken);
     if (loginResult != null && loginResult.code == "0000") {
       _loginUser = loginResult.loginUser;
-      _accessToken = loginResult.loginUser?.accessToken ?? "";
+      _accessToken = loginResult.loginUser?.accessToken ?? storedToken;
+      final refreshToken = loginResult.loginUser?.refreshToken ?? "";
       await LocalRepository().saveAccessToken(_accessToken!);
+      if (refreshToken.isNotEmpty) {
+        await LocalRepository().saveRefreshToken(refreshToken);
+      }
       update();
       return true;
     }
+
+    // 2단계: 액세스 토큰 만료 → 리프레시 토큰으로 새 액세스 토큰 발급
+    final refreshed = await refreshAccessToken();
+    if (!refreshed) {
+      // 리프레시 토큰도 만료됨 → 완전 로그아웃
+      await logout();
+      return false;
+    }
+
+    // 3단계: 새 액세스 토큰으로 재시도
+    final retryResult = await UserRepository().requestLoginByToken(_accessToken!);
+    if (retryResult != null && retryResult.code == "0000") {
+      _loginUser = retryResult.loginUser;
+      _accessToken = retryResult.loginUser?.accessToken ?? _accessToken;
+      final refreshToken = retryResult.loginUser?.refreshToken ?? "";
+      await LocalRepository().saveAccessToken(_accessToken!);
+      if (refreshToken.isNotEmpty) {
+        await LocalRepository().saveRefreshToken(refreshToken);
+      }
+      update();
+      return true;
+    }
+
+    // 모두 실패 → 로그아웃
+    await logout();
     return false;
   }
 
@@ -142,6 +222,7 @@ class UserController extends GetxController {
     _loginUser = null;
     _accessToken = null;
     await LocalRepository().clearAccessToken();
+    await LocalRepository().clearRefreshToken();
     update();
   }
 

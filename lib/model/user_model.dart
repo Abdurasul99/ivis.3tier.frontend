@@ -29,7 +29,8 @@ class LoginUser {
 
   factory LoginUser.fromJson(Map<String, dynamic> parsedJson) {
     return LoginUser(
-      id: int.tryParse(parsedJson['id'] ?? "0"),
+      // 백엔드가 id를 int로 반환하므로 타입 무관하게 처리
+      id: parsedJson['id'] is int ? parsedJson['id'] as int : int.tryParse(parsedJson['id']?.toString() ?? "0"),
       userId: parsedJson['userId'],
       email: parsedJson['email'],
       name: parsedJson['name'],
