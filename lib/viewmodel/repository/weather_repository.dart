@@ -12,6 +12,7 @@ class ActivityWeatherSummary {
   final double? minTempC;
   final int? weatherCode;
   final String? timezone;
+  final String? locationName; // 카카오 역지오코딩으로 얻은 실시간 위치명
 
   const ActivityWeatherSummary({
     required this.currentTempC,
@@ -19,6 +20,7 @@ class ActivityWeatherSummary {
     required this.minTempC,
     required this.weatherCode,
     required this.timezone,
+    this.locationName,
   });
 }
 
@@ -61,6 +63,7 @@ class WeatherRepository extends BaseRepository {
         minTempC: _toDouble(body['min_temp_c']),
         weatherCode: _toInt(body['weather_code']),
         timezone: body['timezone']?.toString(),
+        locationName: body['location_name']?.toString(),
       );
     } catch (error) {
       debugPrint('[WeatherRepository.requestWeather] $error');

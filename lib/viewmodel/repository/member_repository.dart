@@ -80,7 +80,8 @@ class MemberRepository extends BaseRepository {
       }
 
       return handleResponse(response, (jsonResponse) {
-        return (jsonResponse['body']['affectedRows'] != null);
+        // 성공 판정: 백엔드 buildResponse code '0000' (pg 결과엔 affectedRows 없음 — MySQL 잔재 버그 수정)
+        return jsonResponse is Map && jsonResponse['code'] == '0000';
       });
     } catch (e) {
       debugPrint("[Exception] requestApproveMember => $e");
@@ -105,7 +106,8 @@ class MemberRepository extends BaseRepository {
       }
 
       return handleResponse(response, (jsonResponse) {
-        return (jsonResponse['body']['affectedRows'] != null);
+        // 성공 판정: 백엔드 buildResponse code '0000' (pg 결과엔 affectedRows 없음 — MySQL 잔재 버그 수정)
+        return jsonResponse is Map && jsonResponse['code'] == '0000';
       });
     } catch (e) {
       debugPrint("[Exception] requestRejectMember => $e");
@@ -131,7 +133,8 @@ class MemberRepository extends BaseRepository {
       }
 
       return handleResponse(response, (jsonResponse) {
-        return (jsonResponse['body']['affectedRows'] != null);
+        // 성공 판정: 백엔드 buildResponse code '0000' (pg 결과엔 affectedRows 없음 — MySQL 잔재 버그 수정)
+        return jsonResponse is Map && jsonResponse['code'] == '0000';
       });
     } catch (e) {
       debugPrint("[Exception] requestChangeRole => $e");
@@ -156,7 +159,8 @@ class MemberRepository extends BaseRepository {
       }
 
       return handleResponse(response, (jsonResponse) {
-        return (jsonResponse['body']['affectedRows'] != null);
+        // 성공 판정: 백엔드 buildResponse code '0000' (pg 결과엔 affectedRows 없음 — MySQL 잔재 버그 수정)
+        return jsonResponse is Map && jsonResponse['code'] == '0000';
       });
     } catch (e) {
       debugPrint("[Exception] requestDeleteMember => $e");
