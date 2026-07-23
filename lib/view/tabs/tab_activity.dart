@@ -8,6 +8,7 @@ import 'package:get/get.dart';
 
 import '../../i18n/app_locale.dart';
 import '../../viewmodel/controller/activity_controller.dart';
+import '../../viewmodel/controller/live_status_controller.dart';
 import '../../viewmodel/controller/locale_controller.dart';
 import '../../viewmodel/repository/activity_repository.dart';
 import '../../viewmodel/repository/weather_repository.dart';
@@ -71,6 +72,10 @@ class _TabActivityState extends State<TabActivity>
 
   // 디바이스 이동거리 차트 기간 (일/주/월)
   final ScrollController _distanceChartScrollController = ScrollController();
+  // 차량별 거리/운행시간 차트는 서로 다른 스크롤 컨트롤러 사용 (동시 렌더 시 충돌 방지)
+  final ScrollController _distanceV3ScrollController = ScrollController();
+  final ScrollController _opChartScrollController = ScrollController();
+  final ScrollController _objChartScrollController = ScrollController();
   String _deviceDistancePeriod = 'day';
   double peakKm = 0;
   String peakLabel = '';
@@ -81,6 +86,9 @@ class _TabActivityState extends State<TabActivity>
   @override
   void dispose() {
     _distanceChartScrollController.dispose();
+    _distanceV3ScrollController.dispose();
+    _opChartScrollController.dispose();
+    _objChartScrollController.dispose();
     super.dispose();
   }
 
@@ -199,7 +207,7 @@ class _TabActivityState extends State<TabActivity>
     );
   }
 
-  Widget _buildSidebarDeck(ActivityController c) {
+  Widget _buildSidebarDeck(ActivityController c, LiveStatusController live) {
     return Container(
       width: 288,
       decoration: BoxDecoration(
@@ -249,6 +257,7 @@ class _TabActivityState extends State<TabActivity>
               children: <Widget>[
                 _buildSidebarRailSection(
                   c: c,
+                  live: live,
                   label: l10n('차량', 'Vehicles'),
                   icon: Icons.directions_car_rounded,
                   accent: _primary,
@@ -257,6 +266,7 @@ class _TabActivityState extends State<TabActivity>
                 const SizedBox(height: 12),
                 _buildSidebarRailSection(
                   c: c,
+                  live: live,
                   label: l10n('인프라', 'Infrastructure'),
                   icon: Icons.cell_tower_rounded,
                   accent: _infra,
@@ -272,6 +282,7 @@ class _TabActivityState extends State<TabActivity>
 
   Widget _buildSidebarRailSection({
     required ActivityController c,
+    required LiveStatusController live,
     required String label,
     required IconData icon,
     required Color accent,
@@ -333,6 +344,7 @@ class _TabActivityState extends State<TabActivity>
           ...items.map((ActivityCatalogItem item) {
             return _buildSidebarRailTile(
               c: c,
+              live: live,
               item: item,
               accent: accent,
             );
@@ -343,13 +355,14 @@ class _TabActivityState extends State<TabActivity>
 
   Widget _buildSidebarRailTile({
     required ActivityController c,
+    required LiveStatusController live,
     required ActivityCatalogItem item,
     required Color accent,
   }) {
     final bool selected =
         c.selectedDeviceType == item.deviceType && c.selectedDeviceId == item.deviceId;
-    final Color statusColor = _deviceStatusColor(c, item);
-    final String statusLabel = _deviceStatusLabel(c, item);
+    final Color statusColor = _deviceStatusColor(live, item);
+    final String statusLabel = _deviceStatusLabel(live, item);
 
     return GestureDetector(
       onTap: () => c.selectDevice(item.deviceType, item.deviceId),
@@ -461,10 +474,10 @@ class _TabActivityState extends State<TabActivity>
     );
   }
 
-  Color _deviceStatusColor(ActivityController c, ActivityCatalogItem item) {
+  Color _deviceStatusColor(LiveStatusController live, ActivityCatalogItem item) {
     final DeviceStatus status = item.deviceType == 'vehicle'
-        ? c.vehicleDeviceStatus(item.deviceId)
-        : c.infraDeviceStatus(item.deviceId);
+        ? live.vehicleDeviceStatus(item.deviceId)
+        : live.infraDeviceStatus(item.deviceId);
     switch (status) {
       case DeviceStatus.moving:
         return _statusMoving;
@@ -477,10 +490,10 @@ class _TabActivityState extends State<TabActivity>
     }
   }
 
-  String _deviceStatusLabel(ActivityController c, ActivityCatalogItem item) {
+  String _deviceStatusLabel(LiveStatusController live, ActivityCatalogItem item) {
     final DeviceStatus status = item.deviceType == 'vehicle'
-        ? c.vehicleDeviceStatus(item.deviceId)
-        : c.infraDeviceStatus(item.deviceId);
+        ? live.vehicleDeviceStatus(item.deviceId)
+        : live.infraDeviceStatus(item.deviceId);
     switch (status) {
       case DeviceStatus.moving:
         return item.deviceType == 'infra'
@@ -1146,15 +1159,19 @@ class _TabActivityState extends State<TabActivity>
               color: const Color(0xFFF3F6FA),
               child: Column(
                 children: <Widget>[
-                  _buildHeaderDeck(c),
                   Expanded(
                     child: Padding(
                       padding: const EdgeInsets.all(16),
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: <Widget>[
-                          _buildSidebarDeck(c),
+                          // 사이드바: LiveStatusController만 구독 → 차트 GetBuilder를 건드리지 않음
+                          GetBuilder<LiveStatusController>(
+                            builder: (LiveStatusController live) =>
+                                _buildSidebarDeck(c, live),
+                          ),
                           const SizedBox(width: 16),
+                          // 차트/본문: ActivityController만 구독 → live 타이머에 반응하지 않음
                           Expanded(
                             child: c.selectedDeviceId == null
                                 ? _buildEmptyBodyDeck(c)

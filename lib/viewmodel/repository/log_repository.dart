@@ -44,18 +44,20 @@ class HistoryExportResult {
   final String fileName;
   final int rowCount;
   final int columnCount;
+  final bool truncated;
 
   HistoryExportResult({
     required this.fileName,
     required this.rowCount,
     required this.columnCount,
+    this.truncated = false,
   });
 }
 
 class LogRepository {
   String get apiServerHost => kApiServer;
   Duration get requestTimeout => const Duration(seconds: 8);
-  Duration get exportTimeout => const Duration(seconds: 60);
+  Duration get exportTimeout => const Duration(seconds: 600);
 
   Uri buildUri(String path, {Map<String, dynamic>? query}) {
     final String server = apiServerHost.trim();
@@ -180,11 +182,14 @@ class LogRepository {
 
     final int rowCount = int.tryParse('${bodyMap['rowCount'] ?? bodyMap['row_count'] ?? 0}') ?? 0;
     final int columnCount = int.tryParse('${bodyMap['columnCount'] ?? bodyMap['column_count'] ?? 0}') ?? 0;
+    final bool truncated =
+        bodyMap['truncated'] == true || '${bodyMap['truncated']}' == 'true';
 
     return HistoryExportResult(
       fileName: fileName,
       rowCount: rowCount,
       columnCount: columnCount,
+      truncated: truncated,
     );
   }
 }

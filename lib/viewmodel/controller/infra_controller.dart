@@ -19,6 +19,8 @@ class InfraController extends GetxController {
   int historyTotalCountInternal = 0;
   int historyOffsetInternal = 0;
   int historyLimitInternal = 18;
+  // 마지막 이력 로드 실패 여부 — 실패 시 기존 데이터 유지 (빈 테이블 방지).
+  bool historyLoadFailedInternal = false;
 
   List<InfraInfo> statusItemsInternal = <InfraInfo>[];
   int statusTotalCountInternal = 0;
@@ -151,6 +153,9 @@ class InfraController extends GetxController {
     int limit = 18,
     String? searchText,
     String? searchColumnName,
+    // ── 키셋 커서 (신규) ─ cursorId 지정 시 offset 무시 ──
+    int? cursorId,
+    String? cursorDirection,
   }) async {
     if (!hasToken) {
       historyItemsInternal = <InfraInfoHistory>[];
@@ -172,6 +177,8 @@ class InfraController extends GetxController {
         offset: offset,
         searchText: searchText,
         searchColumnName: searchColumnName,
+        cursorId: cursorId,
+        cursorDirection: cursorDirection,
       );
 
       if (result != null) {
@@ -179,18 +186,17 @@ class InfraController extends GetxController {
         historyTotalCountInternal = result.totalCount;
         historyOffsetInternal = offset;
         historyLimitInternal = limit;
+        historyLoadFailedInternal = false;
       } else {
-        historyItemsInternal = <InfraInfoHistory>[];
-        historyTotalCountInternal = 0;
-        historyOffsetInternal = 0;
+        // 요청 실패(타임아웃/오류) — 기존 데이터 유지 (빈 테이블 방지).
+        historyLoadFailedInternal = true;
       }
     } catch (exception) {
       if (kDebugMode) {
         debugPrint('InfraController.reqLoadHistory error: $exception');
       }
-      historyItemsInternal = <InfraInfoHistory>[];
-      historyTotalCountInternal = 0;
-      historyOffsetInternal = 0;
+      // 예외 시에도 기존 데이터 유지.
+      historyLoadFailedInternal = true;
     } finally {
       isLoadingInternal = false;
       update();
@@ -203,6 +209,9 @@ class InfraController extends GetxController {
     int limit = 100,
     String? searchText,
     String? searchColumnName,
+    // ── 키셋 커서 (신규) ─ cursorId 지정 시 offset 무시 ──
+    int? cursorId,
+    String? cursorDirection,
   }) async {
     if (!hasToken) {
       statusItemsInternal = <InfraInfo>[];
@@ -224,6 +233,8 @@ class InfraController extends GetxController {
         offset: offset,
         searchText: searchText,
         searchColumnName: searchColumnName,
+        cursorId: cursorId,
+        cursorDirection: cursorDirection,
       );
 
       if (result != null) {

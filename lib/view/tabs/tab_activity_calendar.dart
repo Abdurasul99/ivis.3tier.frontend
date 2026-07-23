@@ -2,6 +2,11 @@ part of 'tab_activity.dart';
 
 mixin _ActivityCalendarMixin on State<TabActivity> {
   Widget _buildAppleCalendarWidgetV2(ActivityController c) {
+    // 날짜 선택 시 — 캘린더 자리에 인라인 티켓 표시
+    if (c.selectedCalendarDate != null) {
+      return _buildCalendarDayTicketInline(c);
+    }
+
     final DateTime now = DateTime.now();
     final DateTime todayStart = DateTime(now.year, now.month, now.day);
 
@@ -465,181 +470,149 @@ mixin _ActivityCalendarMixin on State<TabActivity> {
     );
   }
 
-  // ── 라이트 이벤트 섹션 ────────────────────────────
-  Future<void> _showCalendarDayTicket(ActivityController c, DateTime dayDate) async {
+  // ── 날짜 클릭 → 인라인 티켓으로 전환 ────────────────
+  void _showCalendarDayTicket(ActivityController c, DateTime dayDate) {
     unawaited(c.openCalendarDayTicket(dayDate));
-
-    await showDialog<void>(
-      context: context,
-      barrierColor: Colors.black.withValues(alpha: 0.42),
-      builder: (BuildContext dialogContext) {
-        return GetBuilder<ActivityController>(
-          builder: (ActivityController ctrl) {
-            return Dialog(
-              backgroundColor: Colors.transparent,
-              insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
-              child: _buildCalendarDayTicket(dialogContext, ctrl),
-            );
-          },
-        );
-      },
-    );
-
-    c.closeCalendarDayTicket();
+    // update()는 openCalendarDayTicket 내부에서 호출되므로
+    // GetBuilder가 자동으로 _buildAppleCalendarWidgetV2를 재빌드함
   }
 
-  Widget _buildCalendarDayTicket(BuildContext dialogContext, ActivityController c) {
+  // ── 인라인 티켓 (캘린더 자리에 표시) ────────────────
+  Widget _buildCalendarDayTicketInline(ActivityController c) {
     final DateTime selected = c.selectedCalendarDate ?? DateTime.now();
     final String dateLabel = isEnglishLocale
         ? '${_monthAbbr(selected.month)} ${selected.day}, ${selected.year}'
         : '${selected.year}.${selected.month.toString().padLeft(2, '0')}.${selected.day.toString().padLeft(2, '0')}';
 
-    return ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: 560, maxHeight: 680),
-      child: Container(
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(20),
-          boxShadow: <BoxShadow>[
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.10),
-              blurRadius: 32,
-              offset: const Offset(0, 12),
+    return Container(
+      decoration: BoxDecoration(
+        color: _surface,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: _border),
+        boxShadow: const <BoxShadow>[
+          BoxShadow(color: Color(0x080F172A), blurRadius: 18, offset: Offset(0, 6)),
+        ],
+      ),
+      child: Column(
+        children: <Widget>[
+          // ── 헤더 ──
+          Container(
+            padding: const EdgeInsets.fromLTRB(16, 14, 12, 14),
+            decoration: BoxDecoration(
+              color: _primaryTint,
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+              border: const Border(bottom: BorderSide(color: _border)),
             ),
-          ],
-        ),
-        child: Column(
-          children: <Widget>[
-            // ── 헤더 ──
-            Container(
-              padding: const EdgeInsets.fromLTRB(20, 18, 12, 18),
-              decoration: BoxDecoration(
-                color: _primaryTint,
-                borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-                border: const Border(bottom: BorderSide(color: _border)),
-              ),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: <Widget>[
-                  Container(
-                    width: 42,
-                    height: 42,
+            child: Row(
+              children: <Widget>[
+                // 뒤로가기 버튼
+                GestureDetector(
+                  onTap: c.closeCalendarDayTicket,
+                  child: Container(
+                    width: 32,
+                    height: 32,
                     decoration: BoxDecoration(
-                      color: _primarySoft,
-                      borderRadius: BorderRadius.circular(12),
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: _border),
                     ),
-                    child: const Icon(Icons.event_note_rounded, color: _primary, size: 20),
+                    child: const Icon(Icons.arrow_back_rounded, color: _text, size: 16),
                   ),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: <Widget>[
-                        Text(
-                          dateLabel,
-                          style: const TextStyle(
-                            fontFamily: 'gm-medium',
-                            fontSize: 18,
-                            fontWeight: FontWeight.w800,
-                            color: _text,
-                            height: 1.1,
-                          ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Text(
+                        dateLabel,
+                        style: const TextStyle(
+                          fontFamily: 'gm-medium',
+                          fontSize: 15,
+                          fontWeight: FontWeight.w800,
+                          color: _text,
+                          height: 1.1,
                         ),
-                        const SizedBox(height: 3),
-                        Text(
-                          c.selectedDeviceTitle,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontFamily: 'pretendard',
-                            fontSize: 12,
-                            color: _muted,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  if (c.selectedCalendarDayTotal > 0)
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                      decoration: BoxDecoration(
-                        color: _primary,
-                        borderRadius: BorderRadius.circular(999),
                       ),
-                      child: Text(
-                        '${c.selectedCalendarDayTotal}',
+                      Text(
+                        c.selectedDeviceTitle,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
                           fontFamily: 'pretendard',
-                          fontSize: 12,
-                          fontWeight: FontWeight.w800,
-                          color: Colors.white,
+                          fontSize: 11,
+                          color: _muted,
                         ),
                       ),
-                    ),
-                  const SizedBox(width: 6),
-                  IconButton(
-                    onPressed: () => Navigator.of(dialogContext).pop(),
-                    icon: const Icon(Icons.close_rounded, color: _muted, size: 20),
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+                    ],
                   ),
-                ],
-              ),
+                ),
+                if (c.selectedCalendarDayTotal > 0)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                    decoration: BoxDecoration(
+                      color: _primary,
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Text(
+                      '${c.selectedCalendarDayTotal}',
+                      style: const TextStyle(
+                        fontFamily: 'pretendard',
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+              ],
             ),
-            // ── 이벤트 목록 ──
-            Expanded(
-              child: Container(
-                width: double.infinity,
-                color: const Color(0xFFF8FAFB),
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
-                child: c.isCalendarDayLoading
-                    ? const Center(
-                        child: CircularProgressIndicator(color: _primary),
+          ),
+          // ── 이벤트 목록 ──
+          Expanded(
+            child: c.isCalendarDayLoading
+                ? const Center(child: CircularProgressIndicator(color: _primary))
+                : c.selectedCalendarDayEvents.isEmpty
+                    ? Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: <Widget>[
+                            Container(
+                              width: 52,
+                              height: 52,
+                              decoration: BoxDecoration(
+                                color: _primarySoft,
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                              child: const Icon(Icons.event_busy_rounded,
+                                  color: _primary, size: 24),
+                            ),
+                            const SizedBox(height: 10),
+                            Text(
+                              l10n('이 날 이벤트가 없습니다', 'No events on this day'),
+                              style: const TextStyle(
+                                fontFamily: 'pretendard',
+                                fontSize: 13,
+                                color: _muted,
+                              ),
+                            ),
+                          ],
+                        ),
                       )
-                    : c.selectedCalendarDayEvents.isEmpty
-                        ? Center(
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: <Widget>[
-                                Container(
-                                  width: 56,
-                                  height: 56,
-                                  decoration: BoxDecoration(
-                                    color: _primarySoft,
-                                    borderRadius: BorderRadius.circular(16),
-                                  ),
-                                  child: const Icon(Icons.event_busy_rounded,
-                                      color: _primary, size: 26),
+                    : Scrollbar(
+                        child: ListView(
+                          padding: const EdgeInsets.all(12),
+                          children: c.selectedCalendarDayEvents
+                              .map(
+                                (ActivityEventItem event) => _feedTile(
+                                  event,
+                                  event.isRead ? null : () => c.markRead(event.id),
                                 ),
-                                const SizedBox(height: 12),
-                                Text(
-                                  l10n('이 날 이벤트가 없습니다', 'No events on this day'),
-                                  style: const TextStyle(
-                                    fontFamily: 'pretendard',
-                                    fontSize: 14,
-                                    color: _muted,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          )
-                        : Scrollbar(
-                            child: ListView(
-                              children: c.selectedCalendarDayEvents
-                                  .map(
-                                    (ActivityEventItem event) => _feedTile(
-                                      event,
-                                      event.isRead ? null : () => c.markRead(event.id),
-                                    ),
-                                  )
-                                  .toList(),
-                            ),
-                          ),
-              ),
-            ),
-          ],
-        ),
+                              )
+                              .toList(),
+                        ),
+                      ),
+          ),
+        ],
       ),
     );
   }

@@ -20,6 +20,7 @@ import '../../viewmodel/controller/user_controller.dart';
 import '../../viewmodel/controller/vehicle_controller.dart';
 import '../../viewmodel/controller/dashboard_controller.dart';
 import '../../viewmodel/repository/device_registry_repository.dart';
+import 'vehicle_marker_overlay.dart';
 
 enum MapEntityType { vehicle, infra }
 
@@ -132,6 +133,13 @@ class _VehicleLiveTrackingSession {
   int peakMovingObjectCount = 0;
   double peakSpeedKph = 0.0;
   final Set<String> uniqueObjectKeys = <String>{};
+
+  // 실시간 역지오코딩 위치 정보
+  String? departureLocationName;   // 출발지 (최초 이동 시작 위치)
+  String? currentLocationName;     // 현재 위치 (주기적으로 갱신)
+  LatLng? departurePosition;       // 출발 좌표
+  LatLng? lastGeocodedPosition;    // 마지막으로 지오코딩한 좌표
+  int lastGeocodedAtMs = 0;        // 마지막 지오코딩 시각
 
   int get uniqueObjectCount => uniqueObjectKeys.length;
 
@@ -395,8 +403,17 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
   // 적응형 마커 크기: 차량/인프라/스테이션 아이콘도 동일 scale 기준으로 조정
   int _vehicleIconSizePx = 64;
 
-  // ── car.png 헤딩별 회전 아이콘 캐시 (5° 버킷 = 최대 72종) ─────────────────
-  static const int _carBucketDeg = 5;
+  // ── car.png 헤딩별 회전 아이콘 캐시 (15° 버킷 = 최대 24종) ─────────────────
+  // Web에서 icon 변경 시 BitmapDescriptor.bytes 재변환으로 인한 깜빡임 발생
+  // → bucket을 5°에서 15°로 확대하여 회전당 icon switch 횟수 1/3로 감소
+  static const int _carBucketDeg = 15;
+
+  // 차량별 마지막으로 사용한 bucket 기록 → hysteresis 적용
+  // Per-vehicle last-used bucket → hysteresis to prevent icon flicker
+  // 다음 bucket 으로 전환되려면 최소 _bucketHysteresisSteps 만큼 차이가 나야 함
+  // Must change by >= _bucketHysteresisSteps buckets to switch icon
+  static const int _bucketHysteresisSteps = 2; // 2 * 15° = 30° threshold
+  final Map<int, int> _vehicleLastBucket = <int, int>{};
   static const double _vehicleMovingMarkerScale = 1.18;
   final Map<String, BitmapDescriptor> _carIconNormal =
       <String, BitmapDescriptor>{};
@@ -410,10 +427,18 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
   Timer? _dbPollTimer;
   static const int _dbPollIntervalMs = 1000; // 650 → 1000ms로 완화
   bool _tabVisible = true; // TickerMode 기반 탭 가시성
-  static const int _vehicleStatusFetchLimit = 120;
-  static const int _infraStatusFetchLimit = 120;
-  static const int _vehicleOnlineGraceMs = 6000;
-  static const int _infraOnlineGraceMs = 6000;
+  // 부하시험 대비 상향(기존 120 → 차량 300 / 인프라 100). 시뮬레이터가 최대 255대
+  // 차량 + 30 인프라를 발행하므로 120 제한 시 나머지가 오프라인(빨강)으로 표시됐음.
+  static const int _vehicleStatusFetchLimit = 300;
+  static const int _infraStatusFetchLimit = 100;
+  // 6초 grace 는 클라이언트-서버 시계 드리프트 + 백엔드 지연 + interpolation buffer
+  // 합산 시 경계선에 걸려 마커가 online/offline 사이에서 깜빡이는 버그 발생
+  // → 30초로 확대하여 안정적 가시성 확보
+  // 6 sec grace was too tight: combined client-server clock drift + backend lag could
+  // push tsMs near the boundary, causing marker flip-flop online/offline → visible flicker
+  // 30 sec grace fully tolerates any reasonable drift/lag/interp buffer
+  static const int _vehicleOnlineGraceMs = 30000;
+  static const int _infraOnlineGraceMs = 30000;
   Timer? _infraBlinkTimer;
   static const int _infraBlinkIntervalMs = 550;
   bool _infraBlinkOn = true;
@@ -426,6 +451,9 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
   static const double _serverPositionUpdateMinMeters = 0.35;
   static const double _vehiclePredictMinSpeedMps = 0.3;
   static const int _vehiclePredictFreshPacketMs = 1200;
+  // 예측 지연 추정(고정): 실측 age(now-ts)는 폴링 지터로 흔들려 예측량이 변하고,
+  // 그 결과 마커가 뒤로 튄다. 갱신 경로에선 안정적 고정값을 써서 후진 점프를 막는다.
+  static const int _vehiclePredictStableDelayMs = 1000;
   static const int _vehiclePredictStartAfterMs = 80;
   static const int _vehiclePredictMaxAgeMs = 4200;
   static const double _vehiclePredictMaxSeconds = 1.6;
@@ -449,7 +477,43 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
   static const double _objectAbsoluteParentMaxDistanceMeters = 2000.0;
 
   int _lastMarkerRebuildMs = 0;
-  static const int _markerRebuildThrottleMs = 60;
+  // Web에서 100대 마커 빈번한 position 갱신 시 깜빡임 발생 (Google Maps JS marker setter)
+  // 200ms = 5 FPS marker update → 차량 12m/s 기준 2.4m 점프 (시각적 허용 범위)
+  // 깜빡임 1000 events/sec → 500 events/sec (절반 감소)
+  static const int _markerRebuildThrottleMs = 200;
+  // 위치/방향 변화가 임계값 미만이면 Marker 재생성 스킵
+  // Skip marker recreation if position/heading change is below threshold
+  static const double _markerPositionDeltaMeters = 0.5;
+  static const double _markerHeadingDeltaDeg = 5.0;
+  // 차량별 마지막으로 렌더링된 Marker (캐시)
+  // Per-vehicle last rendered Marker (cache to skip rebuild)
+  final Map<int, Marker> _lastVehicleMarker = <int, Marker>{};
+  final Map<int, LatLng> _lastVehicleMarkerPos = <int, LatLng>{};
+  final Map<int, double> _lastVehicleMarkerHeading = <int, double>{};
+
+  // ── CRITICAL: 차량별 stable icon 참조 / Per-vehicle STABLE icon reference ──
+  // google_maps_flutter_web 는 icon 참조가 바뀌면 PNG 를 다시 로드 → 빈 프레임 → 깜빡임
+  // 한 번 정해진 icon 은 EXACT match 가 들어올 때까지 절대 바꾸지 않음
+  // google_maps_flutter_web reloads <img> if icon ref differs → empty frame → FLICKER
+  // Once assigned, NEVER swap to "nearest" — only swap to EXACT match when available
+  final Map<int, BitmapDescriptor> _vehicleIconRef = <int, BitmapDescriptor>{};
+  final Map<int, String> _vehicleIconKey = <int, String>{};
+
+  // ============================================================================
+  // FLUTTER OVERLAY 차량 렌더 (google_maps_flutter_web 깜빡임 최종 해결책)
+  // Flutter Stack overlay rendered on TOP of plugin markers — covers the flickering
+  // <img> elements so user only sees stable Flutter widgets. Plugin markers still
+  // exist underneath but are visually hidden by overlay icons.
+  //
+  // 플래그 끄면 (false) 즉시 기존 동작으로 복귀
+  // Set _useVehicleOverlay = false for instant rollback to old marker-only behavior.
+  // ============================================================================
+  static const bool _useVehicleOverlay = true;
+  final ValueNotifier<OverlayCameraSnapshot> _overlayCamera =
+      ValueNotifier<OverlayCameraSnapshot>(OverlayCameraSnapshot.empty);
+  Size _overlayContainerSize = Size.zero;
+  EdgeInsets _overlayPadding = EdgeInsets.zero;
+  final Map<int, bool> _lastVehicleMarkerSelected = <int, bool>{};
   int _markerSeq = 0;
   bool _initialMarkersBuilt = false;
   int _lastInterpStepMs = 0;
@@ -629,6 +693,61 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
     );
   }
 
+  // 카카오 역지오코딩 — 현재 위치명 및 출발지 갱신
+  static const double _geocodeMinDistanceM = 200.0;   // 200m 이상 이동 시 갱신
+  static const int    _geocodeMinIntervalMs = 30000;  // 최소 30초 간격
+
+  Future<String?> _geocodePosition(LatLng pos) async {
+    try {
+      final Uri uri = buildApiUri('/api/activity/geocode');
+      final http.Response resp = await http.post(
+        uri,
+        headers: _getAuthHeaders(),
+        body: '{"latitude":${pos.latitude},"longitude":${pos.longitude}}',
+      ).timeout(const Duration(seconds: 5));
+      if (resp.statusCode != 200) return null;
+      final dynamic decoded = jsonDecode(resp.body);
+      return decoded?['body']?['location_name']?.toString();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _maybeUpdateGeocode({required int nowMs}) async {
+    final _VehicleLiveTrackingSession? session = _selectedVehicleSession;
+    if (session == null) return;
+
+    final VehicleTrackingData? tracking = _tracked[session.vehicleId];
+    final LatLng? currentPos = tracking?.displayPosition;
+    if (currentPos == null) return;
+
+    final LatLng? lastPos = session.lastGeocodedPosition;
+    final bool tooSoon = (nowMs - session.lastGeocodedAtMs) < _geocodeMinIntervalMs;
+
+    // 출발지 아직 미설정 → 즉시 지오코딩
+    final bool needDeparture = session.departurePosition == null;
+    // 충분한 거리 이동 + 시간 경과
+    final bool movedFar = lastPos != null &&
+        geo.haversineMeters(lastPos.latitude, lastPos.longitude,
+            currentPos.latitude, currentPos.longitude) >= _geocodeMinDistanceM;
+
+    if (!needDeparture && (tooSoon || (!movedFar))) return;
+
+    final String? name = await _geocodePosition(currentPos);
+    if (name == null || name.isEmpty) return;
+    if (!mounted) return;
+
+    setState(() {
+      session.currentLocationName = name;
+      session.lastGeocodedPosition = currentPos;
+      session.lastGeocodedAtMs = nowMs;
+      if (needDeparture) {
+        session.departureLocationName = name;
+        session.departurePosition = currentPos;
+      }
+    });
+  }
+
   void _updateSelectedVehicleSession({required int nowMs}) {
     final int? vehicleId = _selectedVehicleId;
     if (vehicleId == null || vehicleId <= 0) {
@@ -655,6 +774,9 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
       speedKph: speedKph,
       nowMs: nowMs,
     );
+
+    // 역지오코딩 비동기 갱신 (30초 간격 / 200m 이상 이동 시)
+    unawaited(_maybeUpdateGeocode(nowMs: nowMs));
   }
 
   // 외부(tab_dashboard 등)에서 GlobalKey로 차량 선택 가능한 공개 메서드
@@ -1025,6 +1147,10 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
 
     _startDbPolling();
     _forceRebuildMarkers();
+
+    // 차량 아이콘 prewarm: 모든 heading bucket 미리 생성 → 주행 중 깜빡임 방지
+    // Background prewarm — no await so it doesn't block startup
+    unawaited(_prewarmCarIcons());
   }
 
   Future<void> _initData() async {
@@ -1204,6 +1330,50 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
     }
   }
 
+  /// 여러 차량의 탐지 객체를 **단일 배치 요청**으로 가져온다.
+  /// 차량마다 byVehicleInfo 를 호출하면 100대 = 100요청 → 브라우저 연결풀(6개)
+  /// 포화로 테이블/차트 요청이 굶주림. byMultipleVehicles 로 1요청에 처리.
+  /// 반환: { vehicleId: [DetectedObject...] }
+  Future<Map<int, List<DetectedObject>>> _fetchDetectedObjectsBatchByVehicleIds(
+      List<int> vehicleIds) async {
+    final Map<int, List<DetectedObject>> result = <int, List<DetectedObject>>{};
+    if (vehicleIds.isEmpty) {
+      return result;
+    }
+    try {
+      final Uri uri = buildApiUri('/api/detectedObjects/byMultipleVehicles');
+      final http.Response resp = await http
+          .post(
+            uri,
+            headers: _getAuthHeaders(),
+            body: jsonEncode(<String, dynamic>{
+              'vehicle_ids': vehicleIds,
+              'latest_only': true,
+            }),
+          )
+          .timeout(const Duration(seconds: 8));
+      if (resp.statusCode != 200) {
+        return result;
+      }
+      final dynamic decoded = jsonDecode(resp.body);
+      dynamic grouped = decoded;
+      if (decoded is Map && decoded['body'] != null) {
+        grouped = decoded['body'];
+      }
+      if (grouped is Map) {
+        grouped.forEach((dynamic key, dynamic value) {
+          final int vid = int.tryParse(key.toString()) ?? 0;
+          if (vid > 0) {
+            result[vid] = _parseDetectedObjectsResponse(value);
+          }
+        });
+      }
+      return result;
+    } catch (_) {
+      return result;
+    }
+  }
+
   Future<List<DetectedObject>> _fetchDetectedObjectsByInfraInfoId(
       int infraInfoId) async {
     try {
@@ -1378,6 +1548,15 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
         final bool hasFreshTelemetry =
             tsMs > 0 && tsMs != previousTelemetryTsMs;
 
+        // out-of-order 보호: 이미 표시한 것보다 오래된 timestamp 레코드면 마커가
+        // 뒤로 점프하므로 무시한다(외부 시뮬레이터/파이프라인 재정렬로 과거 데이터가
+        // 늦게 도착하는 경우). 마지막으로 표시한 시점 이후 데이터만 반영.
+        if (tsMs > 0 &&
+            previousTelemetryTsMs > 0 &&
+            tsMs < previousTelemetryTsMs) {
+          continue;
+        }
+
         final double kph = _parseDouble(v['kph']) ??
             _parseDouble(v['velocity_kph']) ??
             _parseDouble(v['velocityKph']) ??
@@ -1422,8 +1601,14 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
             tracking.retainedSpeedMps = 0.0;
           }
         } else {
-          tracking.retainedSpeedMps = 0.0;
-          mps = 0.0;
+          // 같은 timestamp 반복 (backend 캐시 응답 등) — 속도를 0 으로 만들지 않음
+          // Same timestamp repeated (e.g. backend cache response) — keep speed
+          // 이전 속도/payload 의 속도 중 큰 값 유지
+          if (kph >= 1.0 || mps >= _vehiclePredictMinSpeedMps) {
+            // payload 자체에 유효 속도 있음 — 그대로 사용
+          } else if (tracking.retainedSpeedMps >= _vehiclePredictMinSpeedMps) {
+            mps = tracking.retainedSpeedMps;
+          }
         }
         mps = mps.clamp(0.0, 90.0);
 
@@ -1443,7 +1628,9 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
           msgLength: _parseInt(v['msg_length']) ?? _parseInt(v['msgLength']),
           timeStampMs: tsMs,
           navsat: navsat,
-          velocityKph: hasFreshTelemetry ? max(kph, mps * 3.6) : 0.0,
+          // payload 의 실제 속도를 항상 사용 (캐시된 동일 timestamp 도 유효한 값 포함)
+          // Always use the actual speed from payload — even for repeated timestamps from cache
+          velocityKph: max(kph, mps * 3.6),
           velocityMps: mps,
           positionX: vehicleLatLng.latitude,
           positionY: vehicleLatLng.longitude,
@@ -1519,7 +1706,9 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
                 mps >= _vehiclePredictMinSpeedMps &&
                 tsMs > 0 &&
                 (nowMs - tsMs).abs() <= _vehicleOnlineGraceMs) {
-              final int dataAgeMs = (nowMs - tsMs).clamp(0, 1500);
+              // 실측 age 대신 안정적 고정 지연 → 예측 전진량이 일정해져 마커가
+              // 폴링 지터로 뒤로 튀지 않음(움직이는 중에만 적용되므로 정지 시엔 영향 없음).
+              const int dataAgeMs = _vehiclePredictStableDelayMs;
               if (dataAgeMs > 80) {
                 final double fwdMeters = (mps * (dataAgeMs / 1000.0))
                     .clamp(0.0, _vehiclePredictMaxDistanceMeters);
@@ -1635,39 +1824,30 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
         }
       }
 
-      Future<void> runChunk(List<int> chunk) async {
-        final List<Future<void>> futures = <Future<void>>[];
-        for (final int vehicleId in chunk) {
-          final int vehicleInfoId = vehicleIdToVehicleInfoId[vehicleId] ?? 0;
-          final int tsMs = vehicleIdToTimestampMs[vehicleId] ?? 0;
-          if (vehicleInfoId <= 0) {
-            continue;
-          }
-
-          futures.add(() async {
-            final List<DetectedObject> objects =
-                await _fetchDetectedObjectsByVehicleInfoId(
-              vehicleInfoId,
-              vehicleTimestampMs: tsMs,
-            );
-            _objectsCacheByVehicleInfoId[vehicleInfoId] = objects;
-            _objectsCacheTimestampMs[vehicleInfoId] = tsMs;
-            final VehicleTrackingData? tracking = _tracked[vehicleId];
-            if (tracking != null) {
-              tracking.objects = objects;
-            }
-          }());
-        }
-        await Future.wait(futures);
-      }
-
-      const int maxConcurrency = 4;
-      for (int i = 0; i < vehicleIdsToFetch.length; i += maxConcurrency) {
+      // ── 배치 조회: N대 차량을 1회 요청으로 / single batch request ──
+      // 기존엔 차량마다 byVehicleInfo 호출(100대 → 100요청 + CORS preflight)로
+      // 브라우저 연결풀(6개)이 포화되어 테이블/차트 요청이 굶주려 타임아웃났음.
+      // byMultipleVehicles 로 1요청(필요 시 500개씩 분할)에 처리.
+      const int batchCap = 500; // 서버 안전 상한과 동일
+      for (int i = 0; i < vehicleIdsToFetch.length; i += batchCap) {
         if (_disposed || !mounted) {
           break;
         }
-        final int end = min(i + maxConcurrency, vehicleIdsToFetch.length);
-        await runChunk(vehicleIdsToFetch.sublist(i, end));
+        final int end = min(i + batchCap, vehicleIdsToFetch.length);
+        final List<int> chunk = vehicleIdsToFetch.sublist(i, end);
+        final Map<int, List<DetectedObject>> grouped =
+            await _fetchDetectedObjectsBatchByVehicleIds(chunk);
+        for (final int vehicleId in chunk) {
+          final int vehicleInfoId = vehicleIdToVehicleInfoId[vehicleId] ?? 0;
+          final int tsMs = vehicleIdToTimestampMs[vehicleId] ?? 0;
+          final List<DetectedObject> objects =
+              grouped[vehicleId] ?? <DetectedObject>[];
+          if (vehicleInfoId > 0) {
+            _objectsCacheByVehicleInfoId[vehicleInfoId] = objects;
+            _objectsCacheTimestampMs[vehicleInfoId] = tsMs;
+          }
+          _tracked[vehicleId]?.objects = objects;
+        }
       }
 
       if (_disposed || !mounted) {
@@ -2365,12 +2545,9 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
 
   void _interpolateStep() {
     if (_disposed || !mounted || !_realtimeEnabled) return;
-    if (_entityType == MapEntityType.vehicle &&
-        _tracked.isEmpty &&
-        _trackedObjects.isEmpty) {
-      return;
-    }
-    if (_entityType == MapEntityType.infra && _trackedObjects.isEmpty) {
+    // ★ 2026-06-11: 인프라 뷰에서도 차량이 움직이도록 — 차량/객체 둘 다 없을 때만 스킵.
+    //   (이전: 인프라 모드는 _trackedObjects 비면 무조건 return → 차량 정지 버그)
+    if (_tracked.isEmpty && _trackedObjects.isEmpty) {
       return;
     }
 
@@ -2382,7 +2559,8 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
         ? ((nowMs - previousInterpMs) / 1000.0).clamp(0.010, 0.080)
         : (_interpIntervalMs / 1000.0);
 
-    if (_entityType == MapEntityType.vehicle) {
+    // 차량 이동 보간은 두 모드(차량/인프라) 모두에서 수행 → 인프라 뷰에서도 차량이 달림
+    if (_tracked.isNotEmpty) {
       for (final MapEntry<int, VehicleTrackingData> entry in _tracked.entries) {
         final int vid = entry.key;
         final VehicleTrackingData tracking = entry.value;
@@ -2602,12 +2780,46 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
       if (_entityType == MapEntityType.vehicle) {
         _rebuildMarkersThrottled();
         _maybeFollowSelectedVehicle();
+        // Flutter overlay 도 같이 갱신 — ValueNotifier fire 만으로 충분
+        // 같은 카메라 값을 다시 할당하면 ValueNotifier 가 발화 → overlay rebuild
+        if (_useVehicleOverlay) {
+          final OverlayCameraSnapshot s = _overlayCamera.value;
+          _overlayCamera.value = OverlayCameraSnapshot(
+            target: s.target,
+            zoom: s.zoom,
+            bearing: s.bearing,
+            containerSize: s.containerSize,
+            padding: s.padding,
+          );
+        }
       } else {
-        _buildInfraMarkers();
+        // ★ 인프라 뷰: 차량은 overlay 로 부드럽게 이동(깜빡임 없음) → _overlayCamera fire.
+        if (_useVehicleOverlay) {
+          final OverlayCameraSnapshot s = _overlayCamera.value;
+          _overlayCamera.value = OverlayCameraSnapshot(
+            target: s.target,
+            zoom: s.zoom,
+            bearing: s.bearing,
+            containerSize: s.containerSize,
+            padding: s.padding,
+          );
+        }
+        // detected object 가 있을 때만 plugin marker 재생성(throttle). 객체 없으면
+        // infra 마커는 정적이므로 재생성 불필요 → 깜빡임 완전 제거.
+        if (_trackedObjects.isNotEmpty) {
+          final int nowThrottle = DateTime.now().millisecondsSinceEpoch;
+          if (nowThrottle - _lastInfraInterpRebuildMs >= 80) {
+            _lastInfraInterpRebuildMs = nowThrottle;
+            _buildInfraMarkers();
+          }
+        }
         _maybeFollowSelectedInfra();
       }
     }
   }
+
+  // 인프라 뷰 차량 이동 보간 시 마커 재생성 throttle 타임스탬프
+  int _lastInfraInterpRebuildMs = 0;
 
   void _forceRebuildMarkers() {
     _lastMarkerRebuildMs = 0;
@@ -2657,6 +2869,14 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
     final BitmapDescriptor selectedOfflineIcon = _vehicleSelectedIcon ??
         BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure);
 
+    // ★ Flutter overlay 가 활성화되면 라이브 차량 마커는 overlay 가 그림.
+    //   플러그인 마커는 건너뛰고 detected_object 만 처리 (객체 토글에 따라).
+    //   이렇게 하면 plugin <img> reload flicker 가 완전히 사라짐 + zoom 시 크기
+    //   변화 안 함 (Flutter widget 은 zoom 과 무관하게 고정 크기).
+    // When overlay is on, plugin vehicle markers are skipped entirely.
+    // Only detected object markers remain on the plugin layer (when enabled).
+    final bool skipPluginVehicleMarkers = _useVehicleOverlay;
+
     for (final MapEntry<int, VehicleTrackingData> entry in _tracked.entries) {
       final int vid = entry.key;
       final bool isLive = _isVehicleOnline(vid, nowMs: now);
@@ -2675,25 +2895,63 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
           speedKph >= 1.0 || t.retainedSpeedMps >= _vehiclePredictMinSpeedMps;
       final int markerSizePx = _liveVehicleMarkerSizePx(moving: isMoving);
 
-      // car.png 헤딩이 이미지에 구워짐 → rotation: 0 (Web에서 커스텀 비트맵 rotation 미지원)
-      newMarkers.add(Marker(
-        markerId: MarkerId('vehicle_$vid'),
-        position: pos,
-        icon: _carIconFor(heading, selected: isSel, sizePx: markerSizePx),
-        anchor: const Offset(0.5, 0.5),
-        rotation: 0,
-        flat: true,
-        zIndex: isSel ? 1000.0 : 900.0,
-        infoWindow: InfoWindow(
-          title: _vehicleName(vid),
-          snippet: _vehicleLocationLabel(vid),
-        ),
-        onTap: () => _selectVehicle(
-          vid,
-          focusPosition: pos,
-          followLive: true,
-        ),
-      ));
+      // Hysteresis: heading 이 30° 이상 변할 때만 icon 교체 → 깜빡임 방지
+      // Apply hysteresis: switch icon only when heading changed by >= 30°
+      final double stableHeading = _stableHeadingForVehicle(vid, heading);
+
+      // ── STABLE ICON RESOLUTION (마커 깜빡임 핵심 해결책) ──
+      // google_maps_flutter_web 는 BitmapDescriptor 참조가 바뀔 때마다 <img> 를 다시 로드 →
+      // 빈 프레임 → flicker. 따라서 EXACT match 캐시 hit 이 들어올 때까지 절대 icon 을 바꾸지 않음.
+      // The web plugin reloads <img> on icon reference change → empty frame → FLICKER.
+      // So: NEVER swap icon until EXACT cache match arrives. Hold stable reference per vehicle.
+      final int bucketDeg = _carBucket(stableHeading);
+      final String wantKey = '${bucketDeg}_${markerSizePx}_${isSel ? 1 : 0}';
+      final BitmapDescriptor icon = _resolveStableVehicleIcon(
+        vid: vid,
+        bucketDeg: bucketDeg,
+        sizePx: markerSizePx,
+        selected: isSel,
+        wantKey: wantKey,
+      );
+
+      // ★ Flutter overlay 활성화 시 플러그인 vehicle 마커 완전 스킵
+      // → Web <img> reload flicker 사라짐 + 줌 시 마커 크기 불변
+      // Detected object 마커는 아래 루프에서 계속 처리 (overlay 가 그리지 않음)
+      // When overlay is on, skip plugin vehicle marker entirely (no flash, no scale-with-zoom)
+      if (!skipPluginVehicleMarkers) {
+        // ── Reuse Marker via copyWith when only position changed (icon ref stable) ──
+        final Marker? prev = _lastVehicleMarker[vid];
+        final bool? lastSel = _lastVehicleMarkerSelected[vid];
+        Marker resolvedMarker;
+        if (prev != null && identical(prev.icon, icon) && lastSel == isSel) {
+          resolvedMarker = prev.copyWith(positionParam: pos);
+        } else {
+          resolvedMarker = Marker(
+            markerId: MarkerId('vehicle_$vid'),
+            position: pos,
+            icon: icon,
+            anchor: const Offset(0.5, 0.5),
+            rotation: 0,
+            flat: true,
+            zIndex: isSel ? 1000.0 : 900.0,
+            infoWindow: InfoWindow(
+              title: _vehicleName(vid),
+              snippet: _vehicleLocationLabel(vid),
+            ),
+            onTap: () => _selectVehicle(
+              vid,
+              focusPosition: pos,
+              followLive: true,
+            ),
+          );
+        }
+        final Marker freshMarker = resolvedMarker;
+        newMarkers.add(freshMarker);
+        _lastVehicleMarker[vid] = freshMarker;
+        _lastVehicleMarkerPos[vid] = pos;
+        _lastVehicleMarkerHeading[vid] = stableHeading;
+        _lastVehicleMarkerSelected[vid] = isSel;
+      }
 
       if (_showDetectedObjects) {
         for (int oi = 0; oi < t.objects.length; oi++) {
@@ -2976,31 +3234,12 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
       ));
     }
 
-    // 인프라 뷰에서도 차량 마커 표시 (온라인 + 오프라인)
+    // ★ 2026-06-11: 온라인 차량은 VehicleMarkerOverlay(Flutter overlay)로 렌더 →
+    //   plugin marker 80ms 재생성으로 인한 깜빡임 제거. 오프라인 차량만 plugin marker.
     {
       final int nowMs = DateTime.now().millisecondsSinceEpoch;
       final BitmapDescriptor vehicleOfflineIcon = _vehicleIcon ??
           BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue);
-
-      for (final MapEntry<int, VehicleTrackingData> entry in _tracked.entries) {
-        final int vid = entry.key;
-        if (!_isVehicleOnline(vid, nowMs: nowMs)) continue;
-        final VehicleTrackingData t = entry.value;
-        final LatLng? pos = t.displayPosition ?? t.targetPosition;
-        if (pos == null || !geo.isValidLatLng(pos.latitude, pos.longitude)) continue;
-        final double heading = geo.normalizeHeadingDegrees(t.displayHeading);
-        final int markerSizePx = _liveVehicleMarkerSizePx(moving: true);
-        newMarkers.add(Marker(
-          markerId: MarkerId('iv_vehicle_$vid'),
-          position: pos,
-          icon: _carIconFor(heading, selected: false, sizePx: markerSizePx),
-          anchor: const Offset(0.5, 0.5),
-          rotation: 0,
-          flat: true,
-          zIndexInt: 600,
-          infoWindow: InfoWindow(title: _vehicleName(vid)),
-        ));
-      }
 
       for (final Map<String, dynamic> reg in _offlineVehicles) {
         final int vid = int.tryParse(reg['device_id']?.toString() ?? '') ?? 0;
@@ -3226,18 +3465,31 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
   }
 
   void _moveCameraTo(LatLng pos, {double? zoom}) {
-    if (_mapController != null &&
-        geo.isValidLatLng(pos.latitude, pos.longitude)) {
-      final double targetZoom =
-          (zoom ?? _currentMapZoom).clamp(_minCameraZoom, _maxCameraZoom);
-      _currentCameraTarget = pos;
-      _currentMapZoom = targetZoom;
-      _mapController!.animateCamera(
-        CameraUpdate.newCameraPosition(
-          CameraPosition(target: pos, zoom: targetZoom),
-        ),
-      );
+    if (_mapController == null ||
+        !geo.isValidLatLng(pos.latitude, pos.longitude)) {
+      return;
     }
+    final double targetZoom =
+        (zoom ?? _currentMapZoom).clamp(_minCameraZoom, _maxCameraZoom);
+    _currentCameraTarget = pos;
+    _currentMapZoom = targetZoom;
+
+    // 웹에서 GoogleMap padding이 적용되지 않아 수동으로 카메라 타깃 보정:
+    // 추적 패널(오른쪽 324px)이 열려있으면 카메라를 동쪽으로 절반만큼 이동시켜
+    // 마커가 가시 영역(패널 왼쪽) 중앙에 오도록 한다.
+    LatLng cameraTarget = pos;
+    if (_entityType == MapEntityType.vehicle && _selectedVehicleId != null) {
+      const double panelHalfPx = (_liveTrackingPanelWidth + 24) / 2.0;
+      // zoom 레벨 Z 에서 1픽셀 = 1.4063 / 2^Z 경도도 (cosine이 분자분모에서 상쇄됨)
+      final double lngPerPixel = 1.4063 / pow(2.0, targetZoom);
+      cameraTarget = LatLng(pos.latitude, pos.longitude + panelHalfPx * lngPerPixel);
+    }
+
+    _mapController!.animateCamera(
+      CameraUpdate.newCameraPosition(
+        CameraPosition(target: cameraTarget, zoom: targetZoom),
+      ),
+    );
   }
 
   Future<void> _loadRoutePolyline(int fromStationIdx, int toStationIdx) async {
@@ -3251,11 +3503,153 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
     });
   }
 
+  // ============================================================================
+  // Flutter Overlay 헬퍼 / Flutter overlay helpers
+  // ============================================================================
+
+  /// onCameraMove / LayoutBuilder 에서 호출 — 오버레이 카메라 스냅샷 갱신
+  void _updateOverlayCamera({
+    LatLng? target,
+    double? zoom,
+    double? bearing,
+    Size? containerSize,
+    EdgeInsets? padding,
+  }) {
+    if (!_useVehicleOverlay) return;
+    final old = _overlayCamera.value;
+    final newSnap = OverlayCameraSnapshot(
+      target: target ?? old.target,
+      zoom: zoom ?? (old.zoom > 0 ? old.zoom : _currentMapZoom),
+      bearing: bearing ?? old.bearing,
+      containerSize: containerSize ?? _overlayContainerSize,
+      padding: padding ?? _overlayPadding,
+    );
+    // ValueNotifier 는 == 비교 안 함 (참조 비교) → 항상 fire
+    _overlayCamera.value = newSnap;
+  }
+
+  /// _tracked 맵 → OverlayVehicle 리스트 (online 차량만)
+  /// Build overlay vehicle list from tracked online vehicles
+  List<OverlayVehicle> _buildOverlayVehicles() {
+    if (!_useVehicleOverlay) return const <OverlayVehicle>[];
+    // ★ 2026-06-11: 인프라 뷰에서도 차량을 overlay 로 렌더 → plugin marker 깜빡임 제거.
+    //   (이전: 인프라 뷰는 _buildInfraMarkers 가 80ms마다 차량 plugin marker 재생성 → flash)
+    final int now = DateTime.now().millisecondsSinceEpoch;
+    final list = <OverlayVehicle>[];
+    for (final MapEntry<int, VehicleTrackingData> entry in _tracked.entries) {
+      final int vid = entry.key;
+      if (!_isVehicleOnline(vid, nowMs: now)) continue;
+      final VehicleTrackingData t = entry.value;
+      final LatLng? pos = t.displayPosition ?? t.targetPosition;
+      if (pos == null) continue;
+      if (!geo.isValidLatLng(pos.latitude, pos.longitude)) continue;
+      list.add(OverlayVehicle(
+        id: vid,
+        position: pos,
+        headingDeg: geo.normalizeHeadingDegrees(t.displayHeading),
+        selected: vid == _selectedVehicleId,
+        online: true,
+      ));
+    }
+    return list;
+  }
+
   // ── car.png 회전 아이콘 시스템 ────────────────────────────────────────────
+
+  /// 차량별 안정적인 icon 참조 결정 — google_maps_flutter_web 깜빡임 해결의 핵심
+  /// Per-vehicle STABLE icon resolution — the actual flicker fix.
+  ///
+  /// 규칙 (Rules):
+  /// 1) EXACT 캐시 hit (wantKey 가 캐시에 있음) → 즉시 사용 + 저장
+  /// 2) EXACT 미스이지만 이 차량에 이미 할당된 icon 이 있음 → 이전 icon 유지
+  ///    (절대 _findNearestCarIcon 으로 switching → 매 호출마다 다른 ref → flicker)
+  /// 3) 신규 차량 → 일반 fallback 사용, 비동기 빌드 트리거
+  /// 4) 모든 경우 비동기 build 트리거하여 EXACT 가 준비되면 다음 rebuild 에서 swap
+  ///
+  /// 1) EXACT hit -> use it
+  /// 2) EXACT miss but vehicle already has an assigned icon -> KEEP IT (never swap to nearest)
+  /// 3) First-time -> use generic fallback
+  /// 4) Always trigger async build so EXACT becomes available later
+  BitmapDescriptor _resolveStableVehicleIcon({
+    required int vid,
+    required int bucketDeg,
+    required int sizePx,
+    required bool selected,
+    required String wantKey,
+  }) {
+    final String cacheKey = _carCacheKey(bucketDeg, sizePx);
+    final Map<String, BitmapDescriptor> cache =
+        selected ? _carIconSelected : _carIconNormal;
+
+    // (1) EXACT match 가 캐시에 있음 → 사용 + 차량에 영구 할당
+    final BitmapDescriptor? exact = cache[cacheKey];
+    if (exact != null) {
+      _vehicleIconRef[vid] = exact;
+      _vehicleIconKey[vid] = wantKey;
+      return exact;
+    }
+
+    // (2) 이 차량이 이미 어떤 icon 을 사용 중이면 그대로 유지 (절대 swap 안 함)
+    //     비동기 빌드는 트리거 → 다음 rebuild 에서 EXACT 사용 가능
+    final BitmapDescriptor? held = _vehicleIconRef[vid];
+    if (held != null) {
+      _triggerCarBucketBuild(bucketDeg, sizePx);
+      return held;
+    }
+
+    // (3) 신규 차량 → fallback (일반 _vehicleIcon 또는 default marker)
+    final BitmapDescriptor fallback = selected
+        ? (_vehicleSelectedIcon ??
+            BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure))
+        : (_vehicleIcon ??
+            BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue));
+    _vehicleIconRef[vid] = fallback;
+    _vehicleIconKey[vid] = 'fallback';
+    _triggerCarBucketBuild(bucketDeg, sizePx);
+    return fallback;
+  }
+
+  /// 캐시 미스 시 비동기 build 를 안전하게 트리거 (중복 방지)
+  /// Safely trigger async build of a missing icon bucket
+  void _triggerCarBucketBuild(int bucketDeg, int sizePx) {
+    final String cacheKey = _carCacheKey(bucketDeg, sizePx);
+    if (_carIconPending.contains(cacheKey)) return;
+    _carIconPending.add(cacheKey);
+    if (_carSrcImg != null) {
+      unawaited(_buildCarIconForBucket(bucketDeg, sizePx: sizePx));
+    } else {
+      unawaited(_loadCarSrc(sizePx).then((_) {
+        if (!_disposed && mounted) {
+          unawaited(_buildCarIconForBucket(bucketDeg, sizePx: sizePx));
+        }
+      }));
+    }
+  }
 
   // 헤딩을 5° 버킷으로 정규화 (0~359)
   static int _carBucket(double deg) =>
       (((deg / _carBucketDeg).round() * _carBucketDeg) % 360).toInt();
+
+  /// Hysteresis: heading 이 _bucketHysteresisSteps * _carBucketDeg (30°) 이상
+  /// 차이 나야만 새 bucket 으로 전환 → 미세한 회전에서 icon switch 방지
+  /// Heading must change by >= 30° to switch bucket → no flicker on small turns
+  double _stableHeadingForVehicle(int vehicleId, double newHeading) {
+    final int newBucket = _carBucket(newHeading);
+    final int? lastBucket = _vehicleLastBucket[vehicleId];
+    if (lastBucket == null) {
+      _vehicleLastBucket[vehicleId] = newBucket;
+      return newBucket.toDouble();
+    }
+    // 두 bucket 간 각도 차 (0..180)
+    int delta = (newBucket - lastBucket).abs();
+    if (delta > 180) delta = 360 - delta;
+    // 변화량이 threshold 이상일 때만 bucket 갱신
+    if (delta >= _bucketHysteresisSteps * _carBucketDeg) {
+      _vehicleLastBucket[vehicleId] = newBucket;
+      return newBucket.toDouble();
+    }
+    return lastBucket.toDouble();
+  }
 
   static String _carCacheKey(int bucketDeg, int sizePx) => '$bucketDeg@$sizePx';
 
@@ -3370,8 +3764,51 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
     _carIconNormal[cacheKey] = normal;
     _carIconSelected[cacheKey] = selected;
     _carIconPending.remove(cacheKey);
-    // 아이콘 준비되면 마커 즉시 갱신
-    _forceRebuildMarkers();
+    // ★ _forceRebuildMarkers 호출 제거 (workflow 진단 결과):
+    //   - throttle 우회 → 매 icon build 마다 강제 setState → flicker
+    //   - 새 icon 은 다음 _rebuildMarkersThrottled tick (≤200ms) 에서 자동 채택됨
+    //   - 그때 _resolveStableVehicleIcon 이 EXACT match 발견 → 부드러운 swap
+    // ★ Removed _forceRebuildMarkers call (per workflow diagnosis):
+    //   - It bypassed the throttle, forcing setState per icon build → flicker.
+    //   - The next throttled rebuild (≤200ms) will auto-pick up the new exact icon
+    //     via _resolveStableVehicleIcon, producing a smooth single swap.
+  }
+
+  bool _isPrewarming = false;
+
+  /// 모든 bucket 미리 생성 (앱 시작 시 한 번) → 주행 중 cache miss 없음
+  /// Pre-warm all heading buckets at startup → no cache miss during driving
+  Future<void> _prewarmCarIcons() async {
+    if (_carSrcImg == null) {
+      await _loadCarSrc(_vehicleIconSizePx);
+    }
+    if (_carSrcImg == null) return;
+    // prewarm 중에는 _buildCarIconForBucket 이 마커를 rebuild 하지 않도록
+    _isPrewarming = true;
+    try {
+      // 두 가지 크기 모두 미리 생성 / Both sizes (stopped + moving)
+      final List<int> sizes = <int>[
+        _vehicleIconSizePx,
+        _liveVehicleMarkerSizePx(moving: true),
+      ];
+      for (final int sz in sizes) {
+        for (int b = 0; b < 360; b += _carBucketDeg) {
+          if (_disposed || !mounted) return;
+          final String key = _carCacheKey(b, sz);
+          if (_carIconNormal.containsKey(key)) continue;
+          if (_carIconPending.contains(key)) continue;
+          _carIconPending.add(key);
+          await _buildCarIconForBucket(b, sizePx: sz);
+          // 짧은 yield → 메인 스레드 차단 방지 / yield to avoid blocking main thread
+          await Future<void>.delayed(Duration.zero);
+        }
+      }
+    } finally {
+      _isPrewarming = false;
+      // prewarm 완료 후 단 한 번만 rebuild
+      // Single rebuild after prewarm completes
+      if (!_disposed && mounted) _forceRebuildMarkers();
+    }
   }
 
   // 마커 빌드(동기)에서 호출: 캐시 히트 → 반환 / 미스 → 백그라운드 생성 후 폴백 반환
@@ -3385,6 +3822,7 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
     final Map<String, BitmapDescriptor> cache =
         selected ? _carIconSelected : _carIconNormal;
 
+    // 정확한 매칭 / Exact match
     if (cache.containsKey(cacheKey)) return cache[cacheKey]!;
 
     // 캐시 미스 → 비동기 생성 트리거 (중복 방지)
@@ -3401,7 +3839,17 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
       }
     }
 
-    // 다음 프레임 전까지 방향 없는 폴백 아이콘 사용
+    // ── 가까운 캐시 매칭 (depo 마커 깜빡임 방지) / Nearest cached match ──
+    // 동일 sizePx 에서 heading 이 가장 가까운 이미 생성된 아이콘을 사용
+    // 정확한 bucket 이 빌드되는 동안 기본 마커 대신 비슷한 방향의 차 아이콘 표시
+    final BitmapDescriptor? nearest = _findNearestCarIcon(
+      cache: cache,
+      targetBucketDeg: bucketDeg,
+      targetSizePx: sizePx,
+    );
+    if (nearest != null) return nearest;
+
+    // 정말로 캐시가 비어있는 첫 프레임에만 폴백 사용
     final bool useMovingFallback = sizePx > _vehicleIconSizePx;
     return selected
         ? ((useMovingFallback ? _vehicleMovingSelectedIcon : null) ??
@@ -3410,6 +3858,36 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
         : ((useMovingFallback ? _vehicleMovingIcon : null) ??
             _vehicleIcon ??
             BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue));
+  }
+
+  /// 캐시에서 가장 가까운 bucketDeg + sizePx 매치 찾기
+  /// Find the closest cached car icon by bucketDeg + sizePx
+  BitmapDescriptor? _findNearestCarIcon({
+    required Map<String, BitmapDescriptor> cache,
+    required int targetBucketDeg,
+    required int targetSizePx,
+  }) {
+    if (cache.isEmpty) return null;
+    BitmapDescriptor? best;
+    int bestScore = 0x7fffffff;
+    for (final MapEntry<String, BitmapDescriptor> e in cache.entries) {
+      final List<String> parts = e.key.split('@');
+      if (parts.length != 2) continue;
+      final int? bd = int.tryParse(parts[0]);
+      final int? sp = int.tryParse(parts[1]);
+      if (bd == null || sp == null) continue;
+      // 각도 차 (0..180)
+      int dBucket = (bd - targetBucketDeg).abs();
+      if (dBucket > 180) dBucket = 360 - dBucket;
+      // 크기 차이는 큰 페널티 (크기 다른 아이콘은 마지막 수단)
+      final int dSize = (sp - targetSizePx).abs() * 4;
+      final int score = dBucket + dSize;
+      if (score < bestScore) {
+        bestScore = score;
+        best = e.value;
+      }
+    }
+    return best;
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -4637,6 +5115,25 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
                         constraints.maxWidth,
                       );
 
+                      // Flutter Overlay: 컨테이너 크기 + 추적패널 padding 캡쳐
+                      final EdgeInsets gmapPadding = EdgeInsets.only(
+                        right: showTrackingPanel
+                            ? _liveTrackingPanelWidth + 24
+                            : 0,
+                      );
+                      _overlayContainerSize =
+                          Size(constraints.maxWidth, constraints.maxHeight);
+                      _overlayPadding = gmapPadding;
+                      // 다음 프레임에 갱신 (build 도중 ValueNotifier 변경 금지)
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        if (!_disposed && mounted) {
+                          _updateOverlayCamera(
+                            containerSize: _overlayContainerSize,
+                            padding: _overlayPadding,
+                          );
+                        }
+                      });
+
                       return Stack(
                         children: <Widget>[
                           ClipRRect(
@@ -4652,6 +5149,12 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
 
                                       _mapController = ctrl;
                                       _mapReady = true;
+                                      // 오버레이 카메라 초기값 (initialCamera 로부터)
+                                      _updateOverlayCamera(
+                                        target: _initialCamera.target,
+                                        zoom: _initialCamera.zoom,
+                                        bearing: _initialCamera.bearing,
+                                      );
                                       if (_entityType == MapEntityType.infra) {
                                         _buildInfraMarkers();
                                       } else {
@@ -4665,6 +5168,12 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
                                     onCameraMove: (CameraPosition pos) {
                                       _currentCameraTarget = pos.target;
                                       _currentMapZoom = pos.zoom;
+                                      // Flutter 오버레이용 카메라 스냅샷 갱신
+                                      _updateOverlayCamera(
+                                        target: pos.target,
+                                        zoom: pos.zoom,
+                                        bearing: pos.bearing,
+                                      );
                                       // 줌 변화가 0.3 이상이면 마커 아이콘 크기 재계산
                                       if ((_currentMapZoom - _lastBuiltZoom)
                                               .abs() >=
@@ -4698,6 +5207,33 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
                                     mapType: MapType.normal,
                                   ),
                           ),
+                          // ============================================================
+                          // FLUTTER VEHICLE OVERLAY (google_maps_flutter_web 깜빡임 회피)
+                          // ClipRRect 로 지도 경계 밖으로 새는 마커 차단
+                          // Wrap in ClipRRect matching map borderRadius so markers
+                          // that project outside the visible map area (e.g. into the
+                          // vehicle sidebar on the left) are clipped properly.
+                          // ============================================================
+                          if (_useVehicleOverlay && _mapMounted)
+                            Positioned.fill(
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(12),
+                                child: IgnorePointer(
+                                  ignoring: false,
+                                  child: VehicleMarkerOverlay(
+                                    vehicles: _buildOverlayVehicles(),
+                                    cameraSnapshot: _overlayCamera,
+                                    onVehicleTap: (int vid, LatLng pos) {
+                                      _selectVehicle(
+                                        vid,
+                                        focusPosition: pos,
+                                        followLive: true,
+                                      );
+                                    },
+                                  ),
+                                ),
+                              ),
+                            ),
                           // Positioned(bottom: 10, left: 10, child: _buildLegend()),
                           Positioned(
                             bottom: 10,
@@ -5765,42 +6301,37 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
             ? registryAddress
             : _vehicleLocationLabel(vehicleId);
 
-    final KiapiWaypointData? baseWaypoint =
-        _waypointFromLabel(baseLabel) ?? _nearestWaypointTo(basePosition);
+    // ── 역지오코딩 기반 실시간 위치 라벨 ──────────────────────
+    final _VehicleLiveTrackingSession? geoSession =
+        _selectedVehicleSession?.vehicleId == vehicleId
+            ? _selectedVehicleSession
+            : null;
+    final String? liveCurrentName  = geoSession?.currentLocationName;
+    final String? liveDepartureName = geoSession?.departureLocationName;
+
+    // 현재 위치: 역지오코딩 이름 우선, 없으면 가장 가까운 스테이션
     final KiapiWaypointData? currentWaypoint =
         _nearestWaypointTo(currentPosition ?? basePosition);
-    final ({
-      KiapiWaypointData? waypoint,
-      double? distanceMeters
-    }) previousWaypoint = currentPosition != null
-        ? _waypointForHeading(
-            origin: currentPosition,
-            headingDegrees: heading + 180.0,
-          )
-        : (waypoint: baseWaypoint, distanceMeters: null);
+    final String routeCurrentLabel = liveCurrentName ??
+        currentWaypoint?.name ?? baseLabel;
+
+    // 출발지: 역지오코딩 이름 우선, 없으면 registry home station
+    final String routeFromLabel = liveDepartureName ??
+        (moving
+            ? (currentWaypoint?.name ?? baseLabel)
+            : baseLabel);
+
+    final KiapiWaypointData? baseWaypoint =
+        _waypointFromLabel(baseLabel) ?? _nearestWaypointTo(basePosition);
     final ({KiapiWaypointData? waypoint, double? distanceMeters}) nextWaypoint =
         currentPosition != null
             ? _waypointForHeading(
                 origin: currentPosition,
                 headingDegrees: heading,
-                exclude: previousWaypoint.waypoint,
+                exclude: _nearestWaypointTo(currentPosition),
               )
-            : (waypoint: currentWaypoint ?? baseWaypoint, distanceMeters: null);
+            : (waypoint: baseWaypoint, distanceMeters: null);
 
-    final String routeCurrentLabel =
-        currentWaypoint?.name ?? baseWaypoint?.name ?? baseLabel;
-    final String routeFromLabel = moving
-        ? (previousWaypoint.waypoint?.name ??
-            currentWaypoint?.name ??
-            baseWaypoint?.name ??
-            baseLabel)
-        : (baseWaypoint?.name ?? baseLabel);
-    final String routeToLabel = moving
-        ? (nextWaypoint.waypoint?.name ??
-            currentWaypoint?.name ??
-            baseWaypoint?.name ??
-            '예측 불가')
-        : (currentWaypoint?.name ?? baseWaypoint?.name ?? '대기 중');
     double? remainingMeters = nextWaypoint.distanceMeters;
     if (remainingMeters == null &&
         currentPosition != null &&
@@ -5859,9 +6390,9 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
     final String subtitle = _vehicleModelLabel(vehicle);
     final String lastTelemetry =
         _formatTimeSinceMs(tracking?.vehicleInfo?.timeStampMs);
-    final String routeSummaryLabel = routeFromLabel == routeToLabel
-        ? routeToLabel
-        : '$routeFromLabel → $routeToLabel';
+    final String routeSummaryLabel = routeFromLabel == routeCurrentLabel
+        ? routeCurrentLabel
+        : '$routeFromLabel → $routeCurrentLabel';
 
     final List<Widget> objectTypeChips = <Widget>[
       for (final MapEntry<int, int> entry in typeCounts.entries)
@@ -6049,8 +6580,8 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: <Widget>[
                         _buildTrackingSection(
-                          title: '이동 추정',
-                          icon: Icons.route_rounded,
+                          title: '실시간 위치',
+                          icon: Icons.location_on_rounded,
                           children: <Widget>[
                             _buildTrackingStageRow(
                               label: '출발',
@@ -6062,12 +6593,6 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
                               label: '현재',
                               value: routeCurrentLabel,
                               accent: const Color(0xFF1976D2),
-                              showConnector: true,
-                            ),
-                            _buildTrackingStageRow(
-                              label: '도착',
-                              value: routeToLabel,
-                              accent: const Color(0xFFE53935),
                               showConnector: false,
                             ),
                             const SizedBox(height: 2),
@@ -6296,8 +6821,9 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
     if (!Get.isRegistered<DashboardController>())
       return const SizedBox.shrink();
     final DashboardController dash = Get.find<DashboardController>();
-    // 전체지도 모드에서는 숨김
-    if (dash.isFullMapMode) return const SizedBox.shrink();
+    // ★ 2026-06-11: 전체지도 모드에서도 버튼 노출 (이전엔 숨김 → 큰 지도에 버튼 없음 버그).
+    //   전체지도일 때 '지도 닫기'는 전체화면 해제(분할 뷰 복귀), 분할 뷰일 땐 지도 패널 닫기.
+    final bool fullMap = dash.isFullMapMode;
 
     // 480px 미만이면 텍스트 없이 아이콘만 표시
     final bool compact = panelWidth < 480;
@@ -6398,43 +6924,48 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
           ),
         ),
         const SizedBox(width: 8),
-        // 지도 닫기 버튼
-        GestureDetector(
-          onTap: dash.disableMapView,
-          child: Container(
-            padding: EdgeInsets.symmetric(
-              horizontal: compact ? 8 : 11,
-              vertical: 6,
-            ),
-            decoration: BoxDecoration(
-              color: const Color(0xFF005CB2),
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: const Color(0xFF005CB2)),
-              boxShadow: const <BoxShadow>[
-                BoxShadow(
-                  color: Color(0x33000000),
-                  blurRadius: 8,
-                  offset: Offset(0, 2),
-                ),
-              ],
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                const Icon(Icons.map_outlined, size: 14, color: Colors.white),
-                if (!compact) ...<Widget>[
-                  const SizedBox(width: 5),
-                  const Text(
-                    '지도 닫기',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontFamily: 'pretendard',
-                      fontWeight: FontWeight.w500,
-                      color: Colors.white,
+        // 지도 닫기 버튼 — Material InkWell + opaque hit test 로 overlay 우선순위 확보
+        Material(
+          color: const Color(0xFF005CB2),
+          borderRadius: BorderRadius.circular(20),
+          elevation: 3,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(20),
+            onTap: () {
+              // 전체지도 모드: 전체화면 해제(분할 뷰 복귀). 분할 뷰: 지도 패널 닫기.
+              if (fullMap) {
+                dash.disableFullMapMode();
+              } else {
+                dash.disableMapView();
+              }
+            },
+            child: Container(
+              padding: EdgeInsets.symmetric(
+                horizontal: compact ? 8 : 11,
+                vertical: 6,
+              ),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: const Color(0xFF005CB2)),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  const Icon(Icons.map_outlined, size: 14, color: Colors.white),
+                  if (!compact) ...<Widget>[
+                    const SizedBox(width: 5),
+                    const Text(
+                      '지도 닫기',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontFamily: 'pretendard',
+                        fontWeight: FontWeight.w500,
+                        color: Colors.white,
+                      ),
                     ),
-                  ),
+                  ],
                 ],
-              ],
+              ),
             ),
           ),
         ),

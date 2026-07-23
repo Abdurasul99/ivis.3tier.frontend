@@ -22,6 +22,8 @@ class VehicleController extends GetxController {
   int historyTotalCountInternal = 0;
   int historyOffsetInternal = 0;
   int historyLimitInternal = 18;
+  // 마지막 이력 로드가 실패(타임아웃/오류)했는지 — 실패 시 기존 데이터 유지.
+  bool historyLoadFailedInternal = false;
 
   List<VehicleInfo> statusItemsInternal = <VehicleInfo>[];
   int statusTotalCountInternal = 0;
@@ -182,6 +184,9 @@ class VehicleController extends GetxController {
     int limit = 18,
     String? searchText,
     String? searchColumnName,
+    // ── 키셋 커서 (신규) ─ cursorId 지정 시 offset 무시 ──
+    int? cursorId,
+    String? cursorDirection,
   }) async {
     if (!hasToken) {
       historyItemsInternal = <VehicleInfoHistory>[];
@@ -203,6 +208,8 @@ class VehicleController extends GetxController {
         offset: offset,
         searchText: searchText,
         searchColumnName: searchColumnName,
+        cursorId: cursorId,
+        cursorDirection: cursorDirection,
       );
 
       if (result != null) {
@@ -210,18 +217,18 @@ class VehicleController extends GetxController {
         historyTotalCountInternal = result.totalCount;
         historyOffsetInternal = offset;
         historyLimitInternal = limit;
+        historyLoadFailedInternal = false;
       } else {
-        historyItemsInternal = <VehicleInfoHistory>[];
-        historyTotalCountInternal = 0;
-        historyOffsetInternal = 0;
+        // 요청 실패(타임아웃/오류) — 기존 데이터를 유지한다.
+        // 라이브 대시보드에서 일시적 지연으로 테이블이 비는 것을 방지.
+        historyLoadFailedInternal = true;
       }
     } catch (exception) {
       if (kDebugMode) {
         debugPrint('VehicleController.reqLoadHistory error: $exception');
       }
-      historyItemsInternal = <VehicleInfoHistory>[];
-      historyTotalCountInternal = 0;
-      historyOffsetInternal = 0;
+      // 예외 시에도 기존 데이터 유지 (빈 테이블 방지).
+      historyLoadFailedInternal = true;
     } finally {
       isLoadingInternal = false;
       update();
@@ -234,6 +241,9 @@ class VehicleController extends GetxController {
     int limit = 100,
     String? searchText,
     String? searchColumnName,
+    // ── 키셋 커서 (신규) ─ cursorId 지정 시 offset 무시 ──
+    int? cursorId,
+    String? cursorDirection,
   }) async {
     if (!hasToken) {
       statusItemsInternal = <VehicleInfo>[];
@@ -255,6 +265,8 @@ class VehicleController extends GetxController {
         offset: offset,
         searchText: searchText,
         searchColumnName: searchColumnName,
+        cursorId: cursorId,
+        cursorDirection: cursorDirection,
       );
 
       if (result != null) {

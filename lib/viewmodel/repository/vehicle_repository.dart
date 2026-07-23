@@ -169,13 +169,29 @@ class VehicleRepository extends BaseRepository {
     int offset = 0,
     String? searchText,
     String? searchColumnName,
+    // ── 키셋 커서 페이지네이션 (신규) ─────────────────────────────────────
+    // cursorId: 이전 페이지의 마지막(또는 처음) row 의 history_id
+    // cursorDirection: 'next' = 다음 페이지, 'prev' = 이전 페이지
+    // cursor 가 지정되면 offset 은 페이로드에 포함되지 않는다 (서버는 keyset 사용).
+    int? cursorId,
+    String? cursorDirection,
   }) async {
     final Uri url = buildApiUri(vehicleStatusPath);
 
+    final bool useKeyset = cursorId != null && cursorId > 0;
     final Map<String, dynamic> payload = <String, dynamic>{
       'limit': limit,
-      'offset': offset,
     };
+    if (useKeyset) {
+      // 키셋 모드: { cursor: { history_id, direction } }
+      payload['cursor'] = <String, dynamic>{
+        'history_id': cursorId,
+        'direction': cursorDirection == 'prev' ? 'prev' : 'next',
+      };
+    } else {
+      // 백워드 호환: 기존 offset 페이지네이션
+      payload['offset'] = offset;
+    }
 
     if (vehicleId != null) {
       payload['vehicle_id'] = vehicleId;
@@ -201,7 +217,7 @@ class VehicleRepository extends BaseRepository {
       final http.Response response = await safePost(
         url,
         body: jsonEncode(payload),
-      ).timeout(requestTimeout);
+      ).timeout(const Duration(seconds: 30));
 
       if (response.statusCode != 200) {
         debugPrint('[Error] requestVehicleStatus() statusCode ${response.statusCode}');
@@ -246,13 +262,26 @@ class VehicleRepository extends BaseRepository {
     int offset = 0,
     String? searchText,
     String? searchColumnName,
+    // ── 키셋 커서 페이지네이션 (신규) ─────────────────────────────────────
+    // cursorId 가 지정되면 offset 대신 keyset 으로 페이지네이션한다.
+    // direction: 'next' = 다음 페이지, 'prev' = 이전 페이지.
+    int? cursorId,
+    String? cursorDirection,
   }) async {
     final Uri url = buildApiUri(vehicleHistoryPath);
 
+    final bool useKeyset = cursorId != null && cursorId > 0;
     final Map<String, dynamic> payload = <String, dynamic>{
       'limit': limit,
-      'offset': offset,
     };
+    if (useKeyset) {
+      payload['cursor'] = <String, dynamic>{
+        'history_id': cursorId,
+        'direction': cursorDirection == 'prev' ? 'prev' : 'next',
+      };
+    } else {
+      payload['offset'] = offset;
+    }
 
     if (vehicleId != null) {
       payload['vehicle_id'] = vehicleId;
@@ -275,10 +304,12 @@ class VehicleRepository extends BaseRepository {
     }
 
     try {
+      // 대용량(수천만 행) 이력 쿼리는 콜드/윈도우 조회 시 수 초~20초 걸릴 수 있어
+      // 기본 15초 대신 30초 타임아웃 사용 (성공 응답이 잘리는 것 방지).
       final http.Response response = await safePost(
         url,
         body: jsonEncode(payload),
-      ).timeout(requestTimeout);
+      ).timeout(const Duration(seconds: 30));
 
       if (response.statusCode != 200) {
         debugPrint('[Error] requestVehicleHistory() statusCode ${response.statusCode}');

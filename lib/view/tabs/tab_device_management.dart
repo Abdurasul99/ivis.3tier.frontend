@@ -60,10 +60,20 @@ class _TabDeviceManagementState extends State<TabDeviceManagement> {
   String _formDeviceType = 'vehicle';
   _DeviceRow? _formExisting;
 
+  // 5초마다 온라인 상태 갱신 (LiveStatusController와 동일 주기)
+  Timer? _statusTimer;
+
   @override
   void initState() {
     super.initState();
     _loadAll();
+    _statusTimer = Timer.periodic(const Duration(seconds: 5), (_) => _refreshTelemetrySilent());
+  }
+
+  @override
+  void dispose() {
+    _statusTimer?.cancel();
+    super.dispose();
   }
 
   // ── 데이터 로드 ──────────────────────────────────────────────────────────────
@@ -90,6 +100,20 @@ class _TabDeviceManagementState extends State<TabDeviceManagement> {
     ]);
     _vTelemetry = results[0];
     _iTelemetry = results[1];
+  }
+
+  // 로딩 스피너 없이 텔레메트리만 조용히 갱신 (5초 타이머용)
+  Future<void> _refreshTelemetrySilent() async {
+    if (!mounted) return;
+    final results = await Future.wait(<Future<List<Map<String, dynamic>>>>[
+      VehicleRepository().requestVehicleManageList(),
+      InfraRepository().requestInfraManageList(),
+    ]);
+    if (!mounted) return;
+    setState(() {
+      _vTelemetry = results[0];
+      _iTelemetry = results[1];
+    });
   }
 
   // ── 행 생성 ──────────────────────────────────────────────────────────────────
@@ -916,12 +940,12 @@ class _DeviceRow {
     this.hasTelemetry = false,
   });
 
-  // lastSeen이 5분 이내이면 온라인으로 판단
+  // lastSeen이 10초 이내이면 온라인으로 판단 (LiveStatusController와 동일 기준)
   bool get isOnline {
     if (lastSeen == null || lastSeen!.isEmpty) return false;
     final DateTime? dt = DateTime.tryParse(lastSeen!.replaceFirst(' ', 'T'));
     if (dt == null) return false;
-    return DateTime.now().difference(dt).abs() <= const Duration(minutes: 5);
+    return DateTime.now().difference(dt).abs() <= const Duration(seconds: 10);
   }
 }
 

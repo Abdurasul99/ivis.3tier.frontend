@@ -95,6 +95,58 @@ class InfraRepository extends BaseRepository {
     }
   }
 
+  /// ★ 전체 인프라 최신 정보를 한 번에 조회 (배치).
+  ///   개별 /latest 를 N번 호출하는 대신 /status?limit=1000 으로 한 요청.
+  ///   HTTP/1.1 동시연결 제한으로 인한 pending 누적 방지.
+  Future<List<InfraInfo>> requestAllLatestInfraInfo() async {
+    final Uri url = buildApiUri(infraStatusPath);
+
+    try {
+      final http.Response response = await safePost(
+        url,
+        body: jsonEncode(<String, dynamic>{
+          'limit': 1000,
+          'offset': 0,
+        }),
+      ).timeout(const Duration(seconds: 30));
+
+      if (response.statusCode != 200) {
+        debugPrint('[Error] requestAllLatestInfraInfo() statusCode ${response.statusCode}');
+        return <InfraInfo>[];
+      }
+
+      return handleResponse(response, (dynamic jsonResponse) {
+        dynamic body = jsonResponse['body'];
+        if (body == null) {
+          body = jsonResponse;
+        }
+
+        if (body is Map) {
+          final InfraInfoResult result =
+              InfraInfoResult.fromJson(Map<String, dynamic>.from(body));
+          return result.items;
+        }
+
+        if (body is List) {
+          final List<InfraInfo> items = <InfraInfo>[];
+          for (final dynamic element in body) {
+            if (element is Map) {
+              try {
+                items.add(InfraInfo.fromJson(Map<String, dynamic>.from(element)));
+              } catch (_) {}
+            }
+          }
+          return items;
+        }
+
+        return <InfraInfo>[];
+      });
+    } catch (exception) {
+      debugPrint('[Exception] requestAllLatestInfraInfo $exception');
+      return <InfraInfo>[];
+    }
+  }
+
   Future<InfraInfoResult?> requestInfraStatus({
     int? infraId,
     int? fromEpochMs,
@@ -103,13 +155,25 @@ class InfraRepository extends BaseRepository {
     int offset = 0,
     String? searchText,
     String? searchColumnName,
+    // ── 키셋 커서 페이지네이션 (신규) ─────────────────────────────────────
+    // cursorId 가 지정되면 offset 대신 keyset 으로 페이지네이션한다.
+    int? cursorId,
+    String? cursorDirection,
   }) async {
     final Uri url = buildApiUri(infraStatusPath);
 
+    final bool useKeyset = cursorId != null && cursorId > 0;
     final Map<String, dynamic> payload = <String, dynamic>{
       'limit': limit,
-      'offset': offset,
     };
+    if (useKeyset) {
+      payload['cursor'] = <String, dynamic>{
+        'history_id': cursorId,
+        'direction': cursorDirection == 'prev' ? 'prev' : 'next',
+      };
+    } else {
+      payload['offset'] = offset;
+    }
 
     if (infraId != null) {
       payload['infra_id'] = infraId;
@@ -135,7 +199,7 @@ class InfraRepository extends BaseRepository {
       final http.Response response = await safePost(
         url,
         body: jsonEncode(payload),
-      ).timeout(requestTimeout);
+      ).timeout(const Duration(seconds: 30));
 
       if (response.statusCode != 200) {
         debugPrint('[Error] requestInfraStatus() statusCode ${response.statusCode}');
@@ -180,13 +244,25 @@ class InfraRepository extends BaseRepository {
     int offset = 0,
     String? searchText,
     String? searchColumnName,
+    // ── 키셋 커서 페이지네이션 (신규) ─────────────────────────────────────
+    // cursorId 가 지정되면 offset 대신 keyset 으로 페이지네이션한다.
+    int? cursorId,
+    String? cursorDirection,
   }) async {
     final Uri url = buildApiUri(infraHistoryPath);
 
+    final bool useKeyset = cursorId != null && cursorId > 0;
     final Map<String, dynamic> payload = <String, dynamic>{
       'limit': limit,
-      'offset': offset,
     };
+    if (useKeyset) {
+      payload['cursor'] = <String, dynamic>{
+        'history_id': cursorId,
+        'direction': cursorDirection == 'prev' ? 'prev' : 'next',
+      };
+    } else {
+      payload['offset'] = offset;
+    }
 
     if (infraId != null) {
       payload['infra_id'] = infraId;
@@ -212,7 +288,7 @@ class InfraRepository extends BaseRepository {
       final http.Response response = await safePost(
         url,
         body: jsonEncode(payload),
-      ).timeout(requestTimeout);
+      ).timeout(const Duration(seconds: 30));
 
       if (response.statusCode != 200) {
         debugPrint('[Error] requestInfraHistory() statusCode ${response.statusCode}');
