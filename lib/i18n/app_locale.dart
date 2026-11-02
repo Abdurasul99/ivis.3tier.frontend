@@ -129,6 +129,9 @@ const Map<String, String> _englishText = <String, String>{
   '핀 제거': 'Remove Pin',
   '데이터 다운로드': 'Download Data',
   '내보내는 중...': 'Exporting...',
+  // 2026-08-10: 빈 기간 내려받기 방지 안내
+  '선택한 기간에 데이터가 없습니다. 다른 날짜를 선택해 주세요.':
+      'No data for the selected period. Please choose another date.',
 };
 
 String l10n(String korean, String english) {

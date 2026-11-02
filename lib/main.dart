@@ -18,6 +18,7 @@ import 'package:ivis/view/pages/signup_page.dart';
 import 'package:ivis/view/pages/signup_register_page.dart';
 import 'package:ivis/view/pages/start_page.dart';
 import 'package:ivis/viewmodel/controller/activity_controller.dart';
+import 'package:ivis/viewmodel/controller/live_status_controller.dart';
 import 'package:ivis/viewmodel/controller/locale_controller.dart';
 import 'package:ivis/viewmodel/controller/member_controller.dart';
 import 'package:ivis/viewmodel/controller/mqtt_controller.dart';
@@ -28,7 +29,11 @@ import 'package:ivis/viewmodel/controller/user_controller.dart';
 import 'package:ivis/viewmodel/controller/vehicle_controller.dart';
 import 'package:ivis/viewmodel/controller/infra_controller.dart';
 import 'package:ivis/viewmodel/controller/object_controller.dart';
+import 'package:ivis/viewmodel/controller/activity_charts_controller.dart';
 import 'package:ivis/viewmodel/controller/dashboard_controller.dart';
+import 'package:ivis/viewmodel/controller/dashboard_objects_status_controller.dart';
+import 'package:ivis/viewmodel/controller/upload_controller.dart';
+import 'package:ivis/viewmodel/repository/base_repository.dart';
 import 'package:get/get.dart';
 
 Future<void> main() async {
@@ -79,6 +84,11 @@ Future<void> main() async {
     ),
   );
 
+  // 세션 만료 시 로그인 페이지 이동 — 뷰 레이어에서 주입 (레포지토리의 view import 제거)
+  BaseRepository.onSessionExpired = () {
+    Get.offAllNamed(LoginPage.routeName);
+  };
+
   Get.put(UserController(), permanent: true);
   Get.put(TimeController(), permanent: true);
   Get.put(PasswordController(), permanent: true);
@@ -87,12 +97,19 @@ Future<void> main() async {
   Get.put(VehicleController(), permanent: true);
   Get.put(InfraController(), permanent: true);
   Get.put(MqttController(), permanent: true);
+  Get.put(UploadController(), permanent: true);
   final LocaleController localeController =
       Get.put(LocaleController(), permanent: true);
   await localeController.loadSavedLocale();
   Get.lazyPut<ObjectController>(() => ObjectController(), fenix: true);
   Get.lazyPut<DashboardController>(() => DashboardController(), fenix: true);
+  Get.lazyPut<DashboardObjectsStatusController>(
+      () => DashboardObjectsStatusController(),
+      fenix: true);
+  Get.lazyPut<LiveStatusController>(() => LiveStatusController(), fenix: true);
   Get.lazyPut<ActivityController>(() => ActivityController(), fenix: true);
+  Get.lazyPut<ActivityChartsController>(() => ActivityChartsController(),
+      fenix: true);
   runApp(const IvisFmsApp());
 }
 

@@ -3,6 +3,8 @@
 class DetectedObject {
   int? detectedObjectId;
   String? sourceKind;
+  int? vehicleId;
+  int? infraId;
   int? vehicleInfoId;
   int? infraInfoId;
   int? objectId;
@@ -34,6 +36,8 @@ class DetectedObject {
   DetectedObject({
     this.detectedObjectId,
     this.sourceKind,
+    this.vehicleId,
+    this.infraId,
     this.vehicleInfoId,
     this.infraInfoId,
     this.objectId,
@@ -64,6 +68,8 @@ class DetectedObject {
   DetectedObject.fromJson(Map<String, dynamic> json) {
     detectedObjectId = _parseInt(json['detected_object_id'] ?? json['id']);
     sourceKind = _parseString(json['source_kind']);
+    vehicleId = _parseInt(json['vehicle_id']);
+    infraId = _parseInt(json['infra_id']);
     vehicleInfoId = _parseInt(json['vehicle_info_id']);
     infraInfoId = _parseInt(json['infra_info_id']);
     objectId = _parseInt(json['object_id']);
@@ -118,6 +124,8 @@ class DetectedObject {
     return <String, dynamic>{
       'detected_object_id': detectedObjectId,
       'source_kind': sourceKind,
+      'vehicle_id': vehicleId,
+      'infra_id': infraId,
       'vehicle_info_id': vehicleInfoId,
       'infra_info_id': infraInfoId,
       'object_id': objectId,
@@ -148,7 +156,7 @@ class DetectedObject {
 
   @override
   String toString() {
-    return 'DetectedObject{detectedObjectId: $detectedObjectId, objectId: $objectId, msgId: $msgId, msgSeq: $msgSeq, timeStampMs: $timeStampMs, vehicleInfoId: $vehicleInfoId, infraInfoId: $infraInfoId}';
+    return 'DetectedObject{detectedObjectId: $detectedObjectId, objectId: $objectId, msgId: $msgId, msgSeq: $msgSeq, timeStampMs: $timeStampMs, vehicleId: $vehicleId, infraId: $infraId, vehicleInfoId: $vehicleInfoId, infraInfoId: $infraInfoId}';
   }
 }
 

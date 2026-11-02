@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:http_parser/http_parser.dart';
 import 'package:ivis/viewmodel/controller/user_controller.dart';
 import 'package:get/get.dart';
 import 'package:http/http.dart' as http;
@@ -38,14 +39,19 @@ class UploadRepository extends BaseRepository {
             continue;
           }
 
+          // PNG: 89 50 4E 47, JPEG: FF D8 FF
+          final bool isPng = bytes.length >= 4 &&
+              bytes[0] == 0x89 && bytes[1] == 0x50 &&
+              bytes[2] == 0x4E && bytes[3] == 0x47;
+          final String ext    = isPng ? 'png' : 'jpg';
+          final String userId = Get.find<UserController>().loginUser?.id.toString() ?? 'photo';
+
           request.files.add(
-            http.MultipartFile(
+            http.MultipartFile.fromBytes(
               'files',
-              Stream.value(
-                List<int>.from(bytes),
-              ),
-              bytes.length,
-              filename: Get.find<UserController>().loginUser?.id.toString(),
+              bytes,
+              filename: '$userId.$ext',
+              contentType: MediaType('image', isPng ? 'png' : 'jpeg'),
             ),
           );
         }

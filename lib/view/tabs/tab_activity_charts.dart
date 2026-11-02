@@ -3,11 +3,15 @@ part of 'tab_activity.dart';
 mixin _ActivityChartsMixin on State<TabActivity> {
   // _TabActivityState가 제공하는 필드에 대한 추상 접근자
   ScrollController get _distanceChartScrollController;
+  ScrollController get _distanceV3ScrollController;
+  ScrollController get _opChartScrollController;
+  ScrollController get _objChartScrollController;
 
   Widget _buildDistanceBarChartV2(
     List<_DistanceChartPoint> points,
-    double maxY,
-  ) {
+    double maxY, {
+    required ScrollController scrollController,
+  }) {
     return LayoutBuilder(
       builder: (_, BoxConstraints box) {
         final double viewerWidth = box.maxWidth;
@@ -40,7 +44,7 @@ mixin _ActivityChartsMixin on State<TabActivity> {
           children: <Widget>[
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
-              controller: _distanceChartScrollController,
+              controller: scrollController,
               child: SizedBox(
                 width: chartWidth,
                 child: BarChart(
@@ -176,7 +180,7 @@ mixin _ActivityChartsMixin on State<TabActivity> {
                 top: math.max(0, (viewHeight - 25) / 2),
                 child: _buildDistanceChartArrowV2(
                   assetPath: 'assets/images/icons_left.svg',
-                  onTap: () => _animateDistanceChartScrollV2(-200),
+                  onTap: () => _animateChartScroll(scrollController, -200),
                 ),
               ),
             if (showArrow)
@@ -185,7 +189,7 @@ mixin _ActivityChartsMixin on State<TabActivity> {
                 top: math.max(0, (viewHeight - 25) / 2),
                 child: _buildDistanceChartArrowV2(
                   assetPath: 'assets/images/icons_right.svg',
-                  onTap: () => _animateDistanceChartScrollV2(200),
+                  onTap: () => _animateChartScroll(scrollController, 200),
                 ),
               ),
           ],
@@ -599,71 +603,116 @@ mixin _ActivityChartsMixin on State<TabActivity> {
 
     return LayoutBuilder(builder: (_, BoxConstraints box) {
       final double barW = points.length > 14 ? 10 : 16;
-      final double minW = points.length * (barW + 18) + 40.0;
+      // 막대당 슬롯 폭 확보: 모든 일자 라벨(06/08 ≈ 30px)이 겹치지 않게
+      final double minW = points.length * (barW + 26) + 40.0;
       final double w = math.max(box.maxWidth, minW);
-      return SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: SizedBox(
-          width: w,
-          child: BarChart(BarChartData(
-            maxY: maxY,
-            alignment: BarChartAlignment.spaceAround,
-            gridData: FlGridData(
-              show: true,
-              drawVerticalLine: false,
-              getDrawingHorizontalLine: (_) => const FlLine(color: _border, strokeWidth: 1),
-            ),
-            borderData: FlBorderData(show: false),
-            barGroups: List<BarChartGroupData>.generate(
-              points.length,
-              (int i) => BarChartGroupData(
-                x: i,
-                barRods: <BarChartRodData>[
-                  BarChartRodData(
-                    toY: points[i].$2.toDouble(),
-                    width: barW,
-                    color: points[i].$2 > 0 ? _warning : _border,
-                    borderRadius: const BorderRadius.vertical(top: Radius.circular(4)),
-                  ),
-                ],
-              ),
-            ),
-            titlesData: FlTitlesData(
-              leftTitles: AxisTitles(
-                sideTitles: SideTitles(
-                  showTitles: true,
-                  reservedSize: 36,
-                  interval: _axisInterval(maxY),
-                  getTitlesWidget: (double v, TitleMeta _) => Text(
-                    v.toInt().toString(),
-                    style: const TextStyle(fontFamily: 'pretendard', fontSize: 9, color: _muted),
-                  ),
+      // 자연 폭이 화면보다 크면 좌우 스크롤 화살표 표시
+      final bool showArrow = minW > box.maxWidth;
+      final double viewHeight = box.maxHeight;
+      return Stack(
+        children: <Widget>[
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            controller: _objChartScrollController,
+            child: SizedBox(
+              width: w,
+              child: BarChart(BarChartData(
+                maxY: maxY,
+                alignment: BarChartAlignment.spaceAround,
+                gridData: FlGridData(
+                  show: true,
+                  drawVerticalLine: false,
+                  getDrawingHorizontalLine: (_) => const FlLine(color: _border, strokeWidth: 1),
                 ),
-              ),
-              bottomTitles: AxisTitles(
-                sideTitles: SideTitles(
-                  showTitles: true,
-                  reservedSize: 20,
-                  getTitlesWidget: (double v, TitleMeta _) {
-                    final int i = v.toInt();
-                    if (i < 0 || i >= points.length) return const SizedBox.shrink();
-                    if (points.length > 8 && i % 2 != 0) return const SizedBox.shrink();
-                    return Padding(
-                      padding: const EdgeInsets.only(top: 4),
-                      child: Text(
-                        points[i].$1,
-                        style: const TextStyle(
-                            fontFamily: 'pretendard', fontSize: 9, color: _muted),
+                borderData: FlBorderData(show: false),
+                barGroups: List<BarChartGroupData>.generate(
+                  points.length,
+                  (int i) => BarChartGroupData(
+                    x: i,
+                    barRods: <BarChartRodData>[
+                      BarChartRodData(
+                        toY: points[i].$2.toDouble(),
+                        width: barW,
+                        color: points[i].$2 > 0 ? _warning : _border,
+                        borderRadius: const BorderRadius.vertical(top: Radius.circular(4)),
                       ),
-                    );
-                  },
+                    ],
+                  ),
                 ),
-              ),
-              topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-              rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                titlesData: FlTitlesData(
+                  leftTitles: AxisTitles(
+                    sideTitles: SideTitles(
+                      showTitles: true,
+                      reservedSize: 36,
+                      interval: _axisInterval(maxY),
+                      getTitlesWidget: (double v, TitleMeta _) => Text(
+                        v.toInt().toString(),
+                        style: const TextStyle(fontFamily: 'pretendard', fontSize: 9, color: _muted),
+                      ),
+                    ),
+                  ),
+                  bottomTitles: AxisTitles(
+                    sideTitles: SideTitles(
+                      showTitles: true,
+                      reservedSize: 20,
+                      getTitlesWidget: (double v, TitleMeta _) {
+                        final int i = v.toInt();
+                        if (i < 0 || i >= points.length) return const SizedBox.shrink();
+                        // 모든 일자 라벨 표시 — 일/주/월 피커에서 날짜 누락 없이 전부 노출
+                        return Padding(
+                          padding: const EdgeInsets.only(top: 4),
+                          child: Text(
+                            points[i].$1,
+                            style: const TextStyle(
+                                fontFamily: 'pretendard', fontSize: 9, color: _muted),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                  topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                  rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                ),
+                barTouchData: BarTouchData(
+                  touchTooltipData: BarTouchTooltipData(
+                    // 툴팁이 차트 경계 밖으로 넘치지 않도록 안쪽에 고정
+                    fitInsideVertically: true,
+                    fitInsideHorizontally: true,
+                    getTooltipColor: (_) => _warning,
+                    getTooltipItem:
+                        (BarChartGroupData group, int gi, BarChartRodData rod, int ri) {
+                      final int i = group.x;
+                      if (i < 0 || i >= points.length) return null;
+                      return BarTooltipItem(
+                        '${points[i].$1}\n${points[i].$2}개',
+                        const TextStyle(
+                            color: Colors.white, fontSize: 10, fontFamily: 'pretendard'),
+                      );
+                    },
+                  ),
+                ),
+              )),
             ),
-          )),
-        ),
+          ),
+          if (showArrow)
+            Positioned(
+              left: 0,
+              top: math.max(0, (viewHeight - 28) / 2),
+              child: _buildDistanceChartArrowV2(
+                assetPath: 'assets/images/icons_left.svg',
+                onTap: () => _animateChartScroll(_objChartScrollController, -200),
+              ),
+            ),
+          if (showArrow)
+            Positioned(
+              right: 0,
+              top: math.max(0, (viewHeight - 28) / 2),
+              child: _buildDistanceChartArrowV2(
+                assetPath: 'assets/images/icons_right.svg',
+                onTap: () => _animateChartScroll(_objChartScrollController, 200),
+              ),
+            ),
+        ],
       );
     });
   }
@@ -686,7 +735,8 @@ mixin _ActivityChartsMixin on State<TabActivity> {
 
     return LayoutBuilder(builder: (_, BoxConstraints box) {
       final double barW = points.length > 14 ? 10 : 16;
-      final double minW = points.length * (barW + 18) + 40.0;
+      // 막대당 슬롯 폭 확보: 모든 일자 라벨(06/08 ≈ 30px)이 겹치지 않게
+      final double minW = points.length * (barW + 26) + 40.0;
       final double w = math.max(box.maxWidth, minW);
       return SingleChildScrollView(
         scrollDirection: Axis.horizontal,
@@ -734,7 +784,7 @@ mixin _ActivityChartsMixin on State<TabActivity> {
                   getTitlesWidget: (double v, TitleMeta _) {
                     final int i = v.toInt();
                     if (i < 0 || i >= points.length) return const SizedBox.shrink();
-                    if (points.length > 8 && i % 2 != 0) return const SizedBox.shrink();
+                    // 모든 일자 라벨 표시 — 일/주/월 피커에서 날짜 누락 없이 전부 노출
                     return Padding(
                       padding: const EdgeInsets.only(top: 4),
                       child: Text(
@@ -751,6 +801,8 @@ mixin _ActivityChartsMixin on State<TabActivity> {
             ),
             barTouchData: BarTouchData(
               touchTooltipData: BarTouchTooltipData(
+                fitInsideVertically: true,
+                fitInsideHorizontally: true,
                 getTooltipColor: (_) => _infra,
                 getTooltipItem: (BarChartGroupData group, int gi, BarChartRodData rod, int ri) {
                   final int i = group.x;
@@ -790,20 +842,23 @@ mixin _ActivityChartsMixin on State<TabActivity> {
   }
 
   void _resetDistanceChartScrollV2() {
-    if (_distanceChartScrollController.hasClients) {
-      _distanceChartScrollController.jumpTo(0);
+    if (_distanceV3ScrollController.hasClients) {
+      _distanceV3ScrollController.jumpTo(0);
+    }
+    if (_opChartScrollController.hasClients) {
+      _opChartScrollController.jumpTo(0);
     }
   }
 
-  void _animateDistanceChartScrollV2(double delta) {
-    if (!_distanceChartScrollController.hasClients) return;
+  void _animateChartScroll(ScrollController controller, double delta) {
+    if (!controller.hasClients) return;
 
-    final ScrollPosition position = _distanceChartScrollController.position;
-    final double target = (_distanceChartScrollController.offset + delta)
+    final ScrollPosition position = controller.position;
+    final double target = (controller.offset + delta)
         .clamp(position.minScrollExtent, position.maxScrollExtent)
         .toDouble();
 
-    _distanceChartScrollController.animateTo(
+    controller.animateTo(
       target,
       duration: const Duration(milliseconds: 120),
       curve: Curves.easeInOut,
@@ -1123,6 +1178,7 @@ mixin _ActivityChartsMixin on State<TabActivity> {
                         points: points,
                         maxY: distMaxY,
                         showTimeMetric: false,
+                        scrollController: _distanceV3ScrollController,
                       ),
           ),
         ],
@@ -1228,6 +1284,7 @@ mixin _ActivityChartsMixin on State<TabActivity> {
                     points: opPoints,
                     maxY: opMaxY,
                     showTimeMetric: true,
+                    scrollController: _opChartScrollController,
                   ),
           ),
         ],
@@ -1250,6 +1307,7 @@ mixin _ActivityChartsMixin on State<TabActivity> {
     required List<_VehicleMetricChartPointV3> points,
     required double maxY,
     required bool showTimeMetric,
+    required ScrollController scrollController,
   }) {
     return LayoutBuilder(
       builder: (_, BoxConstraints box) {
@@ -1283,7 +1341,7 @@ mixin _ActivityChartsMixin on State<TabActivity> {
           children: <Widget>[
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
-              controller: _distanceChartScrollController,
+              controller: scrollController,
               child: SizedBox(
                 width: chartWidth,
                 child: BarChart(
@@ -1465,7 +1523,7 @@ mixin _ActivityChartsMixin on State<TabActivity> {
                 top: math.max(0, (viewHeight - 25) / 2),
                 child: _buildDistanceChartArrowV2(
                   assetPath: 'assets/images/icons_left.svg',
-                  onTap: () => _animateDistanceChartScrollV2(-200),
+                  onTap: () => _animateChartScroll(scrollController, -200),
                 ),
               ),
             if (showArrow)
@@ -1474,7 +1532,7 @@ mixin _ActivityChartsMixin on State<TabActivity> {
                 top: math.max(0, (viewHeight - 25) / 2),
                 child: _buildDistanceChartArrowV2(
                   assetPath: 'assets/images/icons_right.svg',
-                  onTap: () => _animateDistanceChartScrollV2(200),
+                  onTap: () => _animateChartScroll(scrollController, 200),
                 ),
               ),
           ],
@@ -1783,7 +1841,7 @@ mixin _ActivityChartsMixin on State<TabActivity> {
                   getTitlesWidget: (double v, TitleMeta meta) {
                     final int i = v.toInt();
                     if (i < 0 || i >= points.length) return const SizedBox.shrink();
-                    if (points.length > 8 && i.isOdd) return const SizedBox.shrink();
+                    // 모든 일자 라벨 표시 — 일/주/월 피커에서 날짜 누락 없이 전부 노출
                     return Text(
                       _mmdd(points[i].$1),
                       style: const TextStyle(fontFamily: 'pretendard', fontSize: 10, color: _muted),

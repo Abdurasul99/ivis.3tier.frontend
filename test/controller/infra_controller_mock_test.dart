@@ -165,8 +165,8 @@ void main() {
       expect(ctrl.historyOffset, 18);
     });
 
-    test('Repository가 null 반환하면 historyItems 초기화', () async {
-      // Arrange
+    test('Repository가 null 반환하면 기존 historyItems 유지 + 실패 플래그', () async {
+      // Arrange — 요청 실패 시 기존 데이터 유지 정책 (빈 테이블 방지)
       ctrl.historyItemsInternal = <InfraInfoHistory>[
         InfraInfoHistory(historyId: 1),
       ];
@@ -177,12 +177,13 @@ void main() {
       await ctrl.reqLoadHistory();
 
       // Assert
-      expect(ctrl.historyItems, isEmpty);
-      expect(ctrl.historyTotalCount, 0);
+      expect(ctrl.historyItems.length, 1);
+      expect(ctrl.historyTotalCount, 1);
+      expect(ctrl.historyLoadFailedInternal, isTrue);
     });
 
-    test('Repository 예외 시 historyItems 초기화 및 isLoading=false', () async {
-      // Arrange
+    test('Repository 예외 시 기존 historyItems 유지 및 isLoading=false', () async {
+      // Arrange — 예외 시에도 기존 데이터 유지 정책 (빈 테이블 방지)
       ctrl.historyItemsInternal = <InfraInfoHistory>[
         InfraInfoHistory(historyId: 1),
       ];
@@ -192,8 +193,8 @@ void main() {
       await ctrl.reqLoadHistory();
 
       // Assert
-      expect(ctrl.historyItems, isEmpty);
-      expect(ctrl.historyTotalCount, 0);
+      expect(ctrl.historyItems.length, 1);
+      expect(ctrl.historyLoadFailedInternal, isTrue);
       expect(ctrl.isLoading, isFalse);
     });
   });

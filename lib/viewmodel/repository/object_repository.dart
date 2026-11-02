@@ -47,11 +47,13 @@ class ObjectRepository extends BaseRepository {
         payload['expected_object_count'] = expectedObjectCount;
       }
 
-      final http.Response response = await http.post(
-        url,
-        headers: getHeader(),
-        body: jsonEncode(payload),
-      ).timeout(requestTimeout);
+      final http.Response response = await http
+          .post(
+            url,
+            headers: getHeader(),
+            body: jsonEncode(payload),
+          )
+          .timeout(requestTimeout);
 
       if (response.statusCode != 200) {
         debugPrint(
@@ -122,11 +124,13 @@ class ObjectRepository extends BaseRepository {
         payload['expected_object_count'] = expectedObjectCount;
       }
 
-      final http.Response response = await http.post(
-        url,
-        headers: getHeader(),
-        body: jsonEncode(payload),
-      ).timeout(requestTimeout);
+      final http.Response response = await http
+          .post(
+            url,
+            headers: getHeader(),
+            body: jsonEncode(payload),
+          )
+          .timeout(requestTimeout);
 
       if (response.statusCode != 200) {
         debugPrint(
@@ -170,15 +174,17 @@ class ObjectRepository extends BaseRepository {
     final Uri url = buildApiUri(_byVehicleHistoryPath);
 
     try {
-      final http.Response response = await http.post(
-        url,
-        headers: getHeader(),
-        body: jsonEncode(<String, dynamic>{
-          'vehicle_history_id': vehicleHistoryId,
-          'limit': limit,
-          'offset': offset,
-        }),
-      ).timeout(requestTimeout);
+      final http.Response response = await http
+          .post(
+            url,
+            headers: getHeader(),
+            body: jsonEncode(<String, dynamic>{
+              'vehicle_history_id': vehicleHistoryId,
+              'limit': limit,
+              'offset': offset,
+            }),
+          )
+          .timeout(requestTimeout);
 
       if (response.statusCode != 200) {
         debugPrint(
@@ -224,15 +230,17 @@ class ObjectRepository extends BaseRepository {
     final Uri url = buildApiUri(_byInfraHistoryPath);
 
     try {
-      final http.Response response = await http.post(
-        url,
-        headers: getHeader(),
-        body: jsonEncode(<String, dynamic>{
-          'infra_history_id': infraHistoryId,
-          'limit': limit,
-          'offset': offset,
-        }),
-      ).timeout(requestTimeout);
+      final http.Response response = await http
+          .post(
+            url,
+            headers: getHeader(),
+            body: jsonEncode(<String, dynamic>{
+              'infra_history_id': infraHistoryId,
+              'limit': limit,
+              'offset': offset,
+            }),
+          )
+          .timeout(requestTimeout);
 
       if (response.statusCode != 200) {
         debugPrint(
@@ -273,6 +281,7 @@ class ObjectRepository extends BaseRepository {
   Future<List<DetectedObject>> requestHistory({
     String? from,
     String? to,
+    String? sourceKind,
     int limit = 200,
     int offset = 0,
   }) async {
@@ -291,12 +300,18 @@ class ObjectRepository extends BaseRepository {
       payload['to'] = to;
     }
 
+    if (sourceKind != null && sourceKind.trim().isNotEmpty) {
+      payload['source_kind'] = sourceKind.trim();
+    }
+
     try {
-      final http.Response response = await http.post(
-        url,
-        headers: getHeader(),
-        body: jsonEncode(payload),
-      ).timeout(requestTimeout);
+      final http.Response response = await http
+          .post(
+            url,
+            headers: getHeader(),
+            body: jsonEncode(payload),
+          )
+          .timeout(requestTimeout);
 
       if (response.statusCode != 200) {
         debugPrint(
@@ -332,6 +347,59 @@ class ObjectRepository extends BaseRepository {
     } catch (exception) {
       debugPrint('[Exception] requestHistory $exception');
       return <DetectedObject>[];
+    }
+  }
+
+  Future<DetectedObjectResult> requestLatestStatus({
+    required String sourceKind,
+    int limit = 12,
+    int offset = 0,
+  }) async {
+    final Uri url = buildApiUri(_historyPath);
+    final Map<String, dynamic> payload = <String, dynamic>{
+      'source_kind': sourceKind,
+      'latest_per_source': true,
+      'limit': limit,
+      'offset': offset,
+    };
+
+    try {
+      final http.Response response = await http
+          .post(
+            url,
+            headers: getHeader(),
+            body: jsonEncode(payload),
+          )
+          .timeout(requestTimeout);
+
+      if (response.statusCode != 200) {
+        debugPrint(
+            '[Error] requestLatestStatus() statusCode ${response.statusCode}');
+        return DetectedObjectResult();
+      }
+
+      return handleResponse(response, (jsonResponse) {
+        final dynamic body = jsonResponse['body'];
+        if (body is Map) {
+          return DetectedObjectResult.fromJson(Map<String, dynamic>.from(body));
+        }
+        if (body is List) {
+          final List<DetectedObject> items = <DetectedObject>[];
+          for (final dynamic element in body) {
+            if (element is Map) {
+              try {
+                items.add(DetectedObject.fromJson(
+                    Map<String, dynamic>.from(element)));
+              } catch (_) {}
+            }
+          }
+          return DetectedObjectResult(totalCount: items.length, items: items);
+        }
+        return DetectedObjectResult();
+      });
+    } catch (exception) {
+      debugPrint('[Exception] requestLatestStatus $exception');
+      return DetectedObjectResult();
     }
   }
 }

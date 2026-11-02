@@ -5,10 +5,13 @@ import 'package:get/get.dart';
 import 'package:http/http.dart' as http;
 
 import '../../constants/constants.dart';
-import '../../view/pages/login_page.dart';
 import '../controller/user_controller.dart';
 
 class BaseRepository {
+  /// 세션 만료(리프레시 토큰 갱신 실패) 시 호출되는 콜백.
+  /// 뷰 레이어(main.dart)에서 주입 — 레포지토리가 view를 직접 import하지 않도록 분리.
+  static void Function()? onSessionExpired;
+
   final String kQueryPath = "/api/admin/common/query";
   Duration get requestTimeout => const Duration(seconds: 15);
 
@@ -88,9 +91,9 @@ class BaseRepository {
     final userCtrl = Get.find<UserController>();
     final refreshed = await userCtrl.refreshAccessToken();
     if (!refreshed) {
-      // 리프레시도 실패 → 완전 로그아웃 후 로그인 페이지
+      // 리프레시도 실패 → 완전 로그아웃 후 세션 만료 콜백(로그인 페이지 이동)
       await userCtrl.logout();
-      Get.offAllNamed(LoginPage.routeName);
+      onSessionExpired?.call();
       return resp;
     }
 
@@ -108,7 +111,7 @@ class BaseRepository {
     final refreshed = await userCtrl.refreshAccessToken();
     if (!refreshed) {
       await userCtrl.logout();
-      Get.offAllNamed(LoginPage.routeName);
+      onSessionExpired?.call();
       return resp;
     }
 
