@@ -1289,6 +1289,30 @@ class _TabDashboardState extends State<TabDashboard>
         sortDirection: _resolveSortDirectionForExport(currentSortSpec),
       );
 
+      // 2026-08-10: 선택한 기간에 데이터가 없으면 내려받지 않고 안내만 한다.
+      //   이전에는 서버가 헤더만 있는 빈 CSV(61바이트)를 만들고 프런트가 그대로
+      //   내려받아, 사용자가 "Export ready: 0 rows" 와 함께 빈 파일을 받았다.
+      if (exportResult.rowCount == 0 || exportResult.fileName.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              // 노란색 경고 배경 — 밝은 배경이라 기본 흰색 글자는 읽히지 않으므로
+              // 글자색을 어둡게 지정한다.
+              content: Text(
+                t('선택한 기간에 데이터가 없습니다. 다른 날짜를 선택해 주세요.'),
+                style: const TextStyle(
+                  color: Color(0xFF212121),
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              backgroundColor: const Color(0xFFFFD400),
+              duration: const Duration(seconds: 4),
+            ),
+          );
+        }
+        return;
+      }
+
       await _logRepository.downloadLogFile(exportResult.fileName);
 
       if (mounted) {

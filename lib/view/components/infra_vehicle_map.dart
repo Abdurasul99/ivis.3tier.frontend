@@ -332,7 +332,9 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
   static const CameraPosition _initialCamera = CameraPosition(
       target: LatLng(kiapiCenterLat, kiapiCenterLon), zoom: 15.5);
   static const double _minCameraZoom = 13.0;
-  static const double _maxCameraZoom = 20.0;
+  // Google 지도는 대구 일부 구역에 18 레벨 타일이 없어 회색 칸
+  // ("Sorry, we have no imagery here")이 뜬다. 17 에서는 타일이 모두 있다.
+  static const double _maxCameraZoom = 17.0;
   static const double _objectMinSeparationMeters = 14.0;
   static const double _objectSeparationRingStepMeters = 6.0;
   static const int _objectSeparationSlots = 8;
@@ -427,10 +429,13 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
   Timer? _dbPollTimer;
   static const int _dbPollIntervalMs = 1000; // 650 → 1000ms로 완화
   bool _tabVisible = true; // TickerMode 기반 탭 가시성
-  // 부하시험 대비 상향(기존 120 → 차량 300 / 인프라 100). 시뮬레이터가 최대 255대
-  // 차량 + 30 인프라를 발행하므로 120 제한 시 나머지가 오프라인(빨강)으로 표시됐음.
+  // 프로토콜 상한에 맞춘 조회 한도.
+  // 데이터 명세서(251027) 기준 vehicle_id / infra_id 는 uint8, Value Range [0, 255] 이므로
+  // 각각 최대 255개까지 존재할 수 있다. 한도가 이보다 작으면 초과분은 아예 응답에 오지 않아
+  // 화면에서 오프라인(빨강)으로 표시된다.
+  // 2026-08-05: 인프라를 30 → 255 로 늘리자 100 한도 때문에 155개가 누락되던 문제 수정.
   static const int _vehicleStatusFetchLimit = 300;
-  static const int _infraStatusFetchLimit = 100;
+  static const int _infraStatusFetchLimit = 300;
   // 6초 grace 는 클라이언트-서버 시계 드리프트 + 백엔드 지연 + interpolation buffer
   // 합산 시 경계선에 걸려 마커가 online/offline 사이에서 깜빡이는 버그 발생
   // → 30초로 확대하여 안정적 가시성 확보
@@ -1874,6 +1879,11 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
             body: jsonEncode(<String, dynamic>{
               'limit': _infraStatusFetchLimit,
               'offset': 0,
+              // 2026-08-07: 지도는 응답에서 id / infra_id / time_stamp_ms 만 사용한다.
+              //   중첩 objects(레코드당 3개 × 27필드)는 쓰지 않으면서 응답의 대부분을
+              //   차지해 인프라 255개 기준 501KB 였다. 이 옵션으로 48KB 로 줄어든다(약 10배).
+              //   객체 상세는 마커 클릭 시 detectedObjects/byInfraInfo 로 따로 조회한다.
+              'include_objects': false,
             }),
           )
           .timeout(const Duration(seconds: 5));
@@ -3469,8 +3479,11 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
         !geo.isValidLatLng(pos.latitude, pos.longitude)) {
       return;
     }
-    final double targetZoom =
-        (zoom ?? _currentMapZoom).clamp(_minCameraZoom, _maxCameraZoom);
+    // zoom 을 지정하면 [min, max] 로 맞춘다. zoom 없이 부르면(팔로우) 사용자가
+    // 휠로 고른 현재 zoom 을 그대로 두고, 빈 타일 방지용 상한만 적용한다.
+    final double targetZoom = zoom != null
+        ? zoom.clamp(_minCameraZoom, _maxCameraZoom)
+        : min(_currentMapZoom, _maxCameraZoom);
     _currentCameraTarget = pos;
     _currentMapZoom = targetZoom;
 
@@ -5205,6 +5218,10 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
                                     myLocationEnabled: false,
                                     myLocationButtonEnabled: false,
                                     mapType: MapType.normal,
+                                    // 휠 확대도 타일이 있는 레벨까지만
+                                    minMaxZoomPreference:
+                                        const MinMaxZoomPreference(
+                                            null, _maxCameraZoom),
                                   ),
                           ),
                           // ============================================================
@@ -5367,7 +5384,8 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
 
     if (nowMs - _lastVehicleFollowMs < _followCameraThrottleMs) return;
     _lastVehicleFollowMs = nowMs;
-    _moveCameraTo(position, zoom: 18);
+    // 팔로우는 위치만 따라간다. zoom 은 사용자가 고른 값을 유지.
+    _moveCameraTo(position);
   }
 
   void _maybeFollowSelectedInfra() {
@@ -5382,7 +5400,8 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
     final int nowMs = DateTime.now().millisecondsSinceEpoch;
     if (nowMs - _lastInfraFollowMs < _followCameraThrottleMs) return;
     _lastInfraFollowMs = nowMs;
-    _moveCameraTo(position, zoom: 18);
+    // 팔로우는 위치만 따라간다. zoom 은 사용자가 고른 값을 유지.
+    _moveCameraTo(position);
   }
 
   Widget _buildSidePanelToggleButton({

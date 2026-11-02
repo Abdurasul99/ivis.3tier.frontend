@@ -494,6 +494,15 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                       isProfileMenuVisible = !isProfileMenuVisible;
                       if (isProfileMenuVisible) {
                         profileMenuAnimationController.forward();
+                        // 2026-08-10: 알림 패널 닫기 — 벨 쪽과 대칭 처리.
+                        //   벨 탭은 프로필을 닫아 주는데 프로필 탭은 벨을 닫지 않아,
+                        //   "벨 → 프로필" 순서로 누르면 두 패널이 겹쳐 떴다.
+                        //   한 번에 하나만 열리도록 맞춘다.
+                        if (isBellPanelOpen) {
+                          isBellPanelOpen = false;
+                          Get.find<ActivityController>().closeBell();
+                          bellPanelAnimationController.reverse();
+                        }
                       } else {
                         profileMenuAnimationController.reverse();
                       }

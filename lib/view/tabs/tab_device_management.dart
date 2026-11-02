@@ -665,6 +665,11 @@ class _TabDeviceManagementState extends State<TabDeviceManagement> {
 
     return _HoverRow(
       isActive: isActive,
+      // 2026-08-12: 행 어디를 눌러도 편집 폼이 열린다.
+      //   폼 안의 지도(_PinMap)가 해당 장치의 위치를 핀으로 보여 주므로
+      //   "클릭 → 지도에서 위치 확인 → 수정" 이 한 번에 된다.
+      //   오른쪽 편집/삭제 버튼은 자식이라 그대로 각자 동작한다.
+      onTap: () => _openForm(deviceType: row.deviceType, existing: row),
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 11, horizontal: 16),
         child: Row(
@@ -876,9 +881,15 @@ class _TabDeviceManagementState extends State<TabDeviceManagement> {
 // ── 호버 행 래퍼 ──────────────────────────────────────────────────────────────
 
 class _HoverRow extends StatefulWidget {
-  const _HoverRow({required this.isActive, required this.child});
+  const _HoverRow({required this.isActive, required this.child, this.onTap});
   final bool isActive;
   final Widget child;
+
+  /// 2026-08-12: 행 전체를 클릭하면 편집 폼이 열리도록 추가.
+  ///   편집 폼에는 이미 지도 핀 섹션(_PinMap)이 있어 장치 위치가 함께 표시된다.
+  ///   기존에는 오른쪽 끝 '편집' 버튼을 정확히 눌러야만 했다.
+  final VoidCallback? onTap;
+
   @override
   State<_HoverRow> createState() => _HoverRowState();
 }
@@ -896,15 +907,28 @@ class _HoverRowState extends State<_HoverRow> {
     } else {
       bg = Colors.white;
     }
+
+    final Widget content = AnimatedContainer(
+      duration: const Duration(milliseconds: 120),
+      color: bg,
+      child: widget.child,
+    );
+
     return MouseRegion(
-      cursor: SystemMouseCursors.basic,
+      // 클릭 가능한 행이면 손가락 커서로 알려 준다
+      cursor: widget.onTap != null
+          ? SystemMouseCursors.click
+          : SystemMouseCursors.basic,
       onEnter: (_) => setState(() => _hovered = true),
       onExit: (_) => setState(() => _hovered = false),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 120),
-        color: bg,
-        child: widget.child,
-      ),
+      child: widget.onTap == null
+          ? content
+          : GestureDetector(
+              // opaque: 행의 빈 공간을 눌러도 반응하도록
+              behavior: HitTestBehavior.opaque,
+              onTap: widget.onTap,
+              child: content,
+            ),
     );
   }
 }
