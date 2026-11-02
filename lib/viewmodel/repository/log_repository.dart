@@ -44,18 +44,20 @@ class HistoryExportResult {
   final String fileName;
   final int rowCount;
   final int columnCount;
+  final bool truncated;
 
   HistoryExportResult({
     required this.fileName,
     required this.rowCount,
     required this.columnCount,
+    this.truncated = false,
   });
 }
 
 class LogRepository {
   String get apiServerHost => kApiServer;
   Duration get requestTimeout => const Duration(seconds: 8);
-  Duration get exportTimeout => const Duration(seconds: 60);
+  Duration get exportTimeout => const Duration(seconds: 600);
 
   Uri buildUri(String path, {Map<String, dynamic>? query}) {
     final String server = apiServerHost.trim();
@@ -174,17 +176,35 @@ class LogRepository {
     }
 
     final String fileName = (bodyMap['fileName'] ?? bodyMap['file_name'] ?? '').toString().trim();
+    final int rowCount = int.tryParse('${bodyMap['rowCount'] ?? bodyMap['row_count'] ?? 0}') ?? 0;
+
+    // 2026-08-10: 선택한 기간에 데이터가 없으면 서버가 코드 9207 과 함께
+    //   fileName='' , rowCount=0 을 돌려준다(빈 파일을 만들지 않는다).
+    //   이 경우는 오류가 아니라 정상 결과이므로 예외를 던지지 않고 그대로 반환해
+    //   호출부가 "데이터 없음" 을 안내하도록 한다.
+    //   (이전에는 빈 파일을 그대로 내려받아 사용자가 헤더만 있는 CSV 를 받았다.)
+    if (fileName.isEmpty && rowCount == 0) {
+      return HistoryExportResult(
+        fileName: '',
+        rowCount: 0,
+        columnCount: int.tryParse('${bodyMap['columnCount'] ?? bodyMap['column_count'] ?? 0}') ?? 0,
+        truncated: false,
+      );
+    }
+
     if (fileName.isEmpty) {
       throw Exception('export fileName is empty');
     }
 
-    final int rowCount = int.tryParse('${bodyMap['rowCount'] ?? bodyMap['row_count'] ?? 0}') ?? 0;
     final int columnCount = int.tryParse('${bodyMap['columnCount'] ?? bodyMap['column_count'] ?? 0}') ?? 0;
+    final bool truncated =
+        bodyMap['truncated'] == true || '${bodyMap['truncated']}' == 'true';
 
     return HistoryExportResult(
       fileName: fileName,
       rowCount: rowCount,
       columnCount: columnCount,
+      truncated: truncated,
     );
   }
 }

@@ -10,17 +10,16 @@ import '../../utils/geo_utils.dart' as geo;
 import '../controller/infra_controller.dart';
 import '../controller/user_controller.dart';
 import '../controller/vehicle_controller.dart';
+import '../controller/live_status_controller.dart';
 import '../repository/activity_repository.dart';
 import '../repository/device_registry_repository.dart';
 import '../repository/infra_repository.dart';
 import '../repository/vehicle_repository.dart';
 import '../repository/weather_repository.dart';
+import 'activity_charts_controller.dart';
+import 'helper/activity_format_helper.dart';
 
-// ─────────────────────────────────────────────
-// 디바이스 라이브 상태 (사이드바 표시용)
-// ─────────────────────────────────────────────
-
-enum DeviceStatus { moving, idle, offline, unknown }
+export '../controller/live_status_controller.dart' show DeviceStatus;
 
 class ActivityCatalogItem {
   final String deviceType;
@@ -41,7 +40,6 @@ class ActivityCatalogItem {
 class ActivityController extends GetxController {
   ActivityController();
 
-  static const Duration _kstOffset = Duration(hours: 9);
   static const Duration _unreadPollInterval = Duration(seconds: 5);
   static const Duration _chartRefreshInterval = Duration(seconds: 60);
   static const Duration _onlineWindow = Duration(minutes: 5);
@@ -63,17 +61,25 @@ class ActivityController extends GetxController {
   List<ActivityEventItem> bellEvents = <ActivityEventItem>[];
   bool isBellOpen = false;
 
-  List<ActivityChartDay> chartDays = <ActivityChartDay>[];
-  bool isChartLoading = false;
+  // 전역 차트(이벤트/거리/이용량) 상태/로직은 ActivityChartsController 로 이관 ──
+  // View 호환을 위해 아래 getter/method 들이 위임자 역할을 한다.
+  ActivityChartsController get _chartsCtrl =>
+      Get.find<ActivityChartsController>();
 
-  DistanceStatsResult? distanceStats;
-  bool isDistanceLoading = false;
+  List<ActivityChartDay> get chartDays => _chartsCtrl.chartDays;
+  bool get isChartLoading => _chartsCtrl.isChartLoading;
+  DistanceStatsResult? get distanceStats => _chartsCtrl.distanceStats;
+  bool get isDistanceLoading => _chartsCtrl.isDistanceLoading;
+  int get chartDays_ => _chartsCtrl.chartDays_;
+  UsageStatsResult? get usageStats => _chartsCtrl.usageStats;
+  bool get isUsageLoading => _chartsCtrl.isUsageLoading;
+  String get usagePeriod => _chartsCtrl.usagePeriod;
 
-  int chartDays_ = 30;
-
-  UsageStatsResult? usageStats;
-  bool isUsageLoading = false;
-  String usagePeriod = 'day';
+  List<String> kstDateLabels(int days) => _chartsCtrl.kstDateLabels(days);
+  List<ActivityChartDay> chartDaysSlice(int days) =>
+      _chartsCtrl.chartDaysSlice(days);
+  int get todayEventCount => _chartsCtrl.todayEventCount;
+  int get todayOverspeedCount => _chartsCtrl.todayOverspeedCount;
 
   List<Map<String, dynamic>> registryRows = <Map<String, dynamic>>[];
   bool isCatalogLoading = false;
@@ -96,8 +102,7 @@ class ActivityController extends GetxController {
   VehicleInfo? selectedVehicleInfo;
   InfraInfo? selectedInfraInfo;
   // 차량 일별 운행 통계 [{ date_kst, operation_time_min, avg_kph, max_kph }]
-  List<Map<String, dynamic>> vehicleDailyOperationStats =
-      <Map<String, dynamic>>[];
+  List<Map<String, dynamic>> vehicleDailyOperationStats = <Map<String, dynamic>>[];
   bool isOperationStatsLoading = false;
   // 인프라 일별 감지 객체 합계 데이터 [{ date_kst, total_objects }]
   List<Map<String, dynamic>> infraDailyObjectCounts = <Map<String, dynamic>>[];
@@ -132,29 +137,18 @@ class ActivityController extends GetxController {
 
   Timer? _unreadTimer;
   Timer? _dataTimer;
-  Timer? _liveStatusTimer;
 
-  // 사이드바 라이브 상태 캐시 (5초 갱신)
-  final Map<int, VehicleInfo> vehicleLiveCache = <int, VehicleInfo>{};
-  final Map<int, InfraInfo> infraLiveCache = <int, InfraInfo>{};
-
-  // 선택된 디바이스가 온라인인지 확인 (라이브 캐시 우선)
+  // 선택된 디바이스가 온라인인지 확인 (LiveStatusController 캐시 우선)
   bool get _isSelectedDeviceOnline {
     final int? deviceId = selectedDeviceId;
-    if (deviceId == null) return false;
-    final DateTime now = DateTime.now().toUtc();
-    if (selectedDeviceType == 'vehicle') {
-      final int? tsMs = vehicleLiveCache[deviceId]?.timeStampMs
-          ?? vehicleLiveCache[deviceId]?.timeStamp
-          ?? selectedVehicleInfo?.timeStampMs;
-      if (tsMs == null) return false;
-      return now.difference(DateTime.fromMillisecondsSinceEpoch(tsMs, isUtc: true)) < _onlineWindow;
-    } else if (selectedDeviceType == 'infra') {
-      final int? tsMs = infraLiveCache[deviceId]?.timeStampMs
-          ?? infraLiveCache[deviceId]?.timeStamp
-          ?? selectedInfraInfo?.timeStampMs;
-      if (tsMs == null) return false;
-      return now.difference(DateTime.fromMillisecondsSinceEpoch(tsMs, isUtc: true)) < _onlineWindow;
+    final String? deviceType = selectedDeviceType;
+    if (deviceId == null || deviceType == null) return false;
+    if (Get.isRegistered<LiveStatusController>()) {
+      return Get.find<LiveStatusController>().isDeviceOnline(
+        deviceType: deviceType,
+        deviceId: deviceId,
+        window: _onlineWindow,
+      );
     }
     return false;
   }
@@ -181,16 +175,12 @@ class ActivityController extends GetxController {
         }
       }
     });
-    // 사이드바 라이브 상태 5초마다 갱신 (차량+인프라 동시)
-    _liveStatusTimer = Timer.periodic(
-        const Duration(seconds: 5), (_) => _refreshLiveCache());
   }
 
   @override
   void onClose() {
     _unreadTimer?.cancel();
     _dataTimer?.cancel();
-    _liveStatusTimer?.cancel();
     super.onClose();
   }
 
@@ -207,35 +197,6 @@ class ActivityController extends GetxController {
     } else {
       await refreshSelectedDeviceAnalytics();
     }
-    unawaited(_refreshLiveCache());
-  }
-
-  // 차량 + 인프라 라이브 캐시를 동시에 갱신 (5초마다 호출)
-  Future<void> _refreshLiveCache() async {
-    final List<Future<void>> fetches = <Future<void>>[];
-
-    if (Get.isRegistered<VehicleController>()) {
-      for (final Vehicle v in Get.find<VehicleController>().vehicles) {
-        final int? id = v.vehicleId;
-        if (id == null) continue;
-        fetches.add(_vehicleRepo.requestLatestVehicleInfo(id).then((VehicleInfo? info) {
-          if (info != null) vehicleLiveCache[id] = info;
-        }));
-      }
-    }
-
-    if (Get.isRegistered<InfraController>()) {
-      for (final int infraId in Get.find<InfraController>().infraIdentifiers) {
-        if (infraId <= 0) continue;
-        fetches.add(_infraRepo.requestLatestInfraInfo(infraId).then((InfraInfo? info) {
-          if (info != null) infraLiveCache[infraId] = info;
-        }));
-      }
-    }
-
-    if (fetches.isEmpty) return;
-    await Future.wait(fetches);
-    update();
   }
 
   Future<void> _pollUnread() async {
@@ -245,7 +206,7 @@ class ActivityController extends GetxController {
     isUnreadPolling = true;
     try {
       unreadCount = await _repo.requestUnreadCount();
-      update();
+      update(); // Update of GetX state after unread count is updated
     } finally {
       isUnreadPolling = false;
     }
@@ -257,8 +218,7 @@ class ActivityController extends GetxController {
       refreshFeed(),
       refreshCharts(),
       refreshUsageStats(),
-      if (selectedDeviceId != null && selectedDeviceType != null)
-        refreshSelectedDeviceAnalytics(),
+      if (selectedDeviceId != null && selectedDeviceType != null) refreshSelectedDeviceAnalytics(),
     ]);
   }
 
@@ -314,30 +274,8 @@ class ActivityController extends GetxController {
     }
   }
 
-  Future<void> refreshCharts({bool silent = false}) async {
-    final String token = Get.find<UserController>().accessToken ?? '';
-    if (token.isEmpty || isChartLoading) return;
-
-    if (!silent) {
-      isChartLoading = true;
-      isDistanceLoading = true;
-      update();
-    }
-
-    try {
-      final List<dynamic> results = await Future.wait(<Future<dynamic>>[
-        _repo.requestChartData(days: chartDays_),
-        _repo.requestDistanceStats(days: chartDays_),
-      ]);
-
-      chartDays = results[0] as List<ActivityChartDay>;
-      distanceStats = results[1] as DistanceStatsResult;
-    } finally {
-      isChartLoading = false;
-      isDistanceLoading = false;
-      update();
-    }
-  }
+  Future<void> refreshCharts({bool silent = false}) =>
+      _chartsCtrl.refreshCharts(silent: silent);
 
   Future<void> refreshSelectedDeviceAnalytics({bool silent = false}) async {
     final String token = Get.find<UserController>().accessToken ?? '';
@@ -348,8 +286,7 @@ class ActivityController extends GetxController {
 
     final String selectionKey = '$deviceType:$deviceId';
     final ({int fromMs, int toMs}) calendarWindow = _currentMonthKstWindow();
-    final int distanceChartDays =
-        _distanceChartDaysForPeriod(selectedDeviceDistanceChartPeriod);
+    final int distanceChartDays = _distanceChartDaysForPeriod(selectedDeviceDistanceChartPeriod);
     final int distanceChartRequestId = ++_distanceChartRequestId;
     if (!silent) {
       isDeviceFeedLoading = true;
@@ -361,8 +298,7 @@ class ActivityController extends GetxController {
     }
 
     try {
-      final List<dynamic> results =
-          await Future.wait<dynamic>(<Future<dynamic>>[
+      final List<dynamic> results = await Future.wait<dynamic>(<Future<dynamic>>[
         _repo.requestEvents(
           deviceType: deviceType,
           deviceId: deviceId,
@@ -378,7 +314,7 @@ class ActivityController extends GetxController {
           _repo.requestDistanceStats(
             days: chartDays_,
             vehicleId: deviceId,
-            includeRuntime: true,
+            // 거리 데이터만 로드 — runtime은 unawaited(_loadVehicleDailyOperationStats)가 별도 처리
           )
         else
           Future<DistanceStatsResult?>.value(null),
@@ -396,25 +332,20 @@ class ActivityController extends GetxController {
           _repo.requestDistanceStats(
             days: distanceChartDays,
             vehicleId: deviceId,
-            includeRuntime: true,
           )
         else
           Future<DistanceStatsResult?>.value(null),
       ]);
 
-      if (selectionKey !=
-          '${selectedDeviceType ?? ''}:${selectedDeviceId ?? ''}') {
+      if (selectionKey != '${selectedDeviceType ?? ''}:${selectedDeviceId ?? ''}') {
         return;
       }
 
-      final feedResult =
-          results[0] as ({List<ActivityEventItem> items, int totalCount});
+      final feedResult = results[0] as ({List<ActivityEventItem> items, int totalCount});
       deviceFeedEvents = feedResult.items;
       deviceChartDays = results[1] as List<ActivityChartDay>;
-      final DistanceStatsResult? summaryDistance =
-          results[2] as DistanceStatsResult?;
-      final DistanceStatsResult? chartDistance =
-          results[5] as DistanceStatsResult?;
+      final DistanceStatsResult? summaryDistance = results[2] as DistanceStatsResult?;
+      final DistanceStatsResult? chartDistance = results[5] as DistanceStatsResult?;
       selectedDeviceDistanceStats = summaryDistance;
 
       if (deviceType == 'vehicle') {
@@ -524,8 +455,7 @@ class ActivityController extends GetxController {
   void _ensureSelectedDeviceStillExists() {
     final bool exists = [...vehicleCatalog, ...infraCatalog].any(
       (ActivityCatalogItem item) =>
-          item.deviceType == selectedDeviceType &&
-          item.deviceId == selectedDeviceId,
+          item.deviceType == selectedDeviceType && item.deviceId == selectedDeviceId,
     );
 
     if (!exists) {
@@ -578,9 +508,7 @@ class ActivityController extends GetxController {
     }
 
     if (Get.isRegistered<InfraController>()) {
-      ids.addAll(Get.find<InfraController>()
-          .infraIdentifiers
-          .where((int id) => id > 0));
+      ids.addAll(Get.find<InfraController>().infraIdentifiers.where((int id) => id > 0));
     }
 
     final List<int> sortedIds = ids.toList()..sort();
@@ -604,18 +532,15 @@ class ActivityController extends GetxController {
       }
 
       final List<String> detailParts = <String>[
-        if (_cleanString(vehicle?.vehicleType).isNotEmpty)
-          _cleanString(vehicle?.vehicleType),
-        if (_cleanString(vehicle?.modelName).isNotEmpty)
-          _cleanString(vehicle?.modelName),
+        if (_cleanString(vehicle?.vehicleType).isNotEmpty) _cleanString(vehicle?.vehicleType),
+        if (_cleanString(vehicle?.modelName).isNotEmpty) _cleanString(vehicle?.modelName),
       ];
 
       return ActivityCatalogItem(
         deviceType: deviceType,
         deviceId: deviceId,
-        title: registeredName.isNotEmpty
-            ? registeredName
-            : l10n('차량 $deviceId', 'Vehicle $deviceId'),
+        title:
+            registeredName.isNotEmpty ? registeredName : l10n('차량 $deviceId', 'Vehicle $deviceId'),
         subtitle: detailParts.isNotEmpty
             ? detailParts.join(' / ')
             : l10n('차량 텔레메트리', 'Vehicle telemetry'),
@@ -626,41 +551,10 @@ class ActivityController extends GetxController {
     return ActivityCatalogItem(
       deviceType: deviceType,
       deviceId: deviceId,
-      title: registeredName.isNotEmpty
-          ? registeredName
-          : l10n('인프라 $deviceId', 'Infra $deviceId'),
+      title: registeredName.isNotEmpty ? registeredName : l10n('인프라 $deviceId', 'Infra $deviceId'),
       subtitle: l10n('인프라 노드', 'Infrastructure node'),
       location: location,
     );
-  }
-
-  // 사이드바용: 차량 라이브 상태 계산
-  DeviceStatus vehicleDeviceStatus(int vehicleId) {
-    final VehicleInfo? info = vehicleLiveCache[vehicleId];
-    if (info == null) return DeviceStatus.unknown;
-    final int? lastMs = info.timeStampMs ?? info.timeStamp;
-    if (lastMs == null) return DeviceStatus.unknown;
-    final Duration age = DateTime.now().difference(
-      DateTime.fromMillisecondsSinceEpoch(lastMs, isUtc: true).toLocal(),
-    );
-    // 마지막 패킷 수신 후 10초 이상 경과 시 오프라인으로 판단
-    // (시뮬레이터 정지 즉시 반영되도록 map의 6초 기준보다 약간 넓게 설정)
-    if (age > const Duration(seconds: 10)) return DeviceStatus.offline;
-    final double kph = info.velocityKph ?? 0;
-    return kph >= 1.0 ? DeviceStatus.moving : DeviceStatus.idle;
-  }
-
-  // 인프라 온라인/오프라인 상태 (속도 없음, 데이터 수신 여부로만 판단)
-  DeviceStatus infraDeviceStatus(int infraId) {
-    final InfraInfo? info = infraLiveCache[infraId];
-    if (info == null) return DeviceStatus.unknown;
-    final int? lastMs = info.timeStampMs ?? info.timeStamp;
-    if (lastMs == null) return DeviceStatus.unknown;
-    final Duration age = DateTime.now().difference(
-      DateTime.fromMillisecondsSinceEpoch(lastMs, isUtc: true).toLocal(),
-    );
-    if (age > const Duration(seconds: 10)) return DeviceStatus.offline;
-    return DeviceStatus.moving; // 온라인 = moving(녹색) 사용
   }
 
   ActivityCatalogItem? get selectedCatalogItem {
@@ -689,12 +583,10 @@ class ActivityController extends GetxController {
     final ActivityCatalogItem? item = selectedCatalogItem;
     if (item != null) return item.title;
     if (selectedDeviceType == 'vehicle') {
-      return l10n('차량 ${selectedDeviceId ?? '-'}',
-          'Vehicle ${selectedDeviceId ?? '-'}');
+      return l10n('차량 ${selectedDeviceId ?? '-'}', 'Vehicle ${selectedDeviceId ?? '-'}');
     }
     if (selectedDeviceType == 'infra') {
-      return l10n(
-          '인프라 ${selectedDeviceId ?? '-'}', 'Infra ${selectedDeviceId ?? '-'}');
+      return l10n('인프라 ${selectedDeviceId ?? '-'}', 'Infra ${selectedDeviceId ?? '-'}');
     }
     return l10n('활동 분석', 'Activity Analytics');
   }
@@ -710,11 +602,12 @@ class ActivityController extends GetxController {
   }
 
   String get selectedLocationLabel {
-    final String location =
-        _registryLocationLabel(selectedDeviceType, selectedDeviceId);
-    return location.isEmpty
-        ? l10n('등록된 위치 없음', 'No registered location')
-        : location;
+    // 1순위: 카카오 역지오코딩으로 얻은 실시간 차량 위치명
+    final String? liveLocation = selectedWeather?.locationName;
+    if (liveLocation != null && liveLocation.isNotEmpty) return liveLocation;
+    // 2순위: device_registry 등록 주소 (고정값)
+    final String location = _registryLocationLabel(selectedDeviceType, selectedDeviceId);
+    return location.isEmpty ? l10n('등록된 위치 없음', 'No registered location') : location;
   }
 
   double? get selectedLatitude {
@@ -791,22 +684,19 @@ class ActivityController extends GetxController {
 
   int? get selectedLastSeenMs {
     final int? deviceId = selectedDeviceId;
-    if (deviceId != null && selectedDeviceType == 'vehicle') {
-      // 라이브 캐시(5초 갱신) 우선 → 없으면 60초 캐시
-      return vehicleLiveCache[deviceId]?.timeStampMs
-          ?? vehicleLiveCache[deviceId]?.timeStamp
-          ?? selectedVehicleInfo?.timeStampMs
-          ?? selectedVehicleInfo?.timeStamp;
+    final String? deviceType = selectedDeviceType;
+    if (deviceId != null && deviceType != null && Get.isRegistered<LiveStatusController>()) {
+      final int? cached = Get.find<LiveStatusController>()
+          .latestTimestampMs(deviceType: deviceType, deviceId: deviceId);
+      if (cached != null) return cached;
     }
-    if (deviceId != null && selectedDeviceType == 'infra') {
-      return infraLiveCache[deviceId]?.timeStampMs
-          ?? infraLiveCache[deviceId]?.timeStamp
-          ?? selectedInfraInfo?.timeStampMs
-          ?? selectedInfraInfo?.timeStamp;
+    if (deviceId != null && deviceType == 'vehicle') {
+      return selectedVehicleInfo?.timeStampMs ?? selectedVehicleInfo?.timeStamp;
     }
-    return deviceFeedEvents.isNotEmpty
-        ? deviceFeedEvents.first.occurredAtMs
-        : null;
+    if (deviceId != null && deviceType == 'infra') {
+      return selectedInfraInfo?.timeStampMs ?? selectedInfraInfo?.timeStamp;
+    }
+    return deviceFeedEvents.isNotEmpty ? deviceFeedEvents.first.occurredAtMs : null;
   }
 
   bool get selectedIsOnline {
@@ -837,9 +727,7 @@ class ActivityController extends GetxController {
     }
 
     final List<VehicleDistanceStat> candidates =
-        selectedDeviceDistanceStats?.vehicles ??
-            distanceStats?.vehicles ??
-            <VehicleDistanceStat>[];
+        selectedDeviceDistanceStats?.vehicles ?? distanceStats?.vehicles ?? <VehicleDistanceStat>[];
 
     for (final VehicleDistanceStat stat in candidates) {
       if (stat.vehicleId == selectedDeviceId) return stat;
@@ -852,11 +740,10 @@ class ActivityController extends GetxController {
       return null;
     }
 
-    final List<VehicleDistanceStat> candidates =
-        selectedDeviceDistanceChartStats?.vehicles ??
-            selectedDeviceDistanceStats?.vehicles ??
-            distanceStats?.vehicles ??
-            <VehicleDistanceStat>[];
+    final List<VehicleDistanceStat> candidates = selectedDeviceDistanceChartStats?.vehicles ??
+        selectedDeviceDistanceStats?.vehicles ??
+        distanceStats?.vehicles ??
+        <VehicleDistanceStat>[];
 
     for (final VehicleDistanceStat stat in candidates) {
       if (stat.vehicleId == selectedDeviceId) return stat;
@@ -928,8 +815,7 @@ class ActivityController extends GetxController {
     }
     if (token.isEmpty) return;
 
-    final int days =
-        _distanceChartDaysForPeriod(selectedDeviceDistanceChartPeriod);
+    final int days = _distanceChartDaysForPeriod(selectedDeviceDistanceChartPeriod);
     if (days == chartDays_ && selectedDeviceDistanceStats != null) {
       selectedDeviceDistanceChartStats = selectedDeviceDistanceStats;
       isDeviceDistanceChartLoading = false;
@@ -938,8 +824,7 @@ class ActivityController extends GetxController {
     }
 
     final int requestId = ++_distanceChartRequestId;
-    final String selectionKey =
-        '$deviceType:$deviceId:$selectedDeviceDistanceChartPeriod';
+    final String selectionKey = '$deviceType:$deviceId:$selectedDeviceDistanceChartPeriod';
 
     isDeviceDistanceChartLoading = true;
     update();
@@ -950,7 +835,6 @@ class ActivityController extends GetxController {
       final DistanceStatsResult result = await _repo.requestDistanceStats(
         days: days,
         vehicleId: deviceId,
-        includeRuntime: true,
       );
 
       if (requestId != _distanceChartRequestId) return;
@@ -970,39 +854,11 @@ class ActivityController extends GetxController {
     }
   }
 
-  int _distanceChartDaysForPeriod(String period) {
-    switch (_normalizeDistanceChartPeriod(period)) {
-      case 'weekly':
-        return 84;
-      case 'monthly':
-        return 365;
-      case 'yearly':
-        return 1825;
-      case 'daily':
-      default:
-        return 30;
-    }
-  }
+  int _distanceChartDaysForPeriod(String period) =>
+      _chartsCtrl.distanceChartDaysForPeriod(period);
 
-  String _normalizeDistanceChartPeriod(String period) {
-    switch (period) {
-      case 'daily':
-      case 'weekly':
-      case 'monthly':
-      case 'yearly':
-        return period;
-      case 'day':
-        return 'daily';
-      case 'week':
-        return 'weekly';
-      case 'month':
-        return 'monthly';
-      case 'year':
-        return 'yearly';
-      default:
-        return 'daily';
-    }
-  }
+  String _normalizeDistanceChartPeriod(String period) =>
+      _chartsCtrl.normalizeDistanceChartPeriod(period);
 
   String _normalizeVehicleChartMetric(String metric) {
     switch (metric) {
@@ -1016,14 +872,14 @@ class ActivityController extends GetxController {
   }
 
   // 차량 일별 운행 통계 로드
-  Future<void> _loadVehicleDailyOperationStats(int vehicleId, int days, {bool silent = false}) async {
+  Future<void> _loadVehicleDailyOperationStats(int vehicleId, int days,
+      {bool silent = false}) async {
     if (!silent) {
       isOperationStatsLoading = true;
       update();
     }
     try {
-      vehicleDailyOperationStats =
-          await _vehicleRepo.requestDailyOperationStats(
+      vehicleDailyOperationStats = await _vehicleRepo.requestDailyOperationStats(
         vehicleId: vehicleId,
         days: days,
       );
@@ -1057,8 +913,7 @@ class ActivityController extends GetxController {
       update();
     }
     try {
-      vehicleDailyObjectCounts =
-          await _vehicleRepo.requestVehicleDailyObjectCounts(
+      vehicleDailyObjectCounts = await _vehicleRepo.requestVehicleDailyObjectCounts(
         vehicleId: vehicleId,
         days: days,
       );
@@ -1088,10 +943,7 @@ class ActivityController extends GetxController {
     final double? latitude = selectedLatitude;
     final double? longitude = selectedLongitude;
 
-    if (deviceType == null ||
-        deviceId == null ||
-        latitude == null ||
-        longitude == null) {
+    if (deviceType == null || deviceId == null || latitude == null || longitude == null) {
       if (selectedWeather != null ||
           isWeatherLoading ||
           _weatherCacheKey != null ||
@@ -1110,8 +962,7 @@ class ActivityController extends GetxController {
         selectedWeather != null &&
         _weatherCacheKey == cacheKey &&
         _weatherFetchedAt != null &&
-        DateTime.now().difference(_weatherFetchedAt!) <
-            const Duration(minutes: 15)) {
+        DateTime.now().difference(_weatherFetchedAt!) < const Duration(minutes: 15)) {
       return;
     }
 
@@ -1126,8 +977,7 @@ class ActivityController extends GetxController {
         longitude: longitude,
       );
 
-      if (selectionKey !=
-          '${selectedDeviceType ?? ''}:${selectedDeviceId ?? ''}') {
+      if (selectionKey != '${selectedDeviceType ?? ''}:${selectedDeviceId ?? ''}') {
         return;
       }
 
@@ -1140,8 +990,7 @@ class ActivityController extends GetxController {
         _weatherFetchedAt = null;
       }
     } finally {
-      if (selectionKey ==
-          '${selectedDeviceType ?? ''}:${selectedDeviceId ?? ''}') {
+      if (selectionKey == '${selectedDeviceType ?? ''}:${selectedDeviceId ?? ''}') {
         isWeatherLoading = false;
         update();
       }
@@ -1154,8 +1003,7 @@ class ActivityController extends GetxController {
     };
 
     return kstDateLabels(days).map((String date) {
-      return byDate[date] ??
-          ActivityChartDay(dateKst: date, total: 0, byType: <String, int>{});
+      return byDate[date] ?? ActivityChartDay(dateKst: date, total: 0, byType: <String, int>{});
     }).toList();
   }
 
@@ -1203,9 +1051,7 @@ class ActivityController extends GetxController {
   bool isSelectedCalendarDate(DateTime date) {
     final DateTime? current = selectedCalendarDate;
     if (current == null) return false;
-    return current.year == date.year &&
-        current.month == date.month &&
-        current.day == date.day;
+    return current.year == date.year && current.month == date.month && current.day == date.day;
   }
 
   Future<void> openCalendarDayTicket(DateTime date) async {
@@ -1233,8 +1079,7 @@ class ActivityController extends GetxController {
         offset: 0,
       );
 
-      if (selectionKey !=
-          '${selectedDeviceType ?? ''}:${selectedDeviceId ?? ''}') {
+      if (selectionKey != '${selectedDeviceType ?? ''}:${selectedDeviceId ?? ''}') {
         return;
       }
       if (!isSelectedCalendarDate(normalized)) {
@@ -1244,8 +1089,7 @@ class ActivityController extends GetxController {
       selectedCalendarDayEvents = result.items;
       selectedCalendarDayTotal = result.totalCount;
     } finally {
-      if (selectionKey ==
-              '${selectedDeviceType ?? ''}:${selectedDeviceId ?? ''}' &&
+      if (selectionKey == '${selectedDeviceType ?? ''}:${selectedDeviceId ?? ''}' &&
           isSelectedCalendarDate(normalized)) {
         isCalendarDayLoading = false;
         update();
@@ -1267,79 +1111,22 @@ class ActivityController extends GetxController {
     refreshFeed();
   }
 
+  // 전역 차트 기간 변경 + (선택 디바이스 있으면) 디바이스 차트도 같이 갱신
   void setChartPeriod(int days) {
-    if (chartDays_ == days) return;
-    chartDays_ = days;
-    refreshCharts();
+    if (!_chartsCtrl.setGlobalChartPeriod(days)) return;
     if (selectedDeviceId != null && selectedDeviceType != null) {
       refreshSelectedDeviceAnalytics();
     }
   }
 
-  Future<void> refreshUsageStats() async {
-    final String token = Get.find<UserController>().accessToken ?? '';
-    if (token.isEmpty || isUsageLoading) return;
-
-    isUsageLoading = true;
-    update();
-    try {
-      usageStats = await _repo.requestUsageStats(period: usagePeriod);
-    } finally {
-      isUsageLoading = false;
-      update();
-    }
-  }
-
-  void setUsagePeriod(String period) {
-    if (usagePeriod == period) return;
-    usagePeriod = period;
-    refreshUsageStats();
-  }
-
-  List<String> kstDateLabels(int days) {
-    final DateTime todayKst = _nowKst();
-    return List<String>.generate(days, (int index) {
-      final DateTime day = todayKst.subtract(Duration(days: days - index - 1));
-      return _formatDate(day);
-    });
-  }
-
-  List<ActivityChartDay> chartDaysSlice(int days) {
-    final Map<String, ActivityChartDay> byDate = <String, ActivityChartDay>{
-      for (final ActivityChartDay day in chartDays) day.dateKst: day,
-    };
-
-    return kstDateLabels(days).map((String date) {
-      return byDate[date] ??
-          ActivityChartDay(dateKst: date, total: 0, byType: <String, int>{});
-    }).toList();
-  }
-
-  int get todayEventCount {
-    final String today = _todayKstStr();
-    for (final ActivityChartDay day in chartDays) {
-      if (day.dateKst == today) return day.total;
-    }
-    return 0;
-  }
-
-  int get todayOverspeedCount {
-    final String today = _todayKstStr();
-    for (final ActivityChartDay day in chartDays) {
-      if (day.dateKst == today) {
-        return (day.byType['high_speed'] ?? 0) +
-            (day.byType['emergency_stop'] ?? 0);
-      }
-    }
-    return 0;
-  }
+  Future<void> refreshUsageStats() => _chartsCtrl.refreshUsageStats();
+  void setUsagePeriod(String period) => _chartsCtrl.setUsagePeriod(period);
 
   Future<void> openBell() async {
     isBellOpen = true;
     update();
     try {
-      final result =
-          await _repo.requestEvents(minSeverity: 2, limit: 16, offset: 0);
+      final result = await _repo.requestEvents(minSeverity: 2, limit: 16, offset: 0);
       bellEvents = result.items;
     } finally {
       update();
@@ -1365,15 +1152,12 @@ class ActivityController extends GetxController {
 
   Future<void> markAllRead() async {
     await _repo.requestMarkAllRead();
-    feedEvents = feedEvents
-        .map((ActivityEventItem event) => _copyEvent(event, isRead: true))
-        .toList();
-    bellEvents = bellEvents
-        .map((ActivityEventItem event) => _copyEvent(event, isRead: true))
-        .toList();
-    deviceFeedEvents = deviceFeedEvents
-        .map((ActivityEventItem event) => _copyEvent(event, isRead: true))
-        .toList();
+    feedEvents =
+        feedEvents.map((ActivityEventItem event) => _copyEvent(event, isRead: true)).toList();
+    bellEvents =
+        bellEvents.map((ActivityEventItem event) => _copyEvent(event, isRead: true)).toList();
+    deviceFeedEvents =
+        deviceFeedEvents.map((ActivityEventItem event) => _copyEvent(event, isRead: true)).toList();
     unreadCount = 0;
     update();
   }
@@ -1405,8 +1189,7 @@ class ActivityController extends GetxController {
     }).toList();
   }
 
-  ActivityEventItem _copyEvent(ActivityEventItem event,
-      {required bool isRead}) {
+  ActivityEventItem _copyEvent(ActivityEventItem event, {required bool isRead}) {
     return ActivityEventItem(
       id: event.id,
       deviceType: event.deviceType,
@@ -1422,46 +1205,20 @@ class ActivityController extends GetxController {
     );
   }
 
-  Map<String, dynamic>? _registryEntry(String? deviceType, int? deviceId) {
-    if (deviceType == null || deviceId == null) return null;
-    for (final Map<String, dynamic> row in registryRows) {
-      final String rowType = row['device_type']?.toString() ?? '';
-      final int? rowId = _parseInt(row['device_id']);
-      if (rowType == deviceType && rowId == deviceId) {
-        return row;
-      }
-    }
-    return null;
-  }
+  Map<String, dynamic>? _registryEntry(String? deviceType, int? deviceId) =>
+      ActivityFormatHelper.registryEntry(registryRows, deviceType, deviceId);
 
-  String _registryLocationLabel(String? deviceType, int? deviceId) {
-    final Map<String, dynamic>? reg = _registryEntry(deviceType, deviceId);
-    final String locationAddress = _cleanString(reg?['location_address']);
-    final String homeStation = _cleanString(reg?['home_station']);
-    if (locationAddress.isNotEmpty) return locationAddress;
-    if (homeStation.isNotEmpty) return homeStation;
-    return '';
-  }
+  String _registryLocationLabel(String? deviceType, int? deviceId) =>
+      ActivityFormatHelper.registryLocationLabel(
+          registryRows, deviceType, deviceId);
 
-  String _cleanString(dynamic value) {
-    final String text = value?.toString().trim() ?? '';
-    if (text == '-' || text.toLowerCase() == 'null') return '';
-    return text;
-  }
+  String _cleanString(dynamic value) =>
+      ActivityFormatHelper.cleanString(value);
 
-  int? _parseInt(dynamic value) {
-    if (value == null) return null;
-    if (value is int) return value;
-    if (value is num) return value.toInt();
-    return int.tryParse(value.toString());
-  }
+  int? _parseInt(dynamic value) => ActivityFormatHelper.parseInt(value);
 
-  double? _parseDouble(dynamic value) {
-    if (value == null) return null;
-    if (value is double) return value;
-    if (value is num) return value.toDouble();
-    return double.tryParse(value.toString());
-  }
+  double? _parseDouble(dynamic value) =>
+      ActivityFormatHelper.parseDouble(value);
 
   void _resetSelectedWeather() {
     selectedWeather = null;
@@ -1470,62 +1227,14 @@ class ActivityController extends GetxController {
     _weatherFetchedAt = null;
   }
 
-  String _relativeTimeFromMs(int ms) {
-    final DateTime eventTime =
-        DateTime.fromMillisecondsSinceEpoch(ms, isUtc: true).toLocal();
-    final Duration diff = DateTime.now().difference(eventTime);
+  String _relativeTimeFromMs(int ms) =>
+      ActivityFormatHelper.relativeTimeFromMs(ms);
 
-    if (diff.inSeconds < 10) return l10n('방금 전', 'Just now');
-    if (diff.inSeconds < 60) {
-      return isEnglishLocale
-          ? '${diff.inSeconds}s ago'
-          : '${diff.inSeconds}초 전';
-    }
-    if (diff.inMinutes < 60) {
-      return isEnglishLocale
-          ? '${diff.inMinutes}m ago'
-          : '${diff.inMinutes}분 전';
-    }
-    if (diff.inHours < 24) {
-      return isEnglishLocale ? '${diff.inHours}h ago' : '${diff.inHours}시간 전';
-    }
-    return isEnglishLocale ? '${diff.inDays}d ago' : '${diff.inDays}일 전';
-  }
+  ({int fromMs, int toMs}) _currentMonthKstWindow() =>
+      ActivityFormatHelper.currentMonthKstWindow();
 
-  ({int fromMs, int toMs}) _currentMonthKstWindow() {
-    final DateTime now = _nowKst();
-    final DateTime start = DateTime(now.year, now.month, 1);
-    final DateTime nextMonth = DateTime(now.year, now.month + 1, 1);
-    return (
-      fromMs: _kstMidnightEpochMs(start),
-      toMs: _kstMidnightEpochMs(nextMonth) - 1,
-    );
-  }
+  ({int fromMs, int toMs}) _kstDayWindow(DateTime date) =>
+      ActivityFormatHelper.kstDayWindow(date);
 
-  ({int fromMs, int toMs}) _kstDayWindow(DateTime date) {
-    final DateTime start = DateTime(date.year, date.month, date.day);
-    final DateTime nextDay = start.add(const Duration(days: 1));
-    return (
-      fromMs: _kstMidnightEpochMs(start),
-      toMs: _kstMidnightEpochMs(nextDay) - 1,
-    );
-  }
-
-  int _kstMidnightEpochMs(DateTime date) {
-    return DateTime.utc(date.year, date.month, date.day)
-            .millisecondsSinceEpoch -
-        _kstOffset.inMilliseconds;
-  }
-
-  DateTime _nowKst() {
-    return DateTime.now().toUtc().add(_kstOffset);
-  }
-
-  String _todayKstStr() {
-    return _formatDate(_nowKst());
-  }
-
-  String _formatDate(DateTime date) {
-    return '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
-  }
+  String _formatDate(DateTime date) => ActivityFormatHelper.formatDate(date);
 }

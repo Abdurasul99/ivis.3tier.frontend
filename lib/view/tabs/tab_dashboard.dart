@@ -6,16 +6,15 @@ import 'package:calendar_date_picker2/calendar_date_picker2.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 import 'package:get/get.dart';
 import 'package:intl/intl.dart';
 import 'package:pluto_grid/pluto_grid.dart';
 
+import 'package:flutter_svg/flutter_svg.dart';
+
 import '../../i18n/app_locale.dart';
-import '../../model/infra_model.dart';
 import '../../model/object_model.dart';
-import '../../model/vehicle_model.dart';
-import '../../utils/geo_utils.dart';
+import '../../view/components/dashboard/objects_status_grid.dart';
 import '../../view/components/infra_vehicle_map.dart';
 import '../../viewmodel/controller/dashboard_controller.dart';
 import '../../viewmodel/controller/locale_controller.dart';
@@ -53,6 +52,8 @@ class _TabDashboardState extends State<TabDashboard>
   PlutoGridStateManager? _gridStateManager;
   bool _gridReady = false;
   StreamSubscription<PlutoGridEvent>? _gridEventSubscription;
+  // _updateGrid 실행 중 탭 이벤트 무시 플래그
+  bool _suppressRowTap = false;
 
   List<PlutoColumn> _cachedColumns = <PlutoColumn>[];
 
@@ -60,8 +61,12 @@ class _TabDashboardState extends State<TabDashboard>
 
   final LogRepository _logRepository = LogRepository();
   _MapPanelPlacement _mapPanelPlacement = _MapPanelPlacement.right;
-  double _tablePanelRatio = 0.60;
+  double _tablePanelRatio = 0.33; // 3패널 기본: 테이블 33%
   bool _isDialogOpen = false;
+
+  // 데이터 다운로드 대상 날짜 (하루 단위)
+  DateTime? _exportDay;
+  final GlobalKey _dayBtnKey = GlobalKey(); // 다운로드 날짜 버튼 위치(달력 앵커)
 
   // Jump-to-page 입력 컨트롤러
   final TextEditingController _jumpPageController = TextEditingController();
@@ -121,16 +126,43 @@ class _TabDashboardState extends State<TabDashboard>
           ? <PlutoRow>[]
           : _buildPlutoRows(_controller.pageRows, _controller.cachedFields);
 
-      manager.removeAllRows();
-      if (rowsToInsert.isNotEmpty) {
-        manager.appendRows(rowsToInsert);
+      _suppressRowTap = true;
+      try {
+        manager.removeAllRows();
+        if (rowsToInsert.isNotEmpty) {
+          manager.appendRows(rowsToInsert);
+        }
+        manager.notifyListeners();
+      } catch (exception) {
+        if (kDebugMode) {
+          debugPrint('_updateGrid error: $exception');
+        }
+      } finally {
+        _suppressRowTap = false;
       }
-      manager.notifyListeners();
     } catch (exception) {
       if (kDebugMode) {
-        debugPrint('_updateGrid error: $exception');
+        debugPrint('_updateGrid outer error: $exception');
       }
     }
+  }
+
+  // 셀 탭 → 해당 행 index로 pageRows 조회 후 객체 현황 패널 갱신
+  void _onRowTapped(int rowIdx) {
+    // _updateGrid 실행 중이거나 로딩 중이면 무시
+    if (_suppressRowTap || _controller.isLoading || !_gridReady) return;
+    if (rowIdx < 0 || rowIdx >= _controller.pageRows.length) return;
+    final Map<String, dynamic> pageRow = _controller.pageRows[rowIdx];
+    // 차량 모드: 지도 라이브 추적
+    if (_controller.currentEntityType != FmsEntityType.infra) {
+      final int vehicleId =
+          _controller.parseIntValue(pageRow['vehicle_id']);
+      if (vehicleId > 0) {
+        _mapPanelKey.currentState?.selectVehicle(vehicleId);
+      }
+    }
+    // 객체 현황 패널 갱신
+    _controller.showObjectsStatusFromRow(pageRow);
   }
 
   void _onColumnFilterChanged() {
@@ -209,6 +241,9 @@ class _TabDashboardState extends State<TabDashboard>
     _controller.applyActiveFilter(newFilterColumn, newFilterValue);
   }
 
+
+  // ── 더블클릭 다이얼로그 ─────────────────────────────────────────────────────
+
   Map<String, dynamic>? _resolvePageRowFromGridEvent(
       PlutoGridOnRowDoubleTapEvent event) {
     final int historyIdFromGrid =
@@ -220,7 +255,6 @@ class _TabDashboardState extends State<TabDashboard>
         }
       }
     }
-
     final int fallbackIndex = event.rowIdx;
     if (fallbackIndex >= 0 && fallbackIndex < _controller.pageRows.length) {
       return _controller.pageRows[fallbackIndex];
@@ -232,10 +266,9 @@ class _TabDashboardState extends State<TabDashboard>
     final bool isInfraEntity =
         _controller.currentEntityType == FmsEntityType.infra;
     final String titleText = isInfraEntity ? '인프라 이력' : '차량 이력';
-
     final int expectedCountFromRow =
         _controller.parseIntValue(row['number_of_objects']);
-    final bool forceZeroDetectedObjects = expectedCountFromRow <= 0;
+    final bool forceZero = expectedCountFromRow <= 0;
 
     setState(() => _isDialogOpen = true);
     await showDialog<void>(
@@ -243,143 +276,43 @@ class _TabDashboardState extends State<TabDashboard>
       builder: (BuildContext dialogContext) {
         final Size size = MediaQuery.of(dialogContext).size;
         bool started = false;
-
-        // 현재 표시 중인 행 데이터 (실시간 모드에서 갱신됨)
         Map<String, dynamic> currentRow = Map<String, dynamic>.from(row);
-
-        final List<DetectedObject> fallbackObjectItems =
+        final List<DetectedObject> fallbackItems =
             _controller.normalizeObjectsForRow(
-          _controller.parseDetectedObjectsFromRaw(row['objects'] ??
-              row['detected_objects'] ??
-              row['detectedObjects']),
+          _controller.parseDetectedObjectsFromRaw(
+              row['objects'] ?? row['detected_objects'] ?? row['detectedObjects']),
           row,
           strictRowMatch: true,
         );
-        List<DetectedObject> objectItems = forceZeroDetectedObjects
-            ? <DetectedObject>[]
-            : List<DetectedObject>.from(fallbackObjectItems);
-        bool objectsLoading = !forceZeroDetectedObjects;
-
-        // 실시간 모드 상태
-        bool liveMode = false;
-        Timer? liveTimer;
-        bool liveUpdating = false;
-
-        void cancelLive() {
-          liveTimer?.cancel();
-          liveTimer = null;
-          liveMode = false;
-          liveUpdating = false;
-        }
+        List<DetectedObject> objectItems =
+            forceZero ? <DetectedObject>[] : List<DetectedObject>.from(fallbackItems);
+        bool objectsLoading = !forceZero;
 
         return StatefulBuilder(
-          builder: (BuildContext context,
+          builder: (BuildContext ctx,
               void Function(void Function()) setDialogState) {
-            // 초기 객체 로드 (최초 1회)
-            Future<void> startLoadIfNeeded() async {
+            Future<void> startLoad() async {
               if (started) return;
               started = true;
-              if (forceZeroDetectedObjects) return;
-
-              final List<DetectedObject> loadedObjectItems =
+              if (forceZero) return;
+              final List<DetectedObject> loaded =
                   await _controller.loadObjectsForRowWithFallback(
                 row: currentRow,
-                fallbackObjectItems: fallbackObjectItems,
+                fallbackObjectItems: fallbackItems,
               );
-
-              if (!context.mounted) return;
-
+              if (!ctx.mounted) return;
               setDialogState(() {
-                objectItems = loadedObjectItems;
+                objectItems = loaded;
                 objectsLoading = false;
               });
             }
 
-            // 실시간 최신 데이터 가져오기
-            Future<void> fetchLiveUpdate() async {
-              if (liveUpdating || !context.mounted) return;
-              liveUpdating = true;
-
-              try {
-                Map<String, dynamic>? freshRow;
-
-                if (isInfraEntity) {
-                  final int infraId =
-                      _controller.parseIntValue(currentRow['infra_id']);
-                  if (infraId > 0) {
-                    final InfraInfoHistoryResult? result = await _controller
-                        .infraCtrl.repository
-                        .requestInfraHistory(
-                      infraId: infraId,
-                      limit: 1,
-                      offset: 0,
-                    );
-                    if (result != null && result.items.isNotEmpty) {
-                      freshRow = _controller
-                          .enrichRowDateTimeFields(result.items.first.toJson());
-                    }
-                  }
-                } else {
-                  final int vehicleId =
-                      _controller.parseIntValue(currentRow['vehicle_id']);
-                  if (vehicleId > 0) {
-                    final VehicleInfoHistoryResult? result = await _controller
-                        .vehicleCtrl.repository
-                        .requestVehicleHistory(
-                      vehicleId: vehicleId,
-                      limit: 1,
-                      offset: 0,
-                    );
-                    if (result != null && result.items.isNotEmpty) {
-                      freshRow = _controller
-                          .enrichRowDateTimeFields(result.items.first.toJson());
-                    }
-                  }
-                }
-
-                if (!context.mounted || freshRow == null) return;
-
-                // 새 행의 객체 목록 가져오기
-                final int newObjectCount =
-                    _controller.parseIntValue(freshRow['number_of_objects']);
-                List<DetectedObject> newObjects = <DetectedObject>[];
-                if (newObjectCount > 0) {
-                  final List<DetectedObject> freshFallbackObjectItems =
-                      _controller.normalizeObjectsForRow(
-                    _controller.parseDetectedObjectsFromRaw(
-                      freshRow['objects'] ??
-                          freshRow['detected_objects'] ??
-                          freshRow['detectedObjects'],
-                    ),
-                    freshRow,
-                    strictRowMatch: true,
-                  );
-                  newObjects = await _controller.loadObjectsForRowWithFallback(
-                    row: freshRow,
-                    fallbackObjectItems: freshFallbackObjectItems,
-                  );
-                }
-
-                if (!context.mounted) return;
-
-                setDialogState(() {
-                  currentRow = freshRow!;
-                  objectItems = newObjects;
-                  objectsLoading = false;
-                });
-              } finally {
-                liveUpdating = false;
-              }
-            }
-
-            startLoadIfNeeded();
-
-            final int loadedCount = objectItems.length;
-            final int totalObjects = forceZeroDetectedObjects
+            startLoad();
+            final int total = forceZero
                 ? 0
                 : (objectsLoading
-                    ? (expectedCountFromRow < 0 ? 0 : expectedCountFromRow)
-                    : loadedCount);
+                    ? expectedCountFromRow.clamp(0, 99999)
+                    : objectItems.length);
 
             return AlertDialog(
               backgroundColor: Colors.white,
@@ -392,57 +325,14 @@ class _TabDashboardState extends State<TabDashboard>
                 children: <Widget>[
                   SvgPicture.asset('assets/images/ivis.svg', height: 28),
                   const SizedBox(width: 12),
-                  Text(
-                    titleText,
-                    style: const TextStyle(
-                      fontSize: 19,
-                      fontWeight: FontWeight.w600,
-                      color: Color(0xFF212121),
-                    ),
-                  ),
+                  Text(titleText,
+                      style: const TextStyle(
+                          fontSize: 19,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF212121))),
                   const Spacer(),
-                  // 실시간 갱신 토글 버튼
-                  Tooltip(
-                    message: liveMode ? '실시간 갱신 중지' : '실시간 갱신 시작',
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 200),
-                      decoration: BoxDecoration(
-                        color: liveMode
-                            ? const Color(0xFFE8F5E9)
-                            : const Color(0xFFF5F5F5),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: IconButton(
-                        onPressed: () {
-                          setDialogState(() {
-                            if (liveMode) {
-                              cancelLive();
-                            } else {
-                              liveMode = true;
-                              fetchLiveUpdate();
-                              liveTimer = Timer.periodic(
-                                  const Duration(seconds: 2), (_) {
-                                fetchLiveUpdate();
-                              });
-                            }
-                          });
-                        },
-                        icon: Icon(
-                          liveMode
-                              ? Icons.pause_circle_filled_rounded
-                              : Icons.play_circle_filled_rounded,
-                          color: liveMode
-                              ? const Color(0xFF2E7D32)
-                              : const Color(0xFF9E9E9E),
-                          size: 28,
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 4),
                   IconButton(
                     onPressed: () {
-                      cancelLive();
                       Navigator.of(dialogContext).pop();
                     },
                     icon: const Icon(Icons.close),
@@ -467,9 +357,9 @@ class _TabDashboardState extends State<TabDashboard>
                     const SizedBox(width: 20),
                     Expanded(
                       flex: 3,
-                      child: _buildObjectsPanel(
+                      child: _buildDialogObjectsPanel(
                         objectItems: objectItems,
-                        totalCount: totalObjects,
+                        totalCount: total,
                         isLoading: objectsLoading,
                       ),
                     ),
@@ -482,6 +372,445 @@ class _TabDashboardState extends State<TabDashboard>
       },
     );
     if (mounted) setState(() => _isDialogOpen = false);
+  }
+
+  // ── 다이얼로그 전용 헬퍼 위젯들 ──────────────────────────────────────────────
+
+  Widget _buildEntityStatusBar(Map<String, dynamic> row, bool isInfra) {
+    if (isInfra) {
+      return Container(
+        color: const Color(0xFFF0FAF8),
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+        child: Row(children: const <Widget>[
+          Icon(Icons.router_rounded, size: 13, color: Color(0xFF00897B)),
+          SizedBox(width: 6),
+          Text('고정 위치',
+              style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF00897B))),
+        ]),
+      );
+    }
+    final double posX = double.tryParse(
+            _controller.formatCellValue(row['pos_x_m'] ?? row['position_x'])) ??
+        0.0;
+    final double posY = double.tryParse(
+            _controller.formatCellValue(row['pos_y_m'] ?? row['position_y'])) ??
+        0.0;
+    final double kphVal = double.tryParse(
+            _controller.formatCellValue(row['kph'] ?? row['velocity_kph'])) ??
+        0.0;
+    final bool isMoving = kphVal > 0.5;
+    final bool hasPosition = posX > 1000 && posY > 1000;
+    return Container(
+      color: const Color(0xFFF3F7FF),
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+      child: Row(children: <Widget>[
+        Icon(
+          isMoving ? Icons.directions_car_filled : Icons.local_parking_rounded,
+          size: 13,
+          color: isMoving ? const Color(0xFF1565C0) : const Color(0xFF78909C),
+        ),
+        const SizedBox(width: 6),
+        Text(
+          isMoving ? '이동 중 ${kphVal.toStringAsFixed(0)} km/h' : '정지',
+          style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              color: isMoving
+                  ? const Color(0xFF1565C0)
+                  : const Color(0xFF78909C)),
+        ),
+        if (hasPosition) ...<Widget>[
+          const SizedBox(width: 10),
+          const Icon(Icons.location_on_rounded,
+              size: 12, color: Color(0xFF9E9E9E)),
+          const SizedBox(width: 3),
+          Text(
+            'E${posX.toStringAsFixed(0)} N${posY.toStringAsFixed(0)}',
+            style: const TextStyle(fontSize: 10, color: Color(0xFF9E9E9E)),
+          ),
+        ],
+      ]),
+    );
+  }
+
+  Widget _buildRowSummaryCard(Map<String, dynamic> row) {
+    final bool isInfra = _controller.currentEntityType == FmsEntityType.infra;
+    final String historyIdText = _controller.formatCellValue(row['history_id']);
+    final String statusIdText = isInfra
+        ? _controller.formatCellValue(row['infra_info_id'])
+        : _controller.formatCellValue(row['vehicle_info_id']);
+    final String primaryLabel = isInfra ? '인프라 ID' : '차량 ID';
+    final String primaryValue = isInfra
+        ? _controller.formatCellValue(row['infra_id'])
+        : _controller.formatCellValue(row['vehicle_id']);
+    final String msgIdValue = _controller.formatCellValue(row['msg_id']);
+    final String dateText =
+        _controller.formatCellValue(row['changed_at_date'] ?? '');
+    final String timeText =
+        _controller.formatCellValue(row['changed_at_time'] ?? '');
+
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFF1565C0),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(children: <Widget>[
+            const Text('HISTORY',
+                style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF90CAF9),
+                    letterSpacing: 1.2)),
+            const Spacer(),
+            if (dateText.isNotEmpty)
+              Text('$dateText $timeText',
+                  style: const TextStyle(
+                      fontSize: 10, color: Color(0xFF90CAF9))),
+          ]),
+          const SizedBox(height: 4),
+          Text('#$historyIdText',
+              style: const TextStyle(
+                  fontSize: 26,
+                  fontWeight: FontWeight.w900,
+                  color: Colors.white)),
+          const SizedBox(height: 10),
+          Wrap(spacing: 8, runSpacing: 6, children: <Widget>[
+            _chip('STATUS ID', statusIdText, const Color(0xFF1976D2)),
+            _chip(primaryLabel, primaryValue, const Color(0xFF388E3C)),
+            _chip('MSG ID', msgIdValue, const Color(0xFFE65100)),
+          ]),
+          const SizedBox(height: 10),
+          _buildEntityStatusBar(row, isInfra),
+        ],
+      ),
+    );
+  }
+
+  Widget _chip(String label, String value, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.15),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(label,
+              style: const TextStyle(
+                  fontSize: 9,
+                  color: Color(0xFFBBDEFB),
+                  fontWeight: FontWeight.w600)),
+          Text(value.isEmpty ? '—' : value,
+              style: const TextStyle(
+                  fontSize: 13,
+                  color: Colors.white,
+                  fontWeight: FontWeight.w800)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRowDetailTable(Map<String, dynamic> row) {
+    final List<String> columns = _controller.currentAllFields;
+    const List<String> idFields = <String>[
+      'history_id', 'vehicle_info_id', 'infra_info_id',
+      'vehicle_id', 'infra_id', 'msg_id', 'msg_seq', 'msg_length',
+    ];
+    const List<String> posFields = <String>[
+      'pos_x_m', 'pos_y_m', 'pos_z_m', 'heading_deg', 'navsat',
+    ];
+    const List<String> velFields = <String>[
+      'kph', 'mps', 'accel_x_mps2', 'accel_y_mps2', 'accel_z_mps2',
+      'gyro_x_dps', 'gyro_y_dps', 'gyro_z_dps',
+    ];
+    final Map<String, List<String>> grouped = <String, List<String>>{
+      '식별': <String>[],
+      '위치': <String>[],
+      '속도/IMU': <String>[],
+      '기타': <String>[],
+    };
+    for (final String f in columns) {
+      if (idFields.contains(f)) {
+        grouped['식별']!.add(f);
+      } else if (posFields.contains(f)) {
+        grouped['위치']!.add(f);
+      } else if (velFields.contains(f)) {
+        grouped['속도/IMU']!.add(f);
+      } else {
+        grouped['기타']!.add(f);
+      }
+    }
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFFFAFAFA),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFE0E0E0)),
+      ),
+      child: ListView(
+        padding: EdgeInsets.zero,
+        children: grouped.entries
+            .where((MapEntry<String, List<String>> e) => e.value.isNotEmpty)
+            .expand((MapEntry<String, List<String>> e) => <Widget>[
+                  Container(
+                    padding: const EdgeInsets.fromLTRB(14, 10, 14, 6),
+                    child: Text(e.key,
+                        style: const TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w800,
+                            color: Color(0xFF1565C0),
+                            letterSpacing: 0.8)),
+                  ),
+                  ...e.value.asMap().entries.map((MapEntry<int, String> entry) {
+                    final String field = entry.value;
+                    final String value =
+                        _controller.formatCellValue(row[field]);
+                    return Container(
+                      color: entry.key.isEven
+                          ? Colors.white
+                          : const Color(0xFFF7F9FF),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 6),
+                      child: Row(children: <Widget>[
+                        SizedBox(
+                          width: 130,
+                          child: Text(field,
+                              style: const TextStyle(
+                                  fontSize: 11,
+                                  color: Color(0xFF9E9E9E),
+                                  fontWeight: FontWeight.w500)),
+                        ),
+                        Expanded(
+                          child: Text(
+                            value.isEmpty ? '—' : value,
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: value.isEmpty
+                                  ? const Color(0xFFBDBDBD)
+                                  : const Color(0xFF212121),
+                            ),
+                          ),
+                        ),
+                      ]),
+                    );
+                  }),
+                ])
+            .toList(),
+      ),
+    );
+  }
+
+  Widget _buildDialogObjectsPanel({
+    required List<DetectedObject> objectItems,
+    required int totalCount,
+    required bool isLoading,
+  }) {
+    final int safeTotal = totalCount < 0 ? 0 : totalCount;
+    final List<String> fields = _controller.getObjectFields();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF0F4FF),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: const Color(0xFFBBDEFB)),
+          ),
+          child: Row(children: <Widget>[
+            const Icon(Icons.radar_rounded, size: 18, color: Color(0xFF1565C0)),
+            const SizedBox(width: 8),
+            const Text('감지 객체',
+                style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF1565C0))),
+            const SizedBox(width: 10),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+              decoration: BoxDecoration(
+                color: safeTotal > 0
+                    ? const Color(0xFF1565C0)
+                    : const Color(0xFFBDBDBD),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Text('$safeTotal',
+                  style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w900,
+                      color: Colors.white)),
+            ),
+            const Spacer(),
+            if (isLoading)
+              const SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(
+                      strokeWidth: 2, color: Color(0xFF1565C0))),
+          ]),
+        ),
+        const SizedBox(height: 10),
+        Expanded(
+          child: isLoading
+              ? const Center(
+                  child: Text('불러오는 중...',
+                      style: TextStyle(
+                          fontSize: 12, color: Color(0xFF9E9E9E))))
+              : objectItems.isEmpty
+                  ? const Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: <Widget>[
+                          Icon(Icons.search_off_rounded,
+                              size: 40, color: Color(0xFFBDBDBD)),
+                          SizedBox(height: 8),
+                          Text('감지된 객체가 없습니다.',
+                              style: TextStyle(
+                                  fontSize: 13, color: Color(0xFF9E9E9E))),
+                        ],
+                      ),
+                    )
+                  : ListView.builder(
+                      itemCount: objectItems.length,
+                      padding: EdgeInsets.zero,
+                      itemBuilder: (BuildContext context, int index) {
+                        final Map<String, dynamic> obj =
+                            objectItems[index].toJson();
+                        return _buildDialogObjectCard(
+                            index: index, obj: obj, fields: fields);
+                      },
+                    ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDialogObjectCard({
+    required int index,
+    required Map<String, dynamic> obj,
+    required List<String> fields,
+  }) {
+    final int objectTypeValue =
+        _controller.parseIntOrFallback(obj['object_type'], -1);
+    final ObjectTypeUi typeUi = _controller.objectTypeUi(objectTypeValue);
+    const List<Color> typeColors = <Color>[
+      Color(0xFF757575), Color(0xFF1565C0), Color(0xFFE65100),
+      Color(0xFF2E7D32), Color(0xFF6A1B9A), Color(0xFFC62828),
+    ];
+    final Color typeColor = objectTypeValue >= 0 &&
+            objectTypeValue < typeColors.length
+        ? typeColors[objectTypeValue]
+        : const Color(0xFF757575);
+
+    const List<String> skipInBody = <String>[
+      'detected_object_id', 'object_type', 'source_kind',
+      'vehicle_id', 'vehicle_info_id', 'infra_id', 'infra_info_id',
+    ];
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFE0E0E0)),
+        boxShadow: const <BoxShadow>[
+          BoxShadow(
+              color: Color(0x08000000), blurRadius: 4, offset: Offset(0, 2)),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Container(
+            padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+            decoration: BoxDecoration(
+              color: typeColor.withValues(alpha: 0.05),
+              borderRadius:
+                  const BorderRadius.vertical(top: Radius.circular(12)),
+              border: Border(
+                  bottom: BorderSide(
+                      color: typeColor.withValues(alpha: 0.2))),
+            ),
+            child: Row(children: <Widget>[
+              Container(
+                width: 22,
+                height: 22,
+                decoration: BoxDecoration(
+                    color: typeColor,
+                    borderRadius: BorderRadius.circular(6)),
+                alignment: Alignment.center,
+                child: Text('${index + 1}',
+                    style: const TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w900,
+                        color: Colors.white)),
+              ),
+              const SizedBox(width: 10),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                    color: typeColor,
+                    borderRadius: BorderRadius.circular(6)),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    Icon(typeUi.iconData, size: 12, color: Colors.white),
+                    const SizedBox(width: 4),
+                    Text(typeUi.label,
+                        style: const TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w800,
+                            color: Colors.white)),
+                  ],
+                ),
+              ),
+            ]),
+          ),
+          const Divider(height: 1, color: Color(0xFFEEEEEE)),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 0, 14, 12),
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 4,
+              children: fields
+                  .where((String f) => !skipInBody.contains(f))
+                  .map((String field) {
+                final String value =
+                    _controller.formatCellValue(obj[field]);
+                return SizedBox(
+                  width: 160,
+                  child: Row(children: <Widget>[
+                    Expanded(
+                      child: Text(field,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w600,
+                              color: Color(0xFF9E9E9E))),
+                    ),
+                    const SizedBox(width: 4),
+                    Text(value.isEmpty ? '—' : value,
+                        style: _objectFieldTextStyle(field, value)
+                            .copyWith(fontSize: 11)),
+                  ]),
+                );
+              }).toList(),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   // 차량 프리셋 정의
@@ -918,6 +1247,12 @@ class _TabDashboardState extends State<TabDashboard>
   Future<void> _downloadFilteredTableData() async {
     if (_controller.isExporting) return;
     if (!mounted) return;
+    if (_exportDay == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(t('먼저 다운로드할 날짜를 선택해 주세요.'))),
+      );
+      return;
+    }
 
     _controller.setExporting(true);
 
@@ -954,14 +1289,42 @@ class _TabDashboardState extends State<TabDashboard>
         sortDirection: _resolveSortDirectionForExport(currentSortSpec),
       );
 
+      // 2026-08-10: 선택한 기간에 데이터가 없으면 내려받지 않고 안내만 한다.
+      //   이전에는 서버가 헤더만 있는 빈 CSV(61바이트)를 만들고 프런트가 그대로
+      //   내려받아, 사용자가 "Export ready: 0 rows" 와 함께 빈 파일을 받았다.
+      if (exportResult.rowCount == 0 || exportResult.fileName.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              // 노란색 경고 배경 — 밝은 배경이라 기본 흰색 글자는 읽히지 않으므로
+              // 글자색을 어둡게 지정한다.
+              content: Text(
+                t('선택한 기간에 데이터가 없습니다. 다른 날짜를 선택해 주세요.'),
+                style: const TextStyle(
+                  color: Color(0xFF212121),
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              backgroundColor: const Color(0xFFFFD400),
+              duration: const Duration(seconds: 4),
+            ),
+          );
+        }
+        return;
+      }
+
       await _logRepository.downloadLogFile(exportResult.fileName);
 
       if (mounted) {
+        final bool cut = exportResult.truncated;
+        final String msg = cut
+            ? t('최대 ${exportResult.rowCount}행까지만 내보냈습니다. 기간을 좁히거나 차량을 선택해 주세요.')
+            : 'Export ready: ${exportResult.rowCount} rows, ${exportResult.columnCount} columns.';
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(
-              'Export ready: ${exportResult.rowCount} rows, ${exportResult.columnCount} columns.',
-            ),
+            content: Text(msg),
+            backgroundColor: cut ? const Color(0xFFC8860D) : null,
+            duration: Duration(seconds: cut ? 6 : 3),
           ),
         );
       }
@@ -1151,11 +1514,14 @@ class _TabDashboardState extends State<TabDashboard>
     'navsat': 90,
   };
 
-  // 날짜 컬럼 목록 (헤더 달력 버튼 + YYYY-MM-DD ~ YYYY-MM-DD 힌트)
+  // 날짜/시간 컬럼 목록 (헤더 파란 달력 버튼 + 날짜 범위 피커)
   static const Set<String> _dateColumns = <String>{
     'changed_at_date',
+    'changed_at_time',
     'created_ts_date',
+    'created_ts_time',
     'updated_ts_date',
+    'updated_ts_time',
   };
 
   // 컬럼별 필터 힌트 텍스트 맵
@@ -1215,7 +1581,8 @@ class _TabDashboardState extends State<TabDashboard>
                     padding: const EdgeInsets.only(left: 5),
                     child: GestureDetector(
                       behavior: HitTestBehavior.opaque,
-                      onTap: () => _openColumnDateRangePicker(field),
+                      onTapDown: (TapDownDetails d) =>
+                          _openColumnDateRangePicker(field, d.globalPosition),
                       child: Container(
                         padding: const EdgeInsets.all(3),
                         decoration: BoxDecoration(
@@ -1316,23 +1683,18 @@ class _TabDashboardState extends State<TabDashboard>
                 manager.eventManager?.listener((PlutoGridEvent gridEvent) {
               if (gridEvent is PlutoGridSetColumnFilterEvent) {
                 _onColumnFilterChanged();
+                return;
+              }
+              // 셀 탭 이벤트 → 객체 현황 패널에 해당 행의 내장 objects 표시
+              // onSelected는 normal 모드에서 발동하지 않으므로 여기서 처리
+              if (gridEvent is PlutoGridCellGestureEvent &&
+                  gridEvent.gestureType.isOnTapUp) {
+                _onRowTapped(gridEvent.rowIdx);
               }
             });
           } catch (_) {}
           if (mounted) setState(() {});
           _updateGrid();
-        },
-        onSelected: (PlutoGridOnSelectedEvent event) {
-          // 차량 모드에서 행 단일 클릭 → 지도 라이브 추적 패널 표시
-          if (_controller.currentEntityType != FmsEntityType.infra &&
-              event.row != null) {
-            final int vehicleId = _controller.parseIntValue(
-              event.row!.cells['vehicle_id']?.value,
-            );
-            if (vehicleId > 0) {
-              _mapPanelKey.currentState?.selectVehicle(vehicleId);
-            }
-          }
         },
         onRowDoubleTap: (PlutoGridOnRowDoubleTapEvent event) async {
           final Map<String, dynamic>? selectedRow =
@@ -1342,7 +1704,9 @@ class _TabDashboardState extends State<TabDashboard>
         },
         configuration: PlutoGridConfiguration(
           columnSize: const PlutoGridColumnSizeConfig(
-            autoSizeMode: PlutoAutoSizeMode.scale,
+            // 컬럼을 화면폭에 맞춰 줄이지 않고(=scale 제거) 지정 너비 유지 →
+            // 전체 컬럼 폭이 화면보다 넓으면 가로 스크롤이 생긴다.
+            autoSizeMode: PlutoAutoSizeMode.none,
           ),
           localeText: const PlutoGridLocaleText(
             filterContains: '검색',
@@ -1523,8 +1887,12 @@ class _TabDashboardState extends State<TabDashboard>
     final _MapPanelPlacement placement =
         _effectiveMapPlacement(constraints.maxWidth);
     final bool isBottom = placement == _MapPanelPlacement.bottom;
+    final bool statusOpen = _controller.isObjectsStatusOpen;
 
     if (isBottom) {
+      final double statusPanelWidth = statusOpen
+          ? _statusPanelWidthWithin(constraints.maxWidth - 268.0)
+          : 0.0;
       final double ratio = _normalizedTableRatio(
         totalExtent: constraints.maxHeight,
         verticalSplit: true,
@@ -1536,16 +1904,30 @@ class _TabDashboardState extends State<TabDashboard>
 
       return Column(
         children: <Widget>[
-          // 테이블+페이지네이션을 tableHeight 안에 함께 배치 (지도 영역과 분리)
+          // 테이블+페이지네이션 + (객체 현황 패널 오른쪽에 배치)
           SizedBox(
             height: tableHeight,
-            child: Column(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: <Widget>[
-                SizedBox(
-                  height: tableHeight - paginationH,
-                  child: _buildPlutoGrid(tableHeight - paginationH),
+                Expanded(
+                  child: Column(
+                    children: <Widget>[
+                      SizedBox(
+                        height: tableHeight - paginationH,
+                        child: _buildPlutoGrid(tableHeight - paginationH),
+                      ),
+                      _buildPaginationBar(),
+                    ],
+                  ),
                 ),
-                _buildPaginationBar(),
+                if (statusOpen) ...<Widget>[
+                  _buildStatusResizeHandle(inverted: true),
+                  SizedBox(
+                    width: statusPanelWidth,
+                    child: _buildObjectsStatusPanel(),
+                  ),
+                ],
               ],
             ),
           ),
@@ -1565,9 +1947,16 @@ class _TabDashboardState extends State<TabDashboard>
     );
     final double available = constraints.maxWidth - 8;
     final double tableWidth = available * ratio;
-    final double mapWidth = available - tableWidth;
+    final double statusPanelWidth = statusOpen
+        ? _statusPanelWidthWithin(available - tableWidth - 128.0)
+        : 0.0;
+    // 객체 현황 패널이 열려있을 때 차지하는 가로 공간 (패널 + 간격)
+    final double statusPaneTotal = statusPanelWidth + 8.0;
+    // 객체 현황 패널이 열려있으면 지도 너비에서 차감
+    final double mapWidth =
+        (available - tableWidth - (statusOpen ? statusPaneTotal : 0))
+            .clamp(120.0, double.infinity);
 
-    // 테이블 영역 하단에만 페이지네이션 배치 (지도 영역은 침범하지 않음)
     const double paginationH = 64.0;
     final Widget tablePane = SizedBox(
       width: tableWidth,
@@ -1582,11 +1971,21 @@ class _TabDashboardState extends State<TabDashboard>
       width: mapWidth,
       child: _buildMapPanel(),
     );
+    final Widget? statusPane = statusOpen
+        ? SizedBox(
+            width: statusPanelWidth,
+            child: _buildObjectsStatusPanel(),
+          )
+        : null;
 
     return Row(
       children: <Widget>[
         if (mapOnLeft) ...<Widget>[
           mapPane,
+          if (statusPane != null) ...<Widget>[
+            _buildStatusResizeHandle(inverted: true),
+            statusPane,
+          ],
           _buildVerticalResizeHandle(
             totalWidth: constraints.maxWidth,
             mapOnLeft: true,
@@ -1598,791 +1997,60 @@ class _TabDashboardState extends State<TabDashboard>
             totalWidth: constraints.maxWidth,
             mapOnLeft: false,
           ),
+          if (statusPane != null) ...<Widget>[
+            statusPane,
+            _buildStatusResizeHandle(),
+          ],
           mapPane,
         ],
       ],
     );
   }
 
-  /// 차량/인프라 이동 상태 + 스테이션 위치 표시 바
-  Widget _buildEntityStatusBar(Map<String, dynamic> row, bool isInfra) {
-    if (isInfra) {
-      return Container(
-        color: const Color(0xFFF0FAF8),
-        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
-        child: Row(children: <Widget>[
-          const Icon(Icons.router_rounded, size: 13, color: Color(0xFF00897B)),
-          const SizedBox(width: 6),
-          const Text('고정 위치',
-              style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w700,
-                  color: Color(0xFF00897B))),
-        ]),
-      );
-    }
+  // ── 객체 현황 패널 (3번째 컬럼) ─────────────────────────────────────────────
+  double _statusPanelWidth = 0.0; // 0 = 첫 빌드 시 화면 33%로 자동 계산
+  static const double _statusPanelMinWidth = 420.0;
+  static const double _statusPanelMaxWidth = 1200.0;
 
-    // UTM 좌표 파싱
-    final double posX = double.tryParse(
-            _controller.formatCellValue(row['pos_x_m'] ?? row['position_x'])) ??
-        0.0;
-    final double posY = double.tryParse(
-            _controller.formatCellValue(row['pos_y_m'] ?? row['position_y'])) ??
-        0.0;
-    final double kphVal = double.tryParse(
-            _controller.formatCellValue(row['kph'] ?? row['velocity_kph'])) ??
-        0.0;
-    final double headingVal = double.tryParse(_controller.formatCellValue(
-            row['heading_deg'] ?? row['orientation_heading'])) ??
-        0.0;
-
-    final bool isMoving = kphVal > 0.5;
-    final bool hasPosition = posX > 1000 && posY > 1000;
-
-    String nearestName = '';
-    String directionName = '';
-    double nearestDistM = 0;
-
-    if (hasPosition) {
-      // 스테이션 UTM 좌표 변환
-      final List<({String name, double x, double y})> stUtm =
-          kiapiRoadWaypoints.map((KiapiWaypointData wp) {
-        final Utm52NCoordinate u = convertWgs84ToUtmZone52N(
-          latitudeDegrees: wp.lat,
-          longitudeDegrees: wp.lon,
-        );
-        return (name: wp.name, x: u.eastingMeters, y: u.northingMeters);
-      }).toList();
-
-      // 가장 가까운 스테이션
-      int nearestIdx = 0;
-      double nearestDistSq = double.infinity;
-      for (int i = 0; i < stUtm.length; i++) {
-        final double dx = stUtm[i].x - posX;
-        final double dy = stUtm[i].y - posY;
-        final double dSq = dx * dx + dy * dy;
-        if (dSq < nearestDistSq) {
-          nearestDistSq = dSq;
-          nearestIdx = i;
-          nearestDistM = math.sqrt(dSq);
-        }
-      }
-      nearestName = stUtm[nearestIdx].name;
-
-      // 이동 중이면 헤딩 방향에 가장 가까운 스테이션 찾기
-      if (isMoving) {
-        double minDiff = 361.0;
-        for (int i = 0; i < stUtm.length; i++) {
-          if (i == nearestIdx) continue;
-          final double dx = stUtm[i].x - posX;
-          final double dy = stUtm[i].y - posY;
-          // UTM에서 bearing: x=East, y=North → atan2(dx, dy) = 북기준 시계방향
-          final double bearing =
-              (math.atan2(dx, dy) * 180.0 / math.pi + 360.0) % 360.0;
-          double diff = (bearing - headingVal).abs();
-          if (diff > 180) diff = 360.0 - diff;
-          if (diff < minDiff) {
-            minDiff = diff;
-            directionName = stUtm[i].name;
-          }
-        }
-      }
-    }
-
-    final Color movingColor =
-        isMoving ? const Color(0xFF2E7D32) : const Color(0xFF616161);
-    final Color movingBg =
-        isMoving ? const Color(0xFFE8F5E9) : const Color(0xFFF5F5F5);
-
-    return Container(
-      color: const Color(0xFFF8FAFE),
-      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 9),
-      child: Row(
-        children: <Widget>[
-          // 이동/정지 배지
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-            decoration: BoxDecoration(
-                color: movingBg, borderRadius: BorderRadius.circular(20)),
-            child: Row(mainAxisSize: MainAxisSize.min, children: <Widget>[
-              Container(
-                width: 7,
-                height: 7,
-                decoration: BoxDecoration(
-                  color: movingColor,
-                  shape: BoxShape.circle,
-                ),
-              ),
-              const SizedBox(width: 5),
-              Text(
-                isMoving ? '이동 중' : '정지',
-                style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w800,
-                    color: movingColor),
-              ),
-              if (isMoving) ...<Widget>[
-                const SizedBox(width: 4),
-                Text(
-                  '${kphVal.toStringAsFixed(0)} km/h',
-                  style: TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w600,
-                      color: movingColor.withOpacity(0.8)),
-                ),
-              ],
-            ]),
-          ),
-          if (nearestName.isNotEmpty) ...<Widget>[
-            const SizedBox(width: 10),
-            Container(width: 1, height: 16, color: const Color(0xFFCFD8DC)),
-            const SizedBox(width: 10),
-            const Icon(Icons.location_on_rounded,
-                size: 13, color: Color(0xFF1565C0)),
-            const SizedBox(width: 4),
-            Text(
-              '${nearestDistM < 300 ? '도착' : '근처'}: $nearestName',
-              style: const TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w700,
-                  color: Color(0xFF1565C0)),
-            ),
-          ],
-          if (directionName.isNotEmpty) ...<Widget>[
-            const SizedBox(width: 10),
-            Container(width: 1, height: 16, color: const Color(0xFFCFD8DC)),
-            const SizedBox(width: 10),
-            const Icon(Icons.arrow_forward_rounded,
-                size: 13, color: Color(0xFF6A1B9A)),
-            const SizedBox(width: 4),
-            Text(
-              '$directionName 방향',
-              style: const TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w700,
-                  color: Color(0xFF6A1B9A)),
-            ),
-          ],
-          if (!hasPosition) ...<Widget>[
-            const SizedBox(width: 10),
-            const Icon(Icons.gps_off_rounded,
-                size: 13, color: Color(0xFF9E9E9E)),
-            const SizedBox(width: 4),
-            const Text('위치 없음',
-                style: TextStyle(
-                    fontSize: 11,
-                    color: Color(0xFF9E9E9E),
-                    fontWeight: FontWeight.w600)),
-          ],
-        ],
-      ),
-    );
+  void _resizeStatusPanel(double dragDeltaX) {
+    setState(() {
+      _statusPanelWidth = (_statusPanelWidth + dragDeltaX)
+          .clamp(_statusPanelMinWidth, _statusPanelMaxWidth);
+    });
   }
 
-  Widget _buildRowSummaryCard(Map<String, dynamic> row) {
-    final bool isInfra = _controller.currentEntityType == FmsEntityType.infra;
-    final String historyIdText = _controller.formatCellValue(row['history_id']);
-    final String statusIdText = isInfra
-        ? _controller.formatCellValue(row['infra_info_id'])
-        : _controller.formatCellValue(row['vehicle_info_id']);
-    final String primaryLabel = isInfra ? '인프라 ID' : '차량 ID';
-    final String primaryValue = isInfra
-        ? _controller.formatCellValue(row['infra_id'])
-        : _controller.formatCellValue(row['vehicle_id']);
-    final String msgIdValue = _controller.formatCellValue(row['msg_id']);
-    final String dateText =
-        _controller.formatCellValue(row['changed_at_date'] ?? '');
-    final String timeText =
-        _controller.formatCellValue(row['changed_at_time'] ?? '');
-    final String rawTs = _controller.formatCellValue(
-        row['time_stamp_ms'] ?? row['time_stamp'] ?? row['changed_at']);
-    final String tsDisplay = (dateText.isNotEmpty && timeText.isNotEmpty)
-        ? '$dateText  $timeText'
-        : rawTs;
-
-    Widget _chip(String label, String value, Color textColor, Color bgColor) {
-      return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          color: bgColor,
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            Text(label,
-                style: TextStyle(
-                    fontSize: 9,
-                    fontWeight: FontWeight.w700,
-                    color: textColor.withOpacity(0.65),
-                    letterSpacing: 0.8)),
-            const SizedBox(height: 3),
-            Text(value.isEmpty ? '-' : value,
-                style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w800,
-                    color: textColor)),
-          ],
-        ),
-      );
+  double _statusPanelWidthWithin(double maxAvailableWidth) {
+    final double safeMax = math.max(320.0, maxAvailableWidth);
+    final double upper = math.min(_statusPanelMaxWidth, safeMax);
+    final double lower = math.min(_statusPanelMinWidth, upper);
+    // 0이면 첫 빌드 → 가용 너비의 50% (나머지 절반은 지도)
+    if (_statusPanelWidth <= 0.0) {
+      _statusPanelWidth = (safeMax * 0.50).clamp(lower, upper);
     }
+    return _statusPanelWidth.clamp(lower, upper);
+  }
 
-    return Container(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: const <BoxShadow>[
-          BoxShadow(
-              color: Color(0x401565C0), blurRadius: 16, offset: Offset(0, 6)),
-        ],
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            // ── 파란 헤더 ─────────────────────────────────────────
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  colors: <Color>[Color(0xFF1565C0), Color(0xFF1E88E5)],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-              ),
-              child: Row(
-                children: <Widget>[
-                  // History ID — главный идентификатор
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: <Widget>[
-                      Text('HISTORY',
-                          style: TextStyle(
-                              fontSize: 9,
-                              fontWeight: FontWeight.w700,
-                              color: Colors.white.withOpacity(0.65),
-                              letterSpacing: 1.2)),
-                      const SizedBox(height: 3),
-                      Text('#$historyIdText',
-                          style: const TextStyle(
-                              fontSize: 22,
-                              fontWeight: FontWeight.w900,
-                              color: Colors.white)),
-                    ],
-                  ),
-                  Container(
-                      margin: const EdgeInsets.symmetric(horizontal: 16),
-                      width: 1,
-                      height: 40,
-                      color: Colors.white24),
-                  _chip(
-                      'STATUS ID', statusIdText, Colors.white, Colors.white12),
-                  const SizedBox(width: 8),
-                  _chip(primaryLabel, primaryValue, const Color(0xFFA5D6A7),
-                      const Color(0x281B5E20)),
-                  const SizedBox(width: 8),
-                  _chip('MSG ID', msgIdValue, const Color(0xFF90CAF9),
-                      Colors.white12),
-                  const Spacer(),
-                  if (tsDisplay.isNotEmpty)
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: <Widget>[
-                        Icon(Icons.schedule_rounded,
-                            size: 13, color: Colors.white.withOpacity(0.65)),
-                        const SizedBox(width: 5),
-                        Text(tsDisplay,
-                            style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w500,
-                                color: Colors.white.withOpacity(0.85))),
-                      ],
-                    ),
-                ],
-              ),
-            ),
-            // ── 상태 바 (이동/정지 + 스테이션) ───────────────────
-            _buildEntityStatusBar(row, isInfra),
-          ],
+  // 드래그로 크기를 조절하는 handle
+  // inverted=true: handle이 패널 왼쪽 (지도가 왼쪽) → 드래그 방향 반전
+  Widget _buildStatusResizeHandle({bool inverted = false}) {
+    return MouseRegion(
+      cursor: SystemMouseCursors.resizeColumn,
+      child: GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onHorizontalDragUpdate: (DragUpdateDetails details) {
+          _resizeStatusPanel(inverted ? -details.delta.dx : details.delta.dx);
+        },
+        child: Container(
+          width: 8,
+          color: const Color(0xFFD0D7E2),
         ),
       ),
     );
   }
 
-  Widget _buildRowDetailTable(Map<String, dynamic> row) {
-    final List<String> columns = _controller.currentAllFields;
-
-    // 필드를 카테고리로 분류
-    const List<String> idFields = <String>[
-      'history_id',
-      'vehicle_info_id',
-      'infra_info_id',
-      'vehicle_id',
-      'infra_id',
-      'msg_id',
-      'msg_seq',
-      'msg_length',
-    ];
-    const List<String> posFields = <String>[
-      'pos_x_m',
-      'pos_y_m',
-      'pos_z_m',
-      'heading_deg',
-      'position_x',
-      'position_y',
-      'position_z',
-    ];
-    const List<String> velocityFields = <String>[
-      'kph',
-      'mps',
-      'velocity_kph',
-      'velocity_mps',
-      'accel_x_mps2',
-      'accel_y_mps2',
-      'accel_z_mps2',
-    ];
-
-    String _category(String field) {
-      if (idFields.contains(field)) return '식별';
-      if (posFields.contains(field)) return '위치';
-      if (velocityFields.contains(field)) return '속도';
-      return '기타';
-    }
-
-    Color _valueColor(String field, String value) {
-      if (idFields.contains(field)) return const Color(0xFF1565C0);
-      if (posFields.contains(field)) return const Color(0xFF2E7D32);
-      if (velocityFields.contains(field)) return const Color(0xFFF57F17);
-      if (field == 'navsat') {
-        final int v = int.tryParse(value) ?? 0;
-        return v >= 4 ? const Color(0xFF2E7D32) : const Color(0xFFC62828);
-      }
-      return const Color(0xFF212121);
-    }
-
-    final Map<String, List<String>> grouped = <String, List<String>>{};
-    for (final String col in columns) {
-      final String cat = _category(col);
-      grouped.putIfAbsent(cat, () => <String>[]).add(col);
-    }
-    // Порядок категорий
-    final List<String> catOrder = <String>['식별', '위치', '속도', '기타'];
-    final List<String> orderedCols = <String>[];
-    for (final String cat in catOrder) {
-      if (grouped.containsKey(cat)) orderedCols.addAll(grouped[cat]!);
-    }
-
-    const Map<String, IconData> catIcons = <String, IconData>{
-      '식별': Icons.fingerprint_rounded,
-      '위치': Icons.place_rounded,
-      '속도': Icons.speed_rounded,
-      '기타': Icons.more_horiz_rounded,
-    };
-    const Map<String, Color> catColors = <String, Color>{
-      '식별': Color(0xFF1565C0),
-      '위치': Color(0xFF2E7D32),
-      '속도': Color(0xFFF57F17),
-      '기타': Color(0xFF757575),
-    };
-
-    String? lastCat;
-    final List<Widget> items = <Widget>[];
-    for (int i = 0; i < orderedCols.length; i++) {
-      final String name = orderedCols[i];
-      final String rawValue = _controller.formatCellValue(row[name]);
-      final String value =
-          (name == 'accel_pct' || name == 'brake_pct') && rawValue.isNotEmpty
-              ? '$rawValue%'
-              : rawValue;
-      final String cat = _category(name);
-
-      // 섹션 헤더
-      if (cat != lastCat) {
-        lastCat = cat;
-        if (items.isNotEmpty) items.add(const SizedBox(height: 4));
-        items.add(Container(
-          padding: const EdgeInsets.fromLTRB(12, 8, 12, 6),
-          child: Row(
-            children: <Widget>[
-              Icon(catIcons[cat] ?? Icons.circle,
-                  size: 13, color: catColors[cat]),
-              const SizedBox(width: 6),
-              Text(cat,
-                  style: TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w800,
-                      color: catColors[cat],
-                      letterSpacing: 0.8)),
-            ],
-          ),
-        ));
-      }
-
-      // 행
-      final bool isEven = i % 2 == 0;
-      items.add(Container(
-        color: isEven ? const Color(0xFFF5F7FA) : Colors.white,
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            SizedBox(
-              width: 148,
-              child: Text(name,
-                  style: const TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                      color: Color(0xFF757575))),
-            ),
-            Expanded(
-              child: Text(
-                value.isEmpty ? '—' : value,
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w700,
-                  color: _valueColor(name, value),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ));
-    }
-
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(16),
-      child: Container(
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: const Color(0xFFE8ECF0)),
-        ),
-        child: ListView(
-          padding: EdgeInsets.zero,
-          children: items,
-        ),
-      ),
-    );
-  }
-
-  // 객체 패널: 헤더(타이틀 + 카운트 뱃지) + 카드 목록을 하나의 위젯으로 통합
-  Widget _buildObjectsPanel({
-    required List<DetectedObject> objectItems,
-    required int totalCount,
-    required bool isLoading,
-  }) {
-    final int safeTotal = totalCount < 0 ? 0 : totalCount;
-    final List<String> fields = _controller.getObjectFields();
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: <Widget>[
-        // ── 헤더 바 ─────────────────────────────────────────────
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          decoration: BoxDecoration(
-            color: const Color(0xFFF0F4FF),
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: const Color(0xFFBBDEFB)),
-          ),
-          child: Row(
-            children: <Widget>[
-              const Icon(Icons.radar_rounded,
-                  size: 18, color: Color(0xFF1565C0)),
-              const SizedBox(width: 8),
-              const Text('감지 객체',
-                  style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w700,
-                      color: Color(0xFF1565C0))),
-              const SizedBox(width: 10),
-              // 카운트 뱃지
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-                decoration: BoxDecoration(
-                  color: safeTotal > 0
-                      ? const Color(0xFF1565C0)
-                      : const Color(0xFFBDBDBD),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Text(
-                  '$safeTotal',
-                  style: const TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w900,
-                      color: Colors.white),
-                ),
-              ),
-              const Spacer(),
-              if (isLoading)
-                const SizedBox(
-                  width: 14,
-                  height: 14,
-                  child: CircularProgressIndicator(
-                      strokeWidth: 2, color: Color(0xFF1565C0)),
-                ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 10),
-        // ── 카드 목록 ────────────────────────────────────────────
-        Expanded(
-          child: isLoading
-              ? const Center(
-                  child: Text('불러오는 중...',
-                      style: TextStyle(fontSize: 12, color: Color(0xFF9E9E9E))),
-                )
-              : objectItems.isEmpty
-                  ? Center(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: const <Widget>[
-                          Icon(Icons.search_off_rounded,
-                              size: 40, color: Color(0xFFBDBDBD)),
-                          SizedBox(height: 8),
-                          Text('감지된 객체가 없습니다.',
-                              style: TextStyle(
-                                  fontSize: 13, color: Color(0xFF9E9E9E))),
-                        ],
-                      ),
-                    )
-                  : ListView.builder(
-                      itemCount: objectItems.length,
-                      padding: EdgeInsets.zero,
-                      itemBuilder: (BuildContext context, int index) {
-                        final Map<String, dynamic> obj =
-                            objectItems[index].toJson();
-                        return _buildObjectCard(
-                            index: index, obj: obj, fields: fields);
-                      },
-                    ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildObjectCard({
-    required int index,
-    required Map<String, dynamic> obj,
-    required List<String> fields,
-  }) {
-    final int objectTypeValue =
-        _controller.parseIntOrFallback(obj['object_type'], -1);
-    final ObjectTypeUi objectTypeUi = _controller.objectTypeUi(objectTypeValue);
-
-    // 타입별 색상 (0=미확인, 1=승용차, 2=트럭, 3=버스, 4=보행자, 5=이륜차)
-    const List<Color> typeColors = <Color>[
-      Color(0xFF757575), // 미확인
-      Color(0xFF1976D2), // 승용차
-      Color(0xFFE65100), // 트럭
-      Color(0xFF2E7D32), // 버스
-      Color(0xFF6A1B9A), // 보행자
-      Color(0xFFC62828), // 이륜차
-    ];
-    final Color typeColor =
-        (objectTypeValue >= 0 && objectTypeValue < typeColors.length)
-            ? typeColors[objectTypeValue]
-            : const Color(0xFF1565C0);
-    final Color typeBg = typeColor.withValues(alpha: 0.08);
-
-    // score 파싱 → 프로그레스 바 (0~1 범위만 유효, 101~255/100 초과값은 무효)
-    final String scoreRaw = _controller.formatCellValue(obj['score']);
-    final double scoreVal = double.tryParse(scoreRaw) ?? -1;
-    final bool hasScore = scoreVal >= 0 && scoreVal <= 1.0;
-    final Color scoreColor = scoreVal >= 0.8
-        ? const Color(0xFF2E7D32)
-        : scoreVal >= 0.5
-            ? const Color(0xFFF57F17)
-            : const Color(0xFFC62828);
-
-    // 핵심 필드 분리 — 상단 요약 행에 표시
-    const List<String> topFields = <String>['width', 'height', 'depth', 'age'];
-    const List<String> skipInBody = <String>[
-      'object_type',
-      'score',
-      'width',
-      'height',
-      'depth',
-      'age',
-      'detected_object_id',
-      'object_id',
-    ];
-
-    Widget metricBadge(String label, String value, Color color) => Column(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            Text(label,
-                style: const TextStyle(
-                    fontSize: 9,
-                    fontWeight: FontWeight.w600,
-                    color: Color(0xFF9E9E9E))),
-            const SizedBox(height: 2),
-            Text(value.isEmpty ? '—' : value,
-                style: TextStyle(
-                    fontSize: 12, fontWeight: FontWeight.w800, color: color)),
-          ],
-        );
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFE8ECF0)),
-        boxShadow: const <BoxShadow>[
-          BoxShadow(
-              color: Color(0x0F000000), blurRadius: 8, offset: Offset(0, 3)),
-        ],
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: <Widget>[
-            // ── 카드 헤더 ───────────────────────────────────────
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-              decoration: BoxDecoration(
-                color: typeBg,
-                border: Border(left: BorderSide(color: typeColor, width: 4)),
-              ),
-              child: Row(
-                children: <Widget>[
-                  // 번호
-                  Container(
-                    width: 22,
-                    height: 22,
-                    decoration: BoxDecoration(
-                        color: typeColor,
-                        borderRadius: BorderRadius.circular(6)),
-                    alignment: Alignment.center,
-                    child: Text('${index + 1}',
-                        style: const TextStyle(
-                            fontSize: 10,
-                            fontWeight: FontWeight.w900,
-                            color: Colors.white)),
-                  ),
-                  const SizedBox(width: 10),
-                  // 객체 타입 뱃지
-                  Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                    decoration: BoxDecoration(
-                      color: typeColor,
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: <Widget>[
-                        Icon(objectTypeUi.iconData,
-                            size: 12, color: Colors.white),
-                        const SizedBox(width: 4),
-                        Text(objectTypeUi.label,
-                            style: const TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w800,
-                                color: Colors.white)),
-                      ],
-                    ),
-                  ),
-                  const Spacer(),
-                  // Score 프로그레스 바
-                  if (hasScore) ...<Widget>[
-                    Text('score',
-                        style: const TextStyle(
-                            fontSize: 9,
-                            fontWeight: FontWeight.w600,
-                            color: Color(0xFF9E9E9E))),
-                    const SizedBox(width: 6),
-                    SizedBox(
-                      width: 60,
-                      height: 6,
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(3),
-                        child: LinearProgressIndicator(
-                          value: scoreVal.clamp(0.0, 1.0),
-                          backgroundColor: const Color(0xFFE0E0E0),
-                          valueColor: AlwaysStoppedAnimation<Color>(scoreColor),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    Text('${(scoreVal * 100).round()}%',
-                        style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w800,
-                            color: scoreColor)),
-                  ],
-                ],
-              ),
-            ),
-            // ── 핵심 지표 (width/height/depth/age) ──────────────
-            Padding(
-              padding: const EdgeInsets.fromLTRB(14, 10, 14, 4),
-              child: Row(
-                children: topFields.map((String f) {
-                  final String v = _controller.formatCellValue(obj[f]);
-                  final bool isSizeMm =
-                      f == 'width' || f == 'height' || f == 'depth';
-                  final String display =
-                      (v.isNotEmpty && isSizeMm) ? '$v mm' : v;
-                  return Expanded(
-                    child: metricBadge(
-                      f,
-                      display,
-                      f == 'age'
-                          ? const Color(0xFF6A1B9A)
-                          : const Color(0xFF1565C0),
-                    ),
-                  );
-                }).toList(),
-              ),
-            ),
-            const Divider(
-                height: 14,
-                indent: 14,
-                endIndent: 14,
-                color: Color(0xFFEEEEEE)),
-            // ── 나머지 필드 2열 그리드 ───────────────────────────
-            Padding(
-              padding: const EdgeInsets.fromLTRB(14, 0, 14, 12),
-              child: Wrap(
-                spacing: 8,
-                runSpacing: 4,
-                children: fields
-                    .where((String f) => !skipInBody.contains(f))
-                    .map((String field) {
-                  final String value = _controller.formatCellValue(obj[field]);
-                  return SizedBox(
-                    width: 160,
-                    child: Row(
-                      children: <Widget>[
-                        Expanded(
-                          child: Text(field,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.w600,
-                                  color: Color(0xFF9E9E9E))),
-                        ),
-                        const SizedBox(width: 4),
-                        Text(value.isEmpty ? '—' : value,
-                            style: _objectFieldTextStyle(field, value)
-                                .copyWith(fontSize: 11)),
-                      ],
-                    ),
-                  );
-                }).toList(),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
+  // ObjectsStatusGrid StatefulWidget을 래핑하는 헬퍼
+  Widget _buildObjectsStatusPanel() {
+    return ObjectsStatusGrid(controller: _controller);
   }
 
   // ----------------------------------------------------------------------------
@@ -2421,19 +2089,30 @@ class _TabDashboardState extends State<TabDashboard>
     final int currentPageSafe =
         _controller.currentPage < 1 ? 1 : _controller.currentPage;
     final List<int> visiblePages = _controller.buildVisiblePages();
+    // 키셋 모드: 임의 페이지 번호 클릭 / jump-to-page 는 정확한 동작을
+    // 보장할 수 없으므로 비활성화하고 Next/Prev 만 노출한다.
+    final bool isKeyset = _controller.useKeysetPagination;
 
     final bool canGoPrev =
         !(_controller.isLoading || _controller.initialLoading) &&
-            currentPageSafe > 1;
+            (isKeyset ? _controller.hasPrevPage : currentPageSafe > 1);
     final bool canGoNext =
         !(_controller.isLoading || _controller.initialLoading) &&
-            currentPageSafe < _controller.totalPages;
+            (isKeyset
+                ? _controller.hasNextPage
+                : currentPageSafe < _controller.totalPages);
 
     final List<Widget> pager = <Widget>[
       _buildPageButton(
         child: const Icon(Icons.chevron_left, size: 22),
         onPressed: canGoPrev
-            ? () => _controller.changePage(currentPageSafe - 1)
+            ? () {
+                if (isKeyset) {
+                  _controller.loadPrevPage();
+                } else {
+                  _controller.changePage(currentPageSafe - 1);
+                }
+              }
             : null,
       ),
       const SizedBox(width: 10),
@@ -2455,6 +2134,12 @@ class _TabDashboardState extends State<TabDashboard>
       }
 
       final bool selected = pageNumber == currentPageSafe;
+      // 하이브리드 모드 — 페이지 번호 클릭은 항상 활성화.
+      // 키셋 모드여도 changePage 가 내부에서 cursorStack 을 비우고 offset 으로 fallback.
+      // (깊은 페이지는 느릴 수 있지만 동작은 보장)
+      final bool canTapPageNumber = !(_controller.isLoading ||
+              _controller.initialLoading) &&
+          !selected;
       pager.add(
         _buildPageButton(
           selected: selected,
@@ -2466,8 +2151,7 @@ class _TabDashboardState extends State<TabDashboard>
               color: selected ? Colors.white : const Color(0xFF2E2E2E),
             ),
           ),
-          onPressed: (!(_controller.isLoading || _controller.initialLoading) &&
-                  !selected)
+          onPressed: canTapPageNumber
               ? () => _controller.changePage(pageNumber)
               : null,
         ),
@@ -2479,11 +2163,19 @@ class _TabDashboardState extends State<TabDashboard>
       _buildPageButton(
         child: const Icon(Icons.chevron_right, size: 22),
         onPressed: canGoNext
-            ? () => _controller.changePage(currentPageSafe + 1)
+            ? () {
+                if (isKeyset) {
+                  _controller.loadNextPage();
+                } else {
+                  _controller.changePage(currentPageSafe + 1);
+                }
+              }
             : null,
       ),
     );
 
+    // 하이브리드 모드 — jump-to-page 항상 활성화
+    // (changePage 내부에서 cursorStack 비우고 offset 으로 안전하게 처리)
     final bool canJump = !(_controller.isLoading || _controller.initialLoading);
 
     return Container(
@@ -2510,6 +2202,7 @@ class _TabDashboardState extends State<TabDashboard>
               ],
               style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
               decoration: InputDecoration(
+                // 하이브리드 모드 — 항상 현재 페이지 hint 표시
                 hintText: '$currentPageSafe',
                 hintStyle:
                     const TextStyle(fontSize: 12, color: Color(0xFFBBBBBB)),
@@ -2753,86 +2446,6 @@ class _TabDashboardState extends State<TabDashboard>
     );
   }
 
-  // 카테고리별 컬럼 칩 Wrap (다크 다이얼로그용)
-  Widget _buildColumnChipWrap(
-    List<String> fields,
-    Set<String> visibleFields,
-    List<String> allFields,
-    Color? accentColor,
-    void Function(void Function()) setDialogState,
-  ) {
-    return Wrap(
-      spacing: 6,
-      runSpacing: 6,
-      children: fields.map((String field) {
-        final bool isVisible = visibleFields.contains(field);
-        final bool isOnlyOne = isVisible && visibleFields.length == 1;
-        final Color chipColor = accentColor ?? const Color(0xFF3D5AFE);
-        return GestureDetector(
-          onTap: () {
-            if (isOnlyOne) return;
-            setDialogState(() {
-              if (isVisible) {
-                visibleFields.remove(field);
-              } else {
-                visibleFields.add(field);
-              }
-            });
-          },
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 120),
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-            decoration: BoxDecoration(
-              color: isVisible
-                  ? chipColor.withValues(alpha: 0.1)
-                  : const Color(0xFFF4F6FA),
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(
-                color: isVisible
-                    ? chipColor.withValues(alpha: 0.5)
-                    : const Color(0xFFDDE1EA),
-                width: isVisible ? 1.5 : 1,
-              ),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                if (isVisible)
-                  Padding(
-                    padding: const EdgeInsets.only(right: 5),
-                    child:
-                        Icon(Icons.check_rounded, size: 12, color: chipColor),
-                  ),
-                Text(
-                  field,
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: isVisible ? FontWeight.w600 : FontWeight.w400,
-                    color: isVisible ? chipColor : const Color(0xFF78909C),
-                  ),
-                ),
-                if (isOnlyOne) ...<Widget>[
-                  const SizedBox(width: 5),
-                  Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                    decoration: BoxDecoration(
-                        color: const Color(0xFFFF8F00),
-                        borderRadius: BorderRadius.circular(4)),
-                    child: const Text('MIN',
-                        style: TextStyle(
-                            fontSize: 8,
-                            fontWeight: FontWeight.w800,
-                            color: Colors.white)),
-                  ),
-                ],
-              ],
-            ),
-          ),
-        );
-      }).toList(),
-    );
-  }
 
   IconData _placementIcon(_MapPanelPlacement placement) {
     switch (placement) {
@@ -3308,42 +2921,82 @@ class _TabDashboardState extends State<TabDashboard>
     return const SizedBox.shrink();
   }
 
-  // 특정 컬럼의 날짜 범위 달력 피커를 열고 PlutoGrid 필터에 적용
-  Future<void> _openColumnDateRangePicker(String field) async {
-    final List<DateTime?>? results = await showCalendarDatePicker2Dialog(
+  // 클릭 위치(anchor) 근처에 뜨는 달력 팝업 (중앙 모달 아님). 흰색+파랑.
+  Future<List<DateTime?>?> _showAnchoredCalendar(
+    Offset anchor, {
+    required CalendarDatePicker2Type type,
+    List<DateTime?> initial = const <DateTime?>[],
+  }) {
+    const double w = 300;
+    const double h = 366;
+    final Size scr = MediaQuery.of(context).size;
+    double left = anchor.dx - w / 2;
+    double top = anchor.dy + 10; // 클릭 아래
+    if (left + w > scr.width - 8) left = scr.width - w - 8;
+    if (left < 8) left = 8;
+    if (top + h > scr.height - 8) top = anchor.dy - h - 10; // 공간 없으면 위로
+    if (top < 8) top = 8;
+
+    return showDialog<List<DateTime?>>(
       context: context,
-      config: CalendarDatePicker2WithActionButtonsConfig(
-        calendarType: CalendarDatePicker2Type.range,
-        selectedDayHighlightColor: const Color(0xFF1565C0),
-        selectedRangeHighlightColor: const Color(0xFFBBDEFB),
-        dayTextStyle: const TextStyle(fontSize: 13, color: Color(0xFF212121)),
-        selectedDayTextStyle: const TextStyle(
-            fontSize: 13, color: Colors.white, fontWeight: FontWeight.w700),
-        todayTextStyle: const TextStyle(
-            fontSize: 13,
-            color: Color(0xFF1565C0),
-            fontWeight: FontWeight.w700),
-        weekdayLabelTextStyle: const TextStyle(
-            fontSize: 12,
-            color: Color(0xFF9E9E9E),
-            fontWeight: FontWeight.w500),
-        controlsTextStyle: const TextStyle(
-            fontSize: 14,
-            color: Color(0xFF212121),
-            fontWeight: FontWeight.w600),
-        lastMonthIcon: const Icon(Icons.chevron_left, color: Color(0xFF424242)),
-        nextMonthIcon:
-            const Icon(Icons.chevron_right, color: Color(0xFF424242)),
-        okButton: Text(t('적용'),
-            style: const TextStyle(
-                color: Color(0xFF1565C0), fontWeight: FontWeight.w700)),
-        cancelButton:
-            Text(t('취소'), style: const TextStyle(color: Color(0xFF757575))),
-      ),
-      dialogSize: const Size(340, 420),
-      value: <DateTime?>[null, null],
-      borderRadius: BorderRadius.circular(16),
-      dialogBackgroundColor: Colors.white,
+      barrierColor: Colors.transparent, // 어두운 배경 없이 팝업처럼
+      builder: (BuildContext ctx) {
+        return Stack(
+          children: <Widget>[
+            Positioned(
+              left: left,
+              top: top,
+              child: Material(
+                elevation: 10,
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12),
+                child: SizedBox(
+                  width: w,
+                  child: Padding(
+                    padding: const EdgeInsets.all(6),
+                    child: CalendarDatePicker2(
+                      config: CalendarDatePicker2Config(
+                        calendarType: type,
+                        selectedDayHighlightColor: const Color(0xFF005CB2),
+                        selectedRangeHighlightColor: const Color(0xFFBBDEFB),
+                        dayTextStyle: const TextStyle(fontSize: 13, color: Color(0xFF212121)),
+                        selectedDayTextStyle: const TextStyle(fontSize: 13, color: Colors.white, fontWeight: FontWeight.w700),
+                        todayTextStyle: const TextStyle(fontSize: 13, color: Color(0xFF005CB2), fontWeight: FontWeight.w700),
+                        weekdayLabelTextStyle: const TextStyle(fontSize: 12, color: Color(0xFF9E9E9E), fontWeight: FontWeight.w500),
+                        controlsTextStyle: const TextStyle(fontSize: 14, color: Color(0xFF212121), fontWeight: FontWeight.w600),
+                        lastMonthIcon: const Icon(Icons.chevron_left, color: Color(0xFF424242)),
+                        nextMonthIcon: const Icon(Icons.chevron_right, color: Color(0xFF424242)),
+                      ),
+                      value: List<DateTime?>.from(initial),
+                      onValueChanged: (List<DateTime?> dates) {
+                        if (type == CalendarDatePicker2Type.single) {
+                          if (dates.isNotEmpty && dates[0] != null) {
+                            Navigator.of(ctx).pop(dates);
+                          }
+                        } else {
+                          // range: 시작·종료 둘 다 선택되면 닫기
+                          if (dates.length >= 2 && dates[0] != null && dates[1] != null) {
+                            Navigator.of(ctx).pop(dates);
+                          }
+                        }
+                      },
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  // 특정 컬럼의 날짜 범위 달력 피커를 열고 PlutoGrid 필터에 적용
+  Future<void> _openColumnDateRangePicker(String field, Offset anchor) async {
+    final List<DateTime?>? results = await _showAnchoredCalendar(
+      anchor,
+      type: CalendarDatePicker2Type.range,
+      initial: <DateTime?>[null, null],
     );
 
     if (results == null || !mounted) return;
@@ -3369,6 +3022,65 @@ class _TabDashboardState extends State<TabDashboard>
   }
 
   // 달력 아이콘 버튼 위젯 (날짜 컬럼 필터 행 우측에 삽입)
+
+  // 데이터 다운로드 기간 선택 버튼 (다운로드 버튼 좌측)
+  Widget _buildPeriodButton() {
+    final String label = _exportDay != null
+        ? DateFormat('yyyy-MM-dd').format(_exportDay!)
+        : t('날짜 선택');
+    return SizedBox(
+      key: _dayBtnKey,
+      height: 32,
+      child: OutlinedButton.icon(
+        onPressed: _controller.isExporting ? null : _pickExportDay,
+        style: OutlinedButton.styleFrom(
+          foregroundColor: const Color(0xFF005CB2),
+          side: const BorderSide(color: Color(0xFF005CB2), width: 1),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(4),
+          ),
+        ),
+        icon: const Icon(Icons.calendar_today, size: 15, color: Color(0xFF005CB2)),
+        label: Text(label),
+      ),
+    );
+  }
+
+  // 하루 선택 → 그 날짜(00:00 ~ 23:59:59.999)만 export 대상으로 설정
+  Future<void> _pickExportDay() async {
+    // 다운로드 날짜 버튼 위치 기준으로 달력 팝업을 띄움 (중앙 모달 아님)
+    Offset anchor = const Offset(120, 120);
+    final RenderObject? ro = _dayBtnKey.currentContext?.findRenderObject();
+    if (ro is RenderBox) {
+      final Offset p = ro.localToGlobal(Offset.zero);
+      anchor = Offset(p.dx + ro.size.width / 2, p.dy + ro.size.height);
+    }
+    final List<DateTime?>? r = await _showAnchoredCalendar(
+      anchor,
+      type: CalendarDatePicker2Type.single,
+      initial: <DateTime?>[_exportDay],
+    );
+    if (r == null || r.isEmpty || r[0] == null) return;
+    final DateTime picked = r[0]!;
+
+    // 선택한 하루만 export 대상 (하루 = 제한된 양 → 시스템 부담 최소)
+    final DateTime from = DateTime(picked.year, picked.month, picked.day);
+    final DateTime to =
+        DateTime(picked.year, picked.month, picked.day, 23, 59, 59, 999);
+    final int fromMs = from.millisecondsSinceEpoch;
+    final int toMs = to.millisecondsSinceEpoch;
+
+    _controller.vehicleCtrl.setDateRange(fromMs, toMs);
+    _controller.infraCtrl.setDateRange(fromMs, toMs);
+
+    if (mounted) {
+      setState(() {
+        _exportDay = picked;
+      });
+    }
+  }
 
   Widget _buildDataDownloadButton() {
     return SizedBox(
@@ -3418,8 +3130,35 @@ class _TabDashboardState extends State<TabDashboard>
           const Spacer(),
           // 전체지도 모드에서는 우측 패널 숨김
           if (!_controller.isFullMapMode) ...<Widget>[
+            _buildPeriodButton(),
+            const SizedBox(width: 8),
             _buildDataDownloadButton(),
             const SizedBox(width: 8),
+            // 객체 현황 패널 토글
+            Tooltip(
+              message:
+                  _controller.isObjectsStatusOpen ? '객체 현황 닫기' : '객체 현황 표시',
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                decoration: BoxDecoration(
+                  color: _controller.isObjectsStatusOpen
+                      ? const Color(0xFFE3F2FD)
+                      : Colors.transparent,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: IconButton(
+                  icon: Icon(
+                    Icons.radar_rounded,
+                    color: _controller.isObjectsStatusOpen
+                        ? const Color(0xFF1565C0)
+                        : const Color(0xFF9E9E9E),
+                    size: 22,
+                  ),
+                  onPressed: () => _controller.toggleObjectsStatus(),
+                ),
+              ),
+            ),
+            const SizedBox(width: 4),
             if (!_controller.isMapView) _buildMapToggleButton(),
             if (!_controller.isMapView) const SizedBox(width: 8),
             const SizedBox(width: 4),
@@ -3489,6 +3228,32 @@ class _TabDashboardState extends State<TabDashboard>
                           return _buildMapPanel();
                         }
                         if (!controller.isMapView) {
+                          // 지도 없는 모드: 객체 현황 패널이 열리면 우측에 병렬 배치
+                          if (controller.isObjectsStatusOpen) {
+                            final double statusPanelWidth =
+                                _statusPanelWidthWithin(
+                                    constraints.maxWidth - 288.0);
+                            return Row(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: <Widget>[
+                                Expanded(
+                                  child: Column(
+                                    children: <Widget>[
+                                      Expanded(
+                                          child: _buildPlutoGrid(
+                                              constraints.maxHeight - 64)),
+                                      _buildPaginationBar(),
+                                    ],
+                                  ),
+                                ),
+                                _buildStatusResizeHandle(inverted: true),
+                                SizedBox(
+                                  width: statusPanelWidth,
+                                  child: _buildObjectsStatusPanel(),
+                                ),
+                              ],
+                            );
+                          }
                           return Column(
                             children: <Widget>[
                               Expanded(
@@ -3511,3 +3276,4 @@ class _TabDashboardState extends State<TabDashboard>
     );
   }
 }
+

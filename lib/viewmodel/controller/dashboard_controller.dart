@@ -3,16 +3,19 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
 import '../../model/infra_model.dart';
 import '../../model/object_model.dart';
 import '../../model/vehicle_model.dart';
+import 'dashboard_objects_status_controller.dart';
+import 'helper/dashboard_fields_helper.dart';
+import 'helper/dashboard_format_helper.dart';
 import 'infra_controller.dart';
-import 'object_controller.dart';
 import 'user_controller.dart';
 import 'vehicle_controller.dart';
+
+export 'helper/dashboard_format_helper.dart' show ObjectTypeUi;
 
 enum FmsEntityType { vehicle, infra }
 
@@ -23,16 +26,9 @@ enum AutoUpdateInterval {
   fiveSeconds,
 }
 
-class ObjectTypeUi {
-  final String label;
-  final IconData iconData;
-  const ObjectTypeUi({required this.label, required this.iconData});
-}
-
 class DashboardController extends GetxController {
   late final VehicleController _vehicleCtrl;
   late final InfraController _infraCtrl;
-  late final ObjectController _objectCtrl;
 
   VoidCallback? onGridUpdateNeeded;
 
@@ -45,9 +41,51 @@ class DashboardController extends GetxController {
   bool isExporting = false;
   bool isFullMapMode = false;
 
+  // 객체 현황 패널 상태/로직은 DashboardObjectsStatusController 로 이관 ─────
+  // View 호환을 위해 아래 getter/method 들이 위임자 역할을 한다.
+  DashboardObjectsStatusController get _statusCtrl =>
+      Get.find<DashboardObjectsStatusController>();
+
   int currentPage = 1;
   int totalCount = 0;
   int rowsPerPage = 18;
+
+  // ── 키셋 커서 페이지네이션 상태 ─────────────────────────────────────────
+  // useKeysetPagination = true 일 때 cursorStack 으로 Next/Prev 만 지원한다.
+  // cursorStack[i] = i번째 페이지로 점프하기 위해 사용한 cursor (마지막 row history_id).
+  // 1페이지면 stack 은 비어있음.
+  // TODO: 임의 페이지 점프 (jump-to-page) 는 keyset 모드에서 지원되지 않음 →
+  //       UI 에서 입력값을 "근사치" 표시로 안내하거나 비활성화한다.
+  // ★ 2026-06-10: 하이브리드 모드 — 100M+ 행 스케일 대응.
+  //   - Chevron Next/Prev → cursor (15ms 어느 깊이든 일정)
+  //   - 페이지 번호 클릭 / Jump → cursorStack 비우고 offset fallback (깊으면 느림)
+  //   - page 1 auto-refresh → cursor 비어있으면 offset=0 → 빠름
+  //   실측: page 1=45ms, page 1k=4.7s(offset), keyset deep=15ms.
+  //   100M 행 도달 시 page jump 깊으면 매우 느려지지만 chevron 은 항상 빠름.
+  bool useKeysetPagination = true;
+  final List<int> _cursorStack = <int>[];
+
+  // 현재 페이지 마지막 row 의 history_id (Next 클릭 시 cursor 로 사용)
+  int? _lastSeenHistoryId;
+  // 현재 페이지 첫 row 의 history_id (Prev 클릭 시 fallback 으로 사용)
+  int? _firstSeenHistoryId;
+
+  bool get hasNextPage {
+    if (useKeysetPagination) {
+      // 다음 페이지가 있는지 = 마지막 페이지가 아닌지
+      return currentPage < totalPages && _lastSeenHistoryId != null;
+    }
+    return currentPage < totalPages;
+  }
+
+  bool get hasPrevPage {
+    if (useKeysetPagination) return currentPage > 1;
+    return currentPage > 1;
+  }
+
+  // 외부에서 디버깅/표시용으로 노출 (현재 페이지의 첫/마지막 row history_id).
+  int? get firstSeenHistoryId => _firstSeenHistoryId;
+  int? get lastSeenHistoryId => _lastSeenHistoryId;
 
   String vehicleIdFilter = 'ALL';
   String infraIdFilter = 'ALL';
@@ -107,6 +145,55 @@ class DashboardController extends GetxController {
     return pages < 1 ? 1 : pages;
   }
 
+  // ── 객체 현황 패널 위임자 (DashboardObjectsStatusController) ─────────────
+  bool get isObjectsStatusOpen => _statusCtrl.isObjectsStatusOpen;
+  bool get objectsStatusLoading => _statusCtrl.objectsStatusLoading;
+  List<DetectedObject> get objectsStatusItems => _statusCtrl.objectsStatusItems;
+  int get objectsStatusPage => _statusCtrl.objectsStatusPage;
+  int get objectsStatusRowsPerPage => _statusCtrl.objectsStatusRowsPerPage;
+  int get objectsStatusTotalCount => _statusCtrl.objectsStatusTotalCount;
+  int get objectsStatusTotalPages => _statusCtrl.objectsStatusTotalPages;
+  bool get isObjectsLiveMode => _statusCtrl.isObjectsLiveMode;
+
+  void toggleObjectsStatus() => _statusCtrl.toggleObjectsStatus();
+  void toggleObjectsLiveMode() => _statusCtrl.toggleObjectsLiveMode();
+  void changeObjectsStatusPage(int page) =>
+      _statusCtrl.changeObjectsStatusPage(page);
+  void refreshObjectsStatus() => _statusCtrl.refreshObjectsStatus();
+  void showObjectsStatusFromRow(Map<String, dynamic> row) =>
+      unawaited(_statusCtrl.showObjectsStatusFromRow(row));
+  List<DetectedObject> parseDetectedObjectsFromRaw(dynamic rawValue) =>
+      _statusCtrl.parseDetectedObjectsFromRaw(rawValue);
+  List<DetectedObject> normalizeObjectsForRow(
+    List<DetectedObject> inputObjects,
+    Map<String, dynamic> row, {
+    bool strictRowMatch = false,
+  }) =>
+      _statusCtrl.normalizeObjectsForRow(inputObjects, row,
+          strictRowMatch: strictRowMatch);
+  Future<List<DetectedObject>> requestNormalizedObjectsForRow({
+    required Map<String, dynamic> row,
+    required bool latestOnly,
+    int? rowTimeStampMs,
+    int limit = 1000,
+    bool strictRowMatch = false,
+  }) =>
+      _statusCtrl.requestNormalizedObjectsForRow(
+        row: row,
+        latestOnly: latestOnly,
+        rowTimeStampMs: rowTimeStampMs,
+        limit: limit,
+        strictRowMatch: strictRowMatch,
+      );
+  Future<List<DetectedObject>> loadObjectsForRowWithFallback({
+    required Map<String, dynamic> row,
+    required List<DetectedObject> fallbackObjectItems,
+  }) =>
+      _statusCtrl.loadObjectsForRowWithFallback(
+        row: row,
+        fallbackObjectItems: fallbackObjectItems,
+      );
+
   Set<String> get currentVisibleFields {
     return currentEntityType == FmsEntityType.vehicle
         ? visibleVehicleFields
@@ -127,7 +214,6 @@ class DashboardController extends GetxController {
     super.onInit();
     _vehicleCtrl = Get.find<VehicleController>();
     _infraCtrl = Get.find<InfraController>();
-    _objectCtrl = Get.find<ObjectController>();
     allVehicleFields = _getFieldsForEntity(FmsEntityType.vehicle);
     allInfraFields = _getFieldsForEntity(FmsEntityType.infra);
     visibleVehicleFields = Set<String>.from(allVehicleFields);
@@ -149,6 +235,8 @@ class DashboardController extends GetxController {
     }
     await loadPage(1, resetFilters: true, force: true);
     initialLoading = false;
+    // 행 클릭 전에는 빈 상태 — DB 전체 조회 불필요
+    _statusCtrl.resetForInitialize();
     update();
   }
 
@@ -192,6 +280,10 @@ class DashboardController extends GetxController {
       _vehicleCtrl.setDateRange(null, null);
       _infraCtrl.setDateRange(null, null);
       _invalidatePageCache();
+      // 필터 변경 시 cursor 스택 초기화
+      _cursorStack.clear();
+      _lastSeenHistoryId = null;
+      _firstSeenHistoryId = null;
     }
 
     // force:true 이면 캐시 무효화 (새로고침, 필터 변경, 엔티티 변경 시)
@@ -209,6 +301,9 @@ class DashboardController extends GetxController {
         currentPage = targetPage;
         pageRows = cached.rows;
         firstDataArrived = true;
+        if (isObjectsStatusOpen) {
+          _statusCtrl.refreshOrFetchObjectsStatus(cached.rows);
+        }
         update();
         onGridUpdateNeeded?.call();
         return;
@@ -232,6 +327,15 @@ class DashboardController extends GetxController {
               : null);
       final String? searchColumnParam = searchColumn ?? activeFilterColumn;
 
+      // 키셋 모드: 1페이지 이외에는 cursorStack 의 마지막 cursor 사용.
+      // 키셋 모드라도 1페이지(cursorStack 비어있음)는 offset=0 으로 조회.
+      // TODO: 임의 페이지 jump 시에는 offset 으로 fallback (근사치) — 키셋은
+      //       Next/Prev 만 정확하게 지원한다.
+      final bool useCursor =
+          useKeysetPagination && _cursorStack.isNotEmpty;
+      final int? cursorIdParam = useCursor ? _cursorStack.last : null;
+      const String cursorDirParam = 'next';
+
       List<Map<String, dynamic>> rows = <Map<String, dynamic>>[];
       int resolvedTotalCount = 0;
 
@@ -244,10 +348,12 @@ class DashboardController extends GetxController {
           limit: limit,
           searchText: searchTextParam,
           searchColumnName: searchColumnParam,
+          cursorId: cursorIdParam,
+          cursorDirection: useCursor ? cursorDirParam : null,
         );
         rows = _vehicleCtrl.historyItems
             .map((VehicleInfoHistory item) =>
-                _enrichRowDateTimeFields(item.toJson()))
+                DashboardFieldsHelper.enrichRowDateTimeFields(item.toJson()))
             .toList();
         resolvedTotalCount = _vehicleCtrl.historyTotalCount;
       } else {
@@ -259,10 +365,12 @@ class DashboardController extends GetxController {
           limit: limit,
           searchText: searchTextParam,
           searchColumnName: searchColumnParam,
+          cursorId: cursorIdParam,
+          cursorDirection: useCursor ? cursorDirParam : null,
         );
         rows = _infraCtrl.historyItems
             .map((InfraInfoHistory item) =>
-                _enrichRowDateTimeFields(item.toJson()))
+                DashboardFieldsHelper.enrichRowDateTimeFields(item.toJson()))
             .toList();
         resolvedTotalCount = _infraCtrl.historyTotalCount;
       }
@@ -287,7 +395,7 @@ class DashboardController extends GetxController {
           );
           rows = _vehicleCtrl.historyItems
               .map((VehicleInfoHistory item) =>
-                  _enrichRowDateTimeFields(item.toJson()))
+                  DashboardFieldsHelper.enrichRowDateTimeFields(item.toJson()))
               .toList();
         } else {
           final int? infraId =
@@ -301,7 +409,7 @@ class DashboardController extends GetxController {
           );
           rows = _infraCtrl.historyItems
               .map((InfraInfoHistory item) =>
-                  _enrichRowDateTimeFields(item.toJson()))
+                  DashboardFieldsHelper.enrichRowDateTimeFields(item.toJson()))
               .toList();
         }
       }
@@ -312,8 +420,11 @@ class DashboardController extends GetxController {
       currentPage = finalPage < 1 ? 1 : finalPage;
       pageRows = rows;
       firstDataArrived = true;
+      // 현재 페이지의 첫/마지막 row history_id 를 기록 (Next/Prev 커서로 사용)
+      _updateSeenHistoryIds(rows);
       // 로드한 결과를 캐시에 저장
       _putPageCache(currentPage, rows, resolvedTotalCount);
+      if (isObjectsStatusOpen) _statusCtrl.refreshOrFetchObjectsStatus(rows);
       update();
     } catch (exception) {
       if (kDebugMode) {
@@ -329,6 +440,8 @@ class DashboardController extends GetxController {
   }
 
   Future<void> refreshCurrent() async {
+    // isLoading 중이면 스킵 — 동시 요청 시 _loadRequestId 경쟁으로 isLoading이
+    // 영구 true가 되는 버그 방지 (직전 요청이 완료되면 다음 틱에 정상 실행)
     if (isLoading) return;
     if (currentEntityType == FmsEntityType.infra) {
       await _infraCtrl.reqLoadInfraIdentifiers();
@@ -336,12 +449,85 @@ class DashboardController extends GetxController {
     await loadPage(currentPage, force: true);
   }
 
+  // 디바이스 관리에서 기기 삭제 후 대시보드로 복귀했을 때 호출:
+  // 차량/인프라 목록(레지스트리)을 다시 로드해 삭제된 기기가 사이드바·지도에
+  // 남지 않도록 즉시 반영한다. (map 은 _vehicleCtrl.vehicles / GetBuilder<DashboardController> 로 갱신됨)
+  Future<void> refreshDeviceLists() async {
+    await _vehicleCtrl.reqLoadVehicles();
+    await _infraCtrl.reqLoadInfraIdentifiers();
+    update();
+  }
+
   void changePage(int page) {
     if (isLoading || initialLoading) return;
     final int safeTotalPages = totalPages < 1 ? 1 : totalPages;
     final int target = page.clamp(1, safeTotalPages);
     if (target == currentPage) return;
+    // 키셋 모드: 임의 페이지 jump 대신 1페이지로 리셋 후 offset 모드로 근사 조회.
+    // (안전한 동작을 보장하기 위해 cursorStack 초기화)
+    if (useKeysetPagination) {
+      _cursorStack.clear();
+      // 임의 페이지 점프는 키셋으로는 불가능하므로 cursor 미사용 — loadPage 내부에서
+      // _cursorStack.isEmpty 이므로 offset 모드로 fallback (근사 페이지).
+    }
     loadPage(target);
+  }
+
+  // ── 키셋 커서 Next/Prev API ─────────────────────────────────────────────
+  // Next: 현재 페이지 마지막 row history_id 를 cursorStack 에 push 하고 다음 페이지 로드.
+  // Prev: cursorStack 에서 pop 한 뒤 그 이전 cursor 로 다시 로드.
+  Future<void> loadNextPage() async {
+    if (isLoading || initialLoading) return;
+    if (!useKeysetPagination) {
+      // 백워드 호환: offset 모드면 기존 changePage 사용
+      changePage(currentPage + 1);
+      return;
+    }
+    if (_lastSeenHistoryId == null) return;
+    if (currentPage >= totalPages) return;
+    _cursorStack.add(_lastSeenHistoryId!);
+    final int nextPage = currentPage + 1;
+    await loadPage(nextPage, force: true);
+  }
+
+  Future<void> loadPrevPage() async {
+    if (isLoading || initialLoading) return;
+    if (!useKeysetPagination) {
+      changePage(currentPage - 1);
+      return;
+    }
+    if (currentPage <= 1) return;
+    if (_cursorStack.isNotEmpty) _cursorStack.removeLast();
+    final int prevPage = currentPage - 1;
+    await loadPage(prevPage, force: true);
+  }
+
+  // 현재 페이지의 첫/마지막 row history_id 를 기록한다.
+  // 다음/이전 페이지 요청 시 keyset cursor 로 사용.
+  void _updateSeenHistoryIds(List<Map<String, dynamic>> rows) {
+    if (rows.isEmpty) {
+      _firstSeenHistoryId = null;
+      _lastSeenHistoryId = null;
+      return;
+    }
+    _firstSeenHistoryId = _extractHistoryId(rows.first);
+    _lastSeenHistoryId = _extractHistoryId(rows.last);
+  }
+
+  int? _extractHistoryId(Map<String, dynamic> row) {
+    final dynamic v = row['history_id'];
+    if (v is int) return v;
+    if (v is num) return v.toInt();
+    if (v is String) return int.tryParse(v);
+    return null;
+  }
+
+  // 필터/엔티티 변경 시 cursor 스택 + seen IDs 를 리셋한다.
+  // (cursor 는 동일 정렬/필터 조건에서만 유효하므로 변경되면 무효화)
+  void _resetCursorState() {
+    _cursorStack.clear();
+    _lastSeenHistoryId = null;
+    _firstSeenHistoryId = null;
   }
 
   Future<void> changeEntityType(FmsEntityType type) async {
@@ -355,6 +541,8 @@ class DashboardController extends GetxController {
     firstDataArrived = false;
     activeFilterColumn = null;
     activeFilterValue = null;
+    _resetCursorState();
+    _statusCtrl.resetIfOpen();
     _rebuildCachedFields();
     update();
 
@@ -415,6 +603,10 @@ class DashboardController extends GetxController {
     }
 
     _autoUpdateTimer = Timer.periodic(duration, (Timer timer) {
+      // ★ 100M+ 행 스케일 보호: page 1 일 때만 auto-refresh.
+      //   딥 페이지의 데이터는 히스토리라 변하지 않음 → polling 의미 없음 + 비용 큼
+      //   (OFFSET 5M 은 60초 이상 — DB 연결 고갈 위험).
+      if (currentPage != 1) return;
       refreshCurrent();
     });
   }
@@ -441,6 +633,7 @@ class DashboardController extends GetxController {
     activeFilterColumn = newColumn;
     activeFilterValue = newValue;
     currentPage = 1;
+    _resetCursorState();
     loadPage(1, force: true, searchText: newValue, searchColumn: newColumn);
   }
 
@@ -449,6 +642,7 @@ class DashboardController extends GetxController {
     activeFilterColumn = null;
     activeFilterValue = null;
     currentPage = 1;
+    _resetCursorState();
     loadPage(1, force: true);
   }
 
@@ -456,6 +650,7 @@ class DashboardController extends GetxController {
     if (isLoading) return;
     vehicleIdFilter = vehicleId;
     currentPage = 1;
+    _resetCursorState();
     update();
     await loadPage(1, force: true);
   }
@@ -464,6 +659,7 @@ class DashboardController extends GetxController {
     if (isLoading) return;
     infraIdFilter = infraId;
     currentPage = 1;
+    _resetCursorState();
     update();
     await loadPage(1, force: true);
   }
@@ -483,6 +679,7 @@ class DashboardController extends GetxController {
     _vehicleCtrl.setDateRange(fromMs, toMs);
     _infraCtrl.setDateRange(fromMs, toMs);
     currentPage = 1;
+    _resetCursorState();
     _invalidatePageCache();
     update();
     await loadPage(1, force: true);
@@ -540,461 +737,29 @@ class DashboardController extends GetxController {
         .toList();
   }
 
-  List<String> _getFieldsForEntity(FmsEntityType type) {
-    if (type == FmsEntityType.vehicle) {
-      return <String>[
-        'history_id',
-        'vehicle_info_id',
-        'vehicle_id',
-        'msg_id',
-        'msg_seq',
-        'msg_length',
-        'changed_at_date',
-        'changed_at_time',
-        'time_stamp_ms',
-        'navsat',
-        'kph',
-        'mps',
-        'pos_x_m',
-        'pos_y_m',
-        'pos_z_m',
-        'heading_deg',
-        'accel_x_mps2',
-        'accel_y_mps2',
-        'accel_z_mps2',
-        'gyro_x_dps',
-        'gyro_y_dps',
-        'gyro_z_dps',
-        'transmission_gear',
-        'signal_light',
-        'angle_deg',
-        'torque_nm',
-        'accel_pct',
-        'brake_pct',
-        'number_of_objects',
-        'created_ts_date',
-        'created_ts_time',
-        'updated_ts_date',
-        'updated_ts_time',
-      ];
-    }
-    return <String>[
-      'history_id',
-      'infra_info_id',
-      'infra_id',
-      'msg_id',
-      'msg_seq',
-      'msg_length',
-      'changed_at_date',
-      'changed_at_time',
-      'time_stamp_ms',
-      'number_of_objects',
-      'created_ts_date',
-      'created_ts_time',
-      'updated_ts_date',
-      'updated_ts_time',
-    ];
-  }
+  List<String> _getFieldsForEntity(FmsEntityType type) =>
+      DashboardFieldsHelper.getFieldsForEntity(type);
 
   // 행 데이터에 날짜/시간 분리 파생 필드 추가 (외부에서 호출 가능)
-  Map<String, dynamic> enrichRowDateTimeFields(Map<String, dynamic> row) {
-    return _enrichRowDateTimeFields(row);
-  }
+  Map<String, dynamic> enrichRowDateTimeFields(Map<String, dynamic> row) =>
+      DashboardFieldsHelper.enrichRowDateTimeFields(row);
 
-  // "2026-03-17T12:34:56.123" → {'date': '2026-03-17', 'time': '12:34:56'}
-  Map<String, String> _splitDateTimeValue(dynamic value) {
-    if (value == null) return <String, String>{'date': '', 'time': ''};
-    final String raw = value.toString().trim();
-    // YYYY-MM-DD(T|space)HH:MM:SS 패턴 확인
-    final RegExpMatch? match = RegExp(
-      r'^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:\d{2})',
-    ).firstMatch(raw);
-    if (match == null) return <String, String>{'date': raw, 'time': ''};
-    return <String, String>{'date': match.group(1)!, 'time': match.group(2)!};
-  }
+  List<String> getObjectFields() => DashboardFieldsHelper.getObjectFields();
 
-  // 행 데이터에 날짜/시간 분리 파생 필드 추가
-  Map<String, dynamic> _enrichRowDateTimeFields(Map<String, dynamic> row) {
-    final Map<String, dynamic> enriched = Map<String, dynamic>.from(row);
-    for (final String field in <String>[
-      'changed_at',
-      'created_ts',
-      'updated_ts'
-    ]) {
-      if (enriched.containsKey(field)) {
-        final Map<String, String> parts = _splitDateTimeValue(enriched[field]);
-        enriched['${field}_date'] = parts['date'];
-        enriched['${field}_time'] = parts['time'];
-      }
-    }
-    return enriched;
-  }
+  int parseIntValue(dynamic value) =>
+      DashboardFormatHelper.parseIntValue(value);
 
-  List<String> getObjectFields() {
-    return <String>[
-      'detected_object_id',
-      'source_kind',
-      'vehicle_info_id',
-      'infra_info_id',
-      'object_id',
-      'object_type',
-      'msg_id',
-      'msg_seq',
-      'age',
-      'score',
-      'width',
-      'depth',
-      'height',
-      'position_x',
-      'position_y',
-      'position_z',
-      'orientation_heading',
-      'linear_velocity_x',
-      'linear_velocity_y',
-      'linear_velocity_z',
-      'rotation_rate_x',
-      'rotation_rate_y',
-      'rotation_rate_z',
-      'created_ts',
-      'updated_ts',
-    ];
-  }
+  int parseIntOrFallback(dynamic value, int fallback) =>
+      DashboardFormatHelper.parseIntOrFallback(value, fallback);
 
-  int parseIntValue(dynamic value) {
-    if (value == null) return 0;
-    if (value is int) return value;
-    if (value is num) return value.toInt();
-    if (value is String) return int.tryParse(value) ?? 0;
-    return int.tryParse(value.toString()) ?? 0;
-  }
+  String formatCellValue(dynamic value) =>
+      DashboardFormatHelper.formatCellValue(value);
 
-  int parseIntOrFallback(dynamic value, int fallback) {
-    if (value == null) return fallback;
-    if (value is int) return value;
-    if (value is num) return value.toInt();
-    if (value is String) return int.tryParse(value) ?? fallback;
-    return int.tryParse(value.toString()) ?? fallback;
-  }
+  ObjectTypeUi objectTypeUi(int? objectType) =>
+      DashboardFormatHelper.objectTypeUi(objectType);
 
-  String formatCellValue(dynamic value) {
-    if (value == null) return '';
-    if (value is num) return value.toString();
-    if (value is String) return _formatDateTimeString(value);
-    return value.toString();
-  }
-
-  // "2026-03-17T12:34:56.123456" → "2026-03-17 12:34:56" 형태로 정규화
-  String _formatDateTimeString(String value) {
-    final String trimmed = value.trim();
-    // 날짜+시간 패턴인지 확인 (YYYY-MM-DD T/공백 HH:MM:SS)
-    if (!RegExp(r'^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}').hasMatch(trimmed)) {
-      return trimmed;
-    }
-    return trimmed
-        .replaceFirst('T', ' ')
-        .replaceFirst(RegExp(r'\.\d+'), '')
-        .replaceFirst('Z', '')
-        .trim();
-  }
-
-  ObjectTypeUi objectTypeUi(int? objectType) {
-    final int value = objectType ?? -1;
-    if (value == 0) {
-      return const ObjectTypeUi(label: '미확인', iconData: Icons.help_outline);
-    }
-    if (value == 1) {
-      return const ObjectTypeUi(
-          label: '승용차', iconData: Icons.directions_car_filled);
-    }
-    if (value == 2) {
-      return const ObjectTypeUi(label: '트럭', iconData: Icons.local_shipping);
-    }
-    if (value == 3) {
-      return const ObjectTypeUi(
-          label: '버스', iconData: Icons.directions_bus_filled);
-    }
-    if (value == 4) {
-      return const ObjectTypeUi(label: '보행자', iconData: Icons.directions_walk);
-    }
-    if (value == 5) {
-      return const ObjectTypeUi(label: '이륜차', iconData: Icons.two_wheeler);
-    }
-    return const ObjectTypeUi(label: '미확인', iconData: Icons.question_mark);
-  }
-
-  String getObjectTypeNameKorean(int? type) {
-    switch (type) {
-      case 0:
-        return '미확인';
-      case 1:
-        return '승용차';
-      case 2:
-        return '트럭';
-      case 3:
-        return '버스';
-      case 4:
-        return '보행자';
-      case 5:
-        return '이륜차';
-      default:
-        return '미확인';
-    }
-  }
-
-  List<DetectedObject> parseDetectedObjectsFromRaw(dynamic rawValue) {
-    if (rawValue is! List) return <DetectedObject>[];
-    final List<DetectedObject> parsed = <DetectedObject>[];
-    for (final dynamic element in rawValue) {
-      if (element is Map) {
-        try {
-          parsed
-              .add(DetectedObject.fromJson(Map<String, dynamic>.from(element)));
-        } catch (_) {}
-      }
-    }
-    return parsed;
-  }
-
-  List<DetectedObject> normalizeObjectsForRow(
-    List<DetectedObject> inputObjects,
-    Map<String, dynamic> row, {
-    bool strictRowMatch = false,
-  }) {
-    if (inputObjects.isEmpty) return <DetectedObject>[];
-
-    final Map<int, DetectedObject> uniqueByDetectedId = <int, DetectedObject>{};
-    final List<DetectedObject> noDetectedIdObjects = <DetectedObject>[];
-
-    for (final DetectedObject object in inputObjects) {
-      final int detectedId = object.detectedObjectId ?? -1;
-      if (detectedId > 0) {
-        final DetectedObject? existing = uniqueByDetectedId[detectedId];
-        if (existing == null) {
-          uniqueByDetectedId[detectedId] = object;
-          continue;
-        }
-        final int existingMsgSeq = existing.msgSeq ?? -1;
-        final int candidateMsgSeq = object.msgSeq ?? -1;
-        if (candidateMsgSeq >= existingMsgSeq) {
-          uniqueByDetectedId[detectedId] = object;
-        }
-        continue;
-      }
-      noDetectedIdObjects.add(object);
-    }
-
-    List<DetectedObject> normalized = <DetectedObject>[
-      ...uniqueByDetectedId.values,
-      ...noDetectedIdObjects,
-    ];
-
-    final dynamic rawTimeStamp = row['time_stamp_ms'] ?? row['time_stamp'];
-    final int rowTimeStampMs = parseIntValue(rawTimeStamp);
-    final bool hasRowTimeStamp = rawTimeStamp != null && rowTimeStampMs > 0;
-    if (hasRowTimeStamp) {
-      final List<DetectedObject> matched = normalized
-          .where((DetectedObject o) => (o.timeStampMs ?? -1) == rowTimeStampMs)
-          .toList();
-      if (matched.isNotEmpty) {
-        normalized = matched;
-      } else if (strictRowMatch) {
-        return <DetectedObject>[];
-      }
-    }
-
-    final dynamic rawMsgSeq = row['msg_seq'];
-    final int rowMsgSeq = parseIntValue(rawMsgSeq);
-    final bool hasRowMsgSeq = rawMsgSeq != null;
-    if (hasRowMsgSeq) {
-      final List<DetectedObject> matched = normalized
-          .where((DetectedObject o) => (o.msgSeq ?? -1) == rowMsgSeq)
-          .toList();
-      if (matched.isNotEmpty) {
-        normalized = matched;
-      } else if (strictRowMatch) {
-        return <DetectedObject>[];
-      }
-    }
-
-    normalized.sort((DetectedObject left, DetectedObject right) {
-      final int leftObjectId =
-          left.objectId ?? left.detectedObjectId ?? (1 << 30);
-      final int rightObjectId =
-          right.objectId ?? right.detectedObjectId ?? (1 << 30);
-      final int byObjectId = leftObjectId.compareTo(rightObjectId);
-      if (byObjectId != 0) return byObjectId;
-      final int leftDetectedId = left.detectedObjectId ?? -1;
-      final int rightDetectedId = right.detectedObjectId ?? -1;
-      return leftDetectedId.compareTo(rightDetectedId);
-    });
-
-    return normalized;
-  }
-
-  Future<List<DetectedObject>> requestNormalizedObjectsForRow({
-    required Map<String, dynamic> row,
-    required bool latestOnly,
-    int? rowTimeStampMs,
-    int limit = 1000,
-    bool strictRowMatch = false,
-  }) async {
-    DetectedObjectResult? result;
-    final dynamic rawMsgSeq = row['msg_seq'];
-    final int? rowMsgSeq = rawMsgSeq == null ? null : parseIntValue(rawMsgSeq);
-    final int expectedObjectCount = parseIntValue(row['number_of_objects']);
-    final int? expectedCountForRequest =
-        expectedObjectCount > 0 ? expectedObjectCount : null;
-
-    if (currentEntityType == FmsEntityType.vehicle) {
-      final int vehicleInfoId = parseIntValue(row['vehicle_info_id']);
-      if (vehicleInfoId <= 0) return <DetectedObject>[];
-      final int vehicleId = parseIntValue(row['vehicle_id']);
-      result = await _objectCtrl.fetchByVehicleInfo(
-        vehicleInfoId: vehicleInfoId,
-        offset: 0,
-        limit: limit,
-        latestOnly: latestOnly,
-        vehicleTimeStampMs: rowTimeStampMs,
-        vehicleId: vehicleId > 0 ? vehicleId : null,
-        msgSeq: rowMsgSeq,
-        expectedObjectCount: expectedCountForRequest,
-      );
-    } else {
-      final int infraInfoId = parseIntValue(row['infra_info_id']);
-      if (infraInfoId <= 0) return <DetectedObject>[];
-      final int infraId = parseIntValue(row['infra_id']);
-      result = await _objectCtrl.fetchByInfraInfo(
-        infraInfoId: infraInfoId,
-        offset: 0,
-        limit: limit,
-        latestOnly: latestOnly,
-        infraTimeStampMs: rowTimeStampMs,
-        infraId: infraId > 0 ? infraId : null,
-        msgSeq: rowMsgSeq,
-        expectedObjectCount: expectedCountForRequest,
-      );
-    }
-
-    if (result == null || result.items.isEmpty) return <DetectedObject>[];
-    return normalizeObjectsForRow(
-      result.items,
-      row,
-      strictRowMatch: strictRowMatch,
-    );
-  }
-
-  Future<List<DetectedObject>> loadObjectsForRowWithFallback({
-    required Map<String, dynamic> row,
-    required List<DetectedObject> fallbackObjectItems,
-  }) async {
-    final int declaredObjectCount = parseIntValue(row['number_of_objects']);
-    final List<DetectedObject> strictFallback = normalizeObjectsForRow(
-      fallbackObjectItems,
-      row,
-      strictRowMatch: true,
-    );
-    final List<DetectedObject> looseFallback = normalizeObjectsForRow(
-      fallbackObjectItems,
-      row,
-      strictRowMatch: false,
-    );
-
-    if (declaredObjectCount <= 0) {
-      return looseFallback;
-    }
-
-    final int rowTimeStampMs =
-        parseIntValue(row['time_stamp_ms'] ?? row['time_stamp']);
-    final int? strictTimestamp = rowTimeStampMs > 0 ? rowTimeStampMs : null;
-
-    int detailLimit = 1000;
-    if (declaredObjectCount > 0 && declaredObjectCount < 1000) {
-      final int boosted = declaredObjectCount * 5;
-      if (boosted > detailLimit) detailLimit = boosted;
-    }
-    if (detailLimit > 2000) detailLimit = 2000;
-
-    Future<List<DetectedObject>> fetchAttempt({
-      required bool latestOnly,
-      required int? timestampMs,
-      required bool strictRowMatch,
-    }) async {
-      return requestNormalizedObjectsForRow(
-        row: row,
-        latestOnly: latestOnly,
-        rowTimeStampMs: timestampMs,
-        limit: detailLimit,
-        strictRowMatch: strictRowMatch,
-      );
-    }
-
-    if (strictTimestamp != null) {
-      List<DetectedObject> resolved = await fetchAttempt(
-        latestOnly: true,
-        timestampMs: strictTimestamp,
-        strictRowMatch: true,
-      );
-      if (resolved.isNotEmpty) return resolved;
-
-      for (int attempt = 0; attempt < 2; attempt++) {
-        await Future<void>.delayed(Duration(milliseconds: 250 + attempt * 300));
-        resolved = await fetchAttempt(
-          latestOnly: true,
-          timestampMs: strictTimestamp,
-          strictRowMatch: true,
-        );
-        if (resolved.isNotEmpty) return resolved;
-      }
-
-      resolved = await fetchAttempt(
-        latestOnly: false,
-        timestampMs: null,
-        strictRowMatch: false,
-      );
-      if (resolved.isNotEmpty) return resolved;
-
-      resolved = await fetchAttempt(
-        latestOnly: true,
-        timestampMs: null,
-        strictRowMatch: false,
-      );
-      if (resolved.isNotEmpty) return resolved;
-
-      return looseFallback.isNotEmpty ? looseFallback : strictFallback;
-    }
-
-    List<DetectedObject> resolved = await fetchAttempt(
-      latestOnly: true,
-      timestampMs: null,
-      strictRowMatch: false,
-    );
-    if (resolved.isNotEmpty) return resolved;
-
-    resolved = await fetchAttempt(
-      latestOnly: false,
-      timestampMs: null,
-      strictRowMatch: false,
-    );
-    if (resolved.isNotEmpty) return resolved;
-
-    for (int attempt = 0; attempt < 2; attempt++) {
-      await Future<void>.delayed(Duration(milliseconds: 250 + attempt * 300));
-      resolved = await fetchAttempt(
-        latestOnly: true,
-        timestampMs: null,
-        strictRowMatch: false,
-      );
-      if (resolved.isNotEmpty) return resolved;
-      resolved = await fetchAttempt(
-        latestOnly: false,
-        timestampMs: null,
-        strictRowMatch: false,
-      );
-      if (resolved.isNotEmpty) return resolved;
-    }
-
-    return looseFallback;
-  }
+  String getObjectTypeNameKorean(int? type) =>
+      DashboardFormatHelper.getObjectTypeNameKorean(type);
 }
 
 // 페이지 캐시 항목: 로드한 행 목록과 총 개수를 30초 동안 보관한다

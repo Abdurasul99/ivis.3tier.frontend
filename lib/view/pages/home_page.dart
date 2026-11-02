@@ -12,6 +12,7 @@ import 'package:ivis/view/tabs/tab_setting.dart';
 import '../../constants/constants.dart';
 import '../../utils/utils.dart';
 import '../../viewmodel/controller/activity_controller.dart';
+import '../../viewmodel/controller/dashboard_controller.dart';
 import '../../viewmodel/controller/infra_controller.dart';
 import '../../viewmodel/controller/locale_controller.dart';
 import '../../viewmodel/controller/time_controller.dart';
@@ -45,11 +46,16 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   final List<IconData?> menuIconData = <IconData?>[null, Icons.devices_rounded, Icons.timeline_rounded, null];
 
   int selectedMenuIndex = 0;
+  int _lastTabIndex = 0;
   late TabController tabController;
 
   bool isProfileMenuVisible = false;
   late AnimationController profileMenuAnimationController;
   late Animation<Offset> profileMenuAnimation;
+
+  bool isBellPanelOpen = false;
+  late AnimationController bellPanelAnimationController;
+  late Animation<Offset> bellPanelAnimation;
 
   List<String> get navigationTitles => <String>[
         l10n('대시보드', 'Dashboard'),
@@ -63,6 +69,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     super.initState();
 
     tabController = TabController(vsync: this, length: 4);
+    // 대시보드(0번 탭)로 돌아올 때 차량/인프라 목록 새로고침 → 삭제된 기기 즉시 제거
+    tabController.addListener(_onTabChanged);
     profileMenuAnimationController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 220),
@@ -77,14 +85,41 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       ),
     );
 
+    bellPanelAnimationController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 220),
+    );
+    bellPanelAnimation = Tween<Offset>(
+      begin: const Offset(0, -0.2),
+      end: const Offset(0, 0),
+    ).animate(
+      CurvedAnimation(
+        parent: bellPanelAnimationController,
+        curve: Curves.easeOutCubic,
+      ),
+    );
+
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await _ensureSessionOnDirectRefresh();
     });
   }
 
+  // 탭이 대시보드(0)로 전환될 때: 차량/인프라 목록을 재로드하여
+  // 디바이스 관리에서 삭제된 기기가 대시보드(사이드바·지도)에 남지 않게 한다.
+  void _onTabChanged() {
+    final int idx = tabController.index;
+    if (idx == _lastTabIndex) return;
+    _lastTabIndex = idx;
+    if (idx == 0 && Get.isRegistered<DashboardController>()) {
+      Get.find<DashboardController>().refreshDeviceLists();
+    }
+  }
+
   @override
   void dispose() {
+    tabController.removeListener(_onTabChanged);
     profileMenuAnimationController.dispose();
+    bellPanelAnimationController.dispose();
     tabController.dispose();
     super.dispose();
   }
@@ -148,7 +183,28 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                           ),
                         ],
                       ),
+                      // 패널 외부 클릭 시 닫기 — 패널보다 먼저 (아래 레이어)
+                      if (isBellPanelOpen || isProfileMenuVisible)
+                        Positioned.fill(
+                          child: GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onTap: () {
+                              if (isBellPanelOpen) {
+                                isBellPanelOpen = false;
+                                Get.find<ActivityController>().closeBell();
+                                bellPanelAnimationController.reverse();
+                              }
+                              if (isProfileMenuVisible) {
+                                isProfileMenuVisible = false;
+                                profileMenuAnimationController.reverse();
+                              }
+                              if (mounted) setState(() {});
+                            },
+                          ),
+                        ),
+                      // 패널은 backdrop보다 위 레이어 — 탭 이벤트가 올바르게 전달됨
                       buildProfilePanel(),
+                      buildBellPanel(),
                     ],
                   ),
                 ),
@@ -334,8 +390,19 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                 builder: (ActivityController ac) {
                   return GestureDetector(
                     onTap: () {
-                      selectedMenuIndex = 2;
-                      tabController.index = 2;
+                      isBellPanelOpen = !isBellPanelOpen;
+                      if (isBellPanelOpen) {
+                        ac.openBell();
+                        bellPanelAnimationController.forward();
+                        // 프로필 패널 닫기
+                        if (isProfileMenuVisible) {
+                          isProfileMenuVisible = false;
+                          profileMenuAnimationController.reverse();
+                        }
+                      } else {
+                        ac.closeBell();
+                        bellPanelAnimationController.reverse();
+                      }
                       if (mounted) setState(() {});
                     },
                     child: Stack(
@@ -348,29 +415,46 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                               ? const Color(0xFF005CB2)
                               : const Color(0xFF9CA3AF),
                         ),
-                        if (ac.unreadCount > 0)
-                          Positioned(
-                            top: -4,
-                            right: -4,
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFC42B1C),
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              constraints: const BoxConstraints(minWidth: 16, minHeight: 14),
-                              child: Text(
-                                ac.unreadCount > 99 ? '99+' : '${ac.unreadCount}',
-                                style: const TextStyle(
-                                  fontSize: 9,
-                                  color: Colors.white,
-                                  fontFamily: 'pretendard',
-                                  fontWeight: FontWeight.w600,
+                        // 읽지 않은 알림 배지 – 숫자 변경 시 튀어오르는 애니메이션
+                        Positioned(
+                          top: -4,
+                          right: -4,
+                          child: AnimatedSwitcher(
+                            duration: const Duration(milliseconds: 260),
+                            transitionBuilder: (Widget child, Animation<double> animation) {
+                              return ScaleTransition(
+                                scale: CurvedAnimation(
+                                  parent: animation,
+                                  curve: Curves.elasticOut,
                                 ),
-                                textAlign: TextAlign.center,
-                              ),
-                            ),
+                                child: FadeTransition(opacity: animation, child: child),
+                              );
+                            },
+                            child: ac.unreadCount > 0
+                                ? Container(
+                                    key: ValueKey<String>(
+                                      ac.unreadCount > 99 ? '99+' : '${ac.unreadCount}',
+                                    ),
+                                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFC42B1C),
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    constraints: const BoxConstraints(minWidth: 16, minHeight: 14),
+                                    child: Text(
+                                      ac.unreadCount > 99 ? '99+' : '${ac.unreadCount}',
+                                      style: const TextStyle(
+                                        fontSize: 9,
+                                        color: Colors.white,
+                                        fontFamily: 'pretendard',
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                      textAlign: TextAlign.center,
+                                    ),
+                                  )
+                                : const SizedBox.shrink(key: ValueKey('empty')),
                           ),
+                        ),
                       ],
                     ),
                   );
@@ -410,6 +494,15 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                       isProfileMenuVisible = !isProfileMenuVisible;
                       if (isProfileMenuVisible) {
                         profileMenuAnimationController.forward();
+                        // 2026-08-10: 알림 패널 닫기 — 벨 쪽과 대칭 처리.
+                        //   벨 탭은 프로필을 닫아 주는데 프로필 탭은 벨을 닫지 않아,
+                        //   "벨 → 프로필" 순서로 누르면 두 패널이 겹쳐 떴다.
+                        //   한 번에 하나만 열리도록 맞춘다.
+                        if (isBellPanelOpen) {
+                          isBellPanelOpen = false;
+                          Get.find<ActivityController>().closeBell();
+                          bellPanelAnimationController.reverse();
+                        }
                       } else {
                         profileMenuAnimationController.reverse();
                       }
@@ -608,6 +701,219 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget buildBellPanel() {
+    if (!isBellPanelOpen) return const SizedBox.shrink();
+    return Positioned(
+      top: 10,
+      right: 80,
+      child: SlideTransition(
+        position: bellPanelAnimation,
+        child: GetBuilder<ActivityController>(
+          init: Get.find<ActivityController>(),
+          builder: (ActivityController ac) {
+            return Container(
+              width: 370,
+              constraints: const BoxConstraints(maxHeight: 520),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: const Color(0xFFBFD7F0), width: 1.2),
+                boxShadow: <BoxShadow>[
+                  BoxShadow(
+                    color: const Color(0xFF1565C0).withValues(alpha: 0.12),
+                    blurRadius: 20,
+                    offset: const Offset(0, 6),
+                  ),
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  // ── 헤더 ──────────────────────────────────────
+                  Container(
+                    padding: const EdgeInsets.fromLTRB(16, 13, 12, 13),
+                    decoration: const BoxDecoration(
+                      color: Color(0xFFEBF4FF),
+                      borderRadius: BorderRadius.vertical(top: Radius.circular(14)),
+                      border: Border(
+                        bottom: BorderSide(color: Color(0xFFBFD7F0), width: 1),
+                      ),
+                    ),
+                    child: Row(
+                      children: <Widget>[
+                        const Icon(Icons.notifications_rounded, size: 16, color: Color(0xFF1565C0)),
+                        const SizedBox(width: 8),
+                        Text(
+                          l10n('알림', 'Notifications'),
+                          style: const TextStyle(
+                            fontFamily: 'Malgun Gothic',
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF0D47A1),
+                          ),
+                        ),
+                        if (ac.unreadCount > 0) ...<Widget>[
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF1565C0),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Text(
+                              ac.unreadCount > 99 ? '99+' : '${ac.unreadCount}',
+                              style: const TextStyle(
+                                fontFamily: 'Malgun Gothic',
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ),
+                        ],
+                        const Spacer(),
+                        if (ac.unreadCount > 0)
+                          GestureDetector(
+                            onTap: () => ac.markAllRead(),
+                            child: Text(
+                              l10n('모두 읽음', 'Mark all read'),
+                              style: const TextStyle(
+                                fontFamily: 'Malgun Gothic',
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                color: Color(0xFF1565C0),
+                              ),
+                            ),
+                          ),
+                        const SizedBox(width: 10),
+                        GestureDetector(
+                          onTap: () {
+                            isBellPanelOpen = false;
+                            ac.closeBell();
+                            bellPanelAnimationController.reverse();
+                            if (mounted) setState(() {});
+                          },
+                          child: const Icon(Icons.close_rounded, size: 18, color: Color(0xFF90A4AE)),
+                        ),
+                      ],
+                    ),
+                  ),
+                  // ── 알림 목록 ──────────────────────────────────
+                  if (ac.isBellOpen && ac.bellEvents.isEmpty)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 48),
+                      child: Column(
+                        children: <Widget>[
+                          const Icon(Icons.notifications_off_rounded, size: 36, color: Color(0xFFBFD7F0)),
+                          const SizedBox(height: 12),
+                          Text(
+                            l10n('알림이 없습니다', 'No notifications'),
+                            style: const TextStyle(
+                              fontFamily: 'Malgun Gothic',
+                              fontSize: 13,
+                              color: Color(0xFF90A4AE),
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
+                  else
+                    Flexible(
+                      child: ListView.separated(
+                        shrinkWrap: true,
+                        padding: const EdgeInsets.symmetric(vertical: 4),
+                        itemCount: ac.bellEvents.length,
+                        separatorBuilder: (_, __) =>
+                            const Divider(height: 1, color: Color(0xFFE3F0FB)),
+                        itemBuilder: (BuildContext context, int index) {
+                          final event = ac.bellEvents[index];
+                          final bool isUnread = !event.isRead;
+                          final Color severityColor = event.severity >= 3
+                              ? const Color(0xFFE53935)
+                              : event.severity >= 2
+                                  ? const Color(0xFFFB8C00)
+                                  : const Color(0xFF1565C0);
+                          final DateTime time = DateTime.fromMillisecondsSinceEpoch(
+                            event.occurredAtMs, isUtc: true).toLocal();
+                          final String timeLabel =
+                              '${time.month}/${time.day} ${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
+                          return GestureDetector(
+                            onTap: () => ac.markRead(event.id),
+                            child: Container(
+                              color: isUnread
+                                  ? const Color(0xFFF0F7FF)
+                                  : Colors.white,
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: <Widget>[
+                                  Container(
+                                    width: 8,
+                                    height: 8,
+                                    margin: const EdgeInsets.only(top: 4, right: 10),
+                                    decoration: BoxDecoration(
+                                      color: isUnread ? severityColor : const Color(0xFFBFD7F0),
+                                      shape: BoxShape.circle,
+                                    ),
+                                  ),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: <Widget>[
+                                        Text(
+                                          event.title,
+                                          style: TextStyle(
+                                            fontFamily: 'Malgun Gothic',
+                                            fontSize: 12.5,
+                                            fontWeight: isUnread
+                                                ? FontWeight.bold
+                                                : FontWeight.w400,
+                                            color: isUnread
+                                                ? const Color(0xFF0D47A1)
+                                                : const Color(0xFF607D8B),
+                                          ),
+                                        ),
+                                        if (event.subtitle.isNotEmpty) ...<Widget>[
+                                          const SizedBox(height: 2),
+                                          Text(
+                                            event.subtitle,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: const TextStyle(
+                                              fontFamily: 'Malgun Gothic',
+                                              fontSize: 11,
+                                              color: Color(0xFF90A4AE),
+                                            ),
+                                          ),
+                                        ],
+                                      ],
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    timeLabel,
+                                    style: const TextStyle(
+                                      fontFamily: 'Malgun Gothic',
+                                      fontSize: 10,
+                                      color: Color(0xFF90A4AE),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                ],
+              ),
+            );
+          },
         ),
       ),
     );

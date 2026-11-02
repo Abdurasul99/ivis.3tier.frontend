@@ -56,6 +56,8 @@ class FakeVehicleRepository extends VehicleRepository {
     int offset = 0,
     String? searchText,
     String? searchColumnName,
+    int? cursorId,
+    String? cursorDirection,
   }) async {
     if (shouldThrow) throw Exception('FakeVehicleRepository: 네트워크 오류');
     return statusResult;
@@ -70,6 +72,8 @@ class FakeVehicleRepository extends VehicleRepository {
     int offset = 0,
     String? searchText,
     String? searchColumnName,
+    int? cursorId,
+    String? cursorDirection,
   }) async {
     if (shouldThrow) throw Exception('FakeVehicleRepository: 네트워크 오류');
     return historyResult;
@@ -108,6 +112,8 @@ class FakeInfraRepository extends InfraRepository {
     int offset = 0,
     String? searchText,
     String? searchColumnName,
+    int? cursorId,
+    String? cursorDirection,
   }) async {
     if (shouldThrow) throw Exception('FakeInfraRepository: 네트워크 오류');
     return statusResult;
@@ -122,6 +128,8 @@ class FakeInfraRepository extends InfraRepository {
     int offset = 0,
     String? searchText,
     String? searchColumnName,
+    int? cursorId,
+    String? cursorDirection,
   }) async {
     if (shouldThrow) throw Exception('FakeInfraRepository: 네트워크 오류');
     return historyResult;

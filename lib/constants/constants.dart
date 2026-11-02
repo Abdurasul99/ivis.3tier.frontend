@@ -24,8 +24,8 @@ const double kMobileWidth = 700;
 const double kTabletWidth = 1300;
 const double kDesktopWidth = 1290;
 
-const String kApiServer = "<SERVER_IP>:4090"; //"localhost:4090"; //
-const String kMqttServer = "ws://<SERVER_IP>:9001"; //"ws://localhost"; //
+const String kApiServer = "<SERVER_DOMAIN>:4090"; //"localhost:4090"; //
+const String kMqttServer = "ws://<SERVER_DOMAIN>:9001"; //"ws://localhost"; //
 
 final List<Color> kRandomColor = [
   Colors.yellow,

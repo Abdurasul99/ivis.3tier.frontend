@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:get/get.dart';
 import 'package:ivis/model/object_model.dart';
 import 'package:ivis/viewmodel/controller/dashboard_controller.dart';
+import 'package:ivis/viewmodel/controller/dashboard_objects_status_controller.dart';
 import 'package:ivis/viewmodel/controller/infra_controller.dart';
 import 'package:ivis/viewmodel/controller/object_controller.dart';
 import 'package:ivis/viewmodel/controller/user_controller.dart';
@@ -21,6 +22,8 @@ void main() {
     Get.put(VehicleController());
     Get.put(InfraController());
     Get.put(ObjectController());
+    // DashboardController 가 위임하는 객체 현황 컨트롤러도 등록 필요
+    Get.put(DashboardObjectsStatusController());
     ctrl = Get.put(DashboardController());
   });
 
@@ -309,7 +312,8 @@ void main() {
   // ─────────────────────────────────────────────
   group('mapView 토글', () {
     test('enableMapView 호출 후 isMapView=true', () {
-      // Arrange
+      // Arrange — 최초 로드 시 지도 표시가 기본값(true)이므로 먼저 끈다
+      ctrl.disableMapView();
       expect(ctrl.isMapView, isFalse);
 
       // Act

@@ -21,6 +21,7 @@ class TabSettingMember extends StatefulWidget {
 }
 
 class _TabSettingMemberState extends State<TabSettingMember> {
+  final ScrollController _scrollController = ScrollController();
   final List<int> _cellWidths = <int>[14, 14, 14, 28, 15, 15, 28];
 
   List<String> get _cellTitles => <String>[
@@ -46,6 +47,12 @@ class _TabSettingMemberState extends State<TabSettingMember> {
   }
 
   @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     if (context.isMobile()) {
       return const TabSettingMember();
@@ -55,47 +62,70 @@ class _TabSettingMemberState extends State<TabSettingMember> {
       init: Get.find<LocaleController>(),
       builder: (_) => Padding(
         padding: const EdgeInsets.symmetric(horizontal: 60, vertical: 34),
-        child: SingleChildScrollView(
-          child: GetBuilder<MemberController>(
-            init: Get.find<MemberController>(),
-            builder: (MemberController controller) {
-              if (controller.isLoading) {
-                return const Center(
-                  child: CupertinoActivityIndicator(radius: 20, color: Colors.grey),
-                );
-              }
-
-              return Column(
-                children: <Widget>[
-                  _sectionTitle(t('승인 대기 멤버')),
-                  const SizedBox(height: 14),
-                  _tableHeader(),
-                  controller.unApprovedMembers.isEmpty
-                      ? _emptyRow(t('승인 대기 멤버가 없습니다. 😎'))
-                      : ListView.builder(
-                          padding: const EdgeInsets.symmetric(vertical: 4),
-                          shrinkWrap: true,
-                          physics: const ClampingScrollPhysics(),
-                          itemCount: controller.unApprovedMembers.length,
-                          itemBuilder: (_, int index) => _buildMemberItem(controller.unApprovedMembers[index], false),
-                        ),
-                  const SizedBox(height: 56),
-                  _sectionTitle(t('멤버 관리')),
-                  const SizedBox(height: 14),
-                  _tableHeader(),
-                  controller.members.isEmpty
-                      ? _emptyRow(t('멤버가 없습니다. 😎'))
-                      : ListView.builder(
-                          padding: const EdgeInsets.symmetric(vertical: 4),
-                          shrinkWrap: true,
-                          physics: const ClampingScrollPhysics(),
-                          itemCount: controller.members.length,
-                          itemBuilder: (_, int index) => _buildMemberItem(controller.members[index], true),
-                        ),
-                ],
+        child: GetBuilder<MemberController>(
+          init: Get.find<MemberController>(),
+          builder: (MemberController controller) {
+            if (controller.isLoading) {
+              return const Center(
+                child: CupertinoActivityIndicator(radius: 20, color: Colors.grey),
               );
-            },
-          ),
+            }
+
+            final unApproved = controller.unApprovedMembers;
+            final members = controller.members;
+
+            // 멤버가 수백명이어도 '보이는 행만' 그리도록 Sliver 리스트(지연 렌더) 사용.
+            // 기존 shrinkWrap ListView 는 전 행을 한번에 빌드 → web 에서 수초 멈춤(스피너 길게).
+            return Scrollbar(
+              controller: _scrollController,
+              thumbVisibility: true,
+              child: CustomScrollView(
+                controller: _scrollController,
+                slivers: <Widget>[
+                  SliverToBoxAdapter(
+                    child: Column(
+                      children: <Widget>[
+                        _sectionTitle(t('승인 대기 멤버')),
+                        const SizedBox(height: 14),
+                        _tableHeader(),
+                      ],
+                    ),
+                  ),
+                  unApproved.isEmpty
+                      ? SliverToBoxAdapter(
+                          child: _emptyRow(t('승인 대기 멤버가 없습니다. 😎')))
+                      : SliverList(
+                          delegate: SliverChildBuilderDelegate(
+                            (_, int index) =>
+                                _buildMemberItem(unApproved[index], false),
+                            childCount: unApproved.length,
+                          ),
+                        ),
+                  SliverToBoxAdapter(
+                    child: Column(
+                      children: <Widget>[
+                        const SizedBox(height: 56),
+                        _sectionTitle(t('멤버 관리')),
+                        const SizedBox(height: 14),
+                        _tableHeader(),
+                      ],
+                    ),
+                  ),
+                  members.isEmpty
+                      ? SliverToBoxAdapter(
+                          child: _emptyRow(t('멤버가 없습니다. 😎')))
+                      : SliverList(
+                          delegate: SliverChildBuilderDelegate(
+                            (_, int index) =>
+                                _buildMemberItem(members[index], true),
+                            childCount: members.length,
+                          ),
+                        ),
+                  const SliverToBoxAdapter(child: SizedBox(height: 40)),
+                ],
+              ),
+            );
+          },
         ),
       ),
     );
@@ -120,7 +150,7 @@ class _TabSettingMemberState extends State<TabSettingMember> {
   Widget _tableHeader() {
     return Container(
       height: 40,
-      color: const Color(0xFFFAFAFA),
+      color: const Color(0xFFE8F0FE),
       padding: const EdgeInsets.symmetric(horizontal: 12),
       child: Row(
         children: _cellTitles.map((String title) {

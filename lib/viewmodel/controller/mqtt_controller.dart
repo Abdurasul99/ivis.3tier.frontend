@@ -3,11 +3,13 @@ import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:get/get.dart';
-import 'package:mqtt_client/mqtt_browser_client.dart';
 import 'package:mqtt_client/mqtt_client.dart';
 import 'package:typed_data/typed_data.dart';
 
 import '../../constants/constants.dart';
+// 조건부 import: 웹은 MqttBrowserClient, Dart VM(테스트)은 MqttServerClient 사용
+import '../../core/mqtt_client_factory_io.dart'
+    if (dart.library.js_interop) '../../core/mqtt_client_factory_web.dart';
 
 class MqttIncomingMessage {
   final String topic;
@@ -76,7 +78,7 @@ class WebSocketTarget {
 }
 
 class MqttController extends GetxController {
-  MqttBrowserClient? mqttClient;
+  MqttClient? mqttClient;
 
   final RxString connectionState = 'disconnected'.obs;
   final RxString lastEvent = ''.obs;
@@ -99,7 +101,7 @@ class MqttController extends GetxController {
   bool subscribedAfterConnect = false;
 
   bool get isConnected {
-    MqttBrowserClient? clientValue = mqttClient;
+    MqttClient? clientValue = mqttClient;
     if (clientValue == null) {
       return false;
     }
@@ -273,7 +275,7 @@ class MqttController extends GetxController {
           String serverUrl = schemeAdjustedTarget.buildServerUrlWithoutPort();
           int portValue = schemeAdjustedTarget.port;
 
-          MqttBrowserClient newClient = MqttBrowserClient.withPort(
+          MqttClient newClient = createWebSocketMqttClient(
             serverUrl,
             clientIdentifier,
             portValue,
@@ -485,7 +487,7 @@ class MqttController extends GetxController {
 
   void disconnectInternal({required bool resetStream}) {
     try {
-      MqttBrowserClient? clientValue = mqttClient;
+      MqttClient? clientValue = mqttClient;
       if (clientValue != null) {
         clientValue.autoReconnect = false;
         clientValue.disconnect();
