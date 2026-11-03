@@ -14,8 +14,8 @@ void main() {
       final Map<String, dynamic> json = {
         'detected_object_id': 1001,
         'source_kind': 'vehicle',
-        'vehicle_info_id': 50,
-        'infra_info_id': null,
+        'vehicle_id': 50,
+        'infra_id': null,
         'object_id': 3,
         'msg_id': 10,
         'msg_seq': 7,
@@ -46,8 +46,8 @@ void main() {
       // Assert
       expect(obj.detectedObjectId, 1001);
       expect(obj.sourceKind, 'vehicle');
-      expect(obj.vehicleInfoId, 50);
-      expect(obj.infraInfoId, isNull);
+      expect(obj.vehicleId, 50);
+      expect(obj.infraId, isNull);
       expect(obj.objectId, 3);
       expect(obj.msgSeq, 7);
       expect(obj.timeStampMs, 1700000000000);

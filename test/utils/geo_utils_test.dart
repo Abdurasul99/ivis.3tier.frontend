@@ -115,6 +115,27 @@ void main() {
   // ─────────────────────────────────────────────
   // 최단 각도 차이
   // ─────────────────────────────────────────────
+  group('compassBearingFromYaw (spec heading → map bearing)', () {
+    test('east, north, west, south', () {
+      expect(compassBearingFromYaw(0.0), closeTo(90.0, 1e-9)); // east
+      expect(compassBearingFromYaw(90.0), closeTo(0.0, 1e-9)); // north
+      expect(compassBearingFromYaw(180.0), closeTo(270.0, 1e-9)); // west
+      expect(compassBearingFromYaw(270.0), closeTo(180.0, 1e-9)); // south
+    });
+
+    test('simulator sample: yaw 104.6 (moving north-north-west) → bearing 345.4', () {
+      expect(compassBearingFromYaw(104.6), closeTo(345.4, 1e-9));
+    });
+
+    test('result is always in [0, 360)', () {
+      for (double yaw = -720.0; yaw <= 720.0; yaw += 7.5) {
+        final double bearing = compassBearingFromYaw(yaw);
+        expect(bearing, greaterThanOrEqualTo(0.0));
+        expect(bearing, lessThan(360.0));
+      }
+    });
+  });
+
   group('shortestAngleDelta', () {
     test('같은 각도면 0 반환', () {
       // Arrange & Act

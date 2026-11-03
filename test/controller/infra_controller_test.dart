@@ -120,7 +120,7 @@ void main() {
       ];
       ctrl.historyTotalCountInternal = 10;
       ctrl.historyOffsetInternal = 18;
-      ctrl.latestInfraInfoInternal = InfraInfo(id: 1);
+      ctrl.latestInfraInfoInternal = InfraInfo(infraId:1);
 
       // Act
       ctrl.clearHistory();
@@ -140,7 +140,7 @@ void main() {
     test('statusItems, totalCount, offset이 초기화', () {
       // Arrange
       final InfraController ctrl = Get.find<InfraController>();
-      ctrl.statusItemsInternal = <InfraInfo>[InfraInfo(id: 1)];
+      ctrl.statusItemsInternal = <InfraInfo>[InfraInfo(infraId:1)];
       ctrl.statusTotalCountInternal = 20;
       ctrl.statusOffsetInternal = 100;
 
@@ -167,7 +167,7 @@ void main() {
         InfraInfoHistory(historyId: 1),
       ];
       ctrl.historyTotalCountInternal = 5;
-      ctrl.statusItemsInternal = <InfraInfo>[InfraInfo(id: 1)];
+      ctrl.statusItemsInternal = <InfraInfo>[InfraInfo(infraId:1)];
       ctrl.isLoadingInternal = true;
       ctrl.infraIdentifiersInternal = <int>[1, 2, 3];
 
@@ -254,7 +254,7 @@ void main() {
     test('hasToken=false이면 statusItems를 비우고 반환', () async {
       // Arrange
       final InfraController ctrl = Get.find<InfraController>();
-      ctrl.statusItemsInternal = <InfraInfo>[InfraInfo(id: 1)];
+      ctrl.statusItemsInternal = <InfraInfo>[InfraInfo(infraId:1)];
       ctrl.statusTotalCountInternal = 5;
 
       // Act
@@ -273,7 +273,7 @@ void main() {
     test('hasToken=false이면 latestInfraInfo를 null로 설정', () async {
       // Arrange
       final InfraController ctrl = Get.find<InfraController>();
-      ctrl.latestInfraInfoInternal = InfraInfo(id: 99);
+      ctrl.latestInfraInfoInternal = InfraInfo(infraId:99);
 
       // Act
       await ctrl.reqLoadLatestInfraInfo(1);

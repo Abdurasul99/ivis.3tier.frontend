@@ -42,7 +42,8 @@ class ActivityEventItem {
   factory ActivityEventItem.fromJson(Map<String, dynamic> json) {
     final dynamic rawIsRead = json['is_read'];
     return ActivityEventItem(
-      id: (json['id'] as num).toInt(),
+      // id 는 int8 이라 node-pg 가 문자열로 보낸다 → 숫자·문자열 모두 받는다
+      id: int.parse(json['id'].toString()),
       deviceType: json['device_type'] as String? ?? 'vehicle',
       deviceId: (json['device_id'] as num).toInt(),
       eventType: json['event_type'] as String? ?? '',

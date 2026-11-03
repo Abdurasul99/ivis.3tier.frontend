@@ -88,7 +88,6 @@ void main() {
     test('Repository가 InfraInfo를 반환하면 latestInfraInfo에 저장', () async {
       // Arrange
       fakeRepo.latestInfoResult = InfraInfo(
-        id: 200,
         infraId: 1,
         numberOfObjects: 5,
         timeStampMs: 1700000000000,
@@ -99,7 +98,7 @@ void main() {
 
       // Assert
       expect(ctrl.latestInfraInfo, isNotNull);
-      expect(ctrl.latestInfraInfo!.id, 200);
+      expect(ctrl.latestInfraInfo!.infraId, 1);
       expect(ctrl.latestInfraInfo!.numberOfObjects, 5);
     });
 
@@ -116,7 +115,7 @@ void main() {
 
     test('Repository 예외 시 latestInfraInfo는 null 유지', () async {
       // Arrange
-      ctrl.latestInfraInfoInternal = InfraInfo(id: 999);
+      ctrl.latestInfraInfoInternal = InfraInfo(infraId:999);
       fakeRepo.shouldThrow = true;
 
       // Act
@@ -208,9 +207,9 @@ void main() {
       fakeRepo.statusResult = InfraInfoResult(
         totalCount: 3,
         items: <InfraInfo>[
-          InfraInfo(id: 1, infraId: 1, numberOfObjects: 2),
-          InfraInfo(id: 2, infraId: 1, numberOfObjects: 0),
-          InfraInfo(id: 3, infraId: 1, numberOfObjects: 5),
+          InfraInfo(infraId: 1, numberOfObjects: 2),
+          InfraInfo(infraId: 2, numberOfObjects: 0),
+          InfraInfo(infraId: 3, numberOfObjects: 5),
         ],
       );
 
@@ -225,7 +224,7 @@ void main() {
 
     test('Repository 예외 시 statusItems 초기화', () async {
       // Arrange
-      ctrl.statusItemsInternal = <InfraInfo>[InfraInfo(id: 1)];
+      ctrl.statusItemsInternal = <InfraInfo>[InfraInfo(infraId:1)];
       fakeRepo.shouldThrow = true;
 
       // Act

@@ -220,12 +220,6 @@ class _ObjectsStatusGridState extends State<ObjectsStatusGrid> {
         },
       ),
       col(
-        title: 'Info ID',
-        field: 'source_info_id',
-        width: 86,
-        renderer: (PlutoColumnRendererContext ctx) => _plainCell(ctx),
-      ),
-      col(
         title: '신뢰도',
         field: 'score',
         width: 76,
@@ -300,14 +294,11 @@ class _ObjectsStatusGridState extends State<ObjectsStatusGrid> {
       final bool valid = typeVal >= 0 && typeVal < _typeLabels.length;
       final String normalizedSourceKind =
           (obj.sourceKind ?? '').trim().toLowerCase();
+      // source_kind 가 비어 있으면 vehicle_id / infra_id 존재 여부로 판단 (0 도 유효한 번호)
       final bool isVehicleSource = normalizedSourceKind == 'vehicle' ||
-          (normalizedSourceKind.isEmpty &&
-              obj.vehicleInfoId != null &&
-              obj.vehicleInfoId! > 0);
+          (normalizedSourceKind.isEmpty && obj.vehicleId != null);
       final bool isInfraSource = normalizedSourceKind == 'infra' ||
-          (normalizedSourceKind.isEmpty &&
-              obj.infraInfoId != null &&
-              obj.infraInfoId! > 0);
+          (normalizedSourceKind.isEmpty && obj.infraId != null);
       final String sourceKindLabel = isVehicleSource
           ? '차량'
           : isInfraSource
@@ -316,15 +307,9 @@ class _ObjectsStatusGridState extends State<ObjectsStatusGrid> {
       final int? sourceEntityId = isVehicleSource
           ? obj.vehicleId
           : (isInfraSource ? obj.infraId : null);
-      final String sourceEntityLabel =
-          sourceEntityId != null && sourceEntityId > 0
-              ? '$sourceKindLabel $sourceEntityId'
-              : '';
-      final int sourceInfoId = isVehicleSource
-          ? (obj.vehicleInfoId ?? 0)
-          : isInfraSource
-              ? (obj.infraInfoId ?? 0)
-              : 0;
+      final String sourceEntityLabel = sourceEntityId != null
+          ? '$sourceKindLabel $sourceEntityId'
+          : '';
       return PlutoRow(cells: <String, PlutoCell>{
         'object_type': PlutoCell(value: typeVal.toString()),
         'type_label': PlutoCell(value: valid ? _typeLabels[typeVal] : '미확인'),
@@ -334,8 +319,6 @@ class _ObjectsStatusGridState extends State<ObjectsStatusGrid> {
                 : ''),
         'source_kind': PlutoCell(value: sourceKindLabel),
         'source_entity': PlutoCell(value: sourceEntityLabel),
-        'source_info_id':
-            PlutoCell(value: sourceInfoId > 0 ? sourceInfoId.toString() : ''),
         'score': PlutoCell(
             value: (obj.score != null && obj.score! >= 0 && obj.score! <= 1.0)
                 ? obj.score!.toStringAsFixed(3)

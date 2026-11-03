@@ -5,8 +5,6 @@ class DetectedObject {
   String? sourceKind;
   int? vehicleId;
   int? infraId;
-  int? vehicleInfoId;
-  int? infraInfoId;
   int? objectId;
 
   int? msgId;
@@ -38,8 +36,6 @@ class DetectedObject {
     this.sourceKind,
     this.vehicleId,
     this.infraId,
-    this.vehicleInfoId,
-    this.infraInfoId,
     this.objectId,
     this.msgId,
     this.msgSeq,
@@ -70,8 +66,6 @@ class DetectedObject {
     sourceKind = _parseString(json['source_kind']);
     vehicleId = _parseInt(json['vehicle_id']);
     infraId = _parseInt(json['infra_id']);
-    vehicleInfoId = _parseInt(json['vehicle_info_id']);
-    infraInfoId = _parseInt(json['infra_info_id']);
     objectId = _parseInt(json['object_id']);
 
     msgId = _parseInt(json['msg_id']);
@@ -126,8 +120,6 @@ class DetectedObject {
       'source_kind': sourceKind,
       'vehicle_id': vehicleId,
       'infra_id': infraId,
-      'vehicle_info_id': vehicleInfoId,
-      'infra_info_id': infraInfoId,
       'object_id': objectId,
       'msg_id': msgId,
       'msg_seq': msgSeq,
@@ -156,7 +148,7 @@ class DetectedObject {
 
   @override
   String toString() {
-    return 'DetectedObject{detectedObjectId: $detectedObjectId, objectId: $objectId, msgId: $msgId, msgSeq: $msgSeq, timeStampMs: $timeStampMs, vehicleId: $vehicleId, infraId: $infraId, vehicleInfoId: $vehicleInfoId, infraInfoId: $infraInfoId}';
+    return 'DetectedObject{detectedObjectId: $detectedObjectId, objectId: $objectId, msgId: $msgId, msgSeq: $msgSeq, timeStampMs: $timeStampMs, vehicleId: $vehicleId, infraId: $infraId}';
   }
 }
 
@@ -206,8 +198,8 @@ class DetectedObjectHistory {
   int? detectedObjectId;
   String? changedAt;
   String? sourceKind;
-  int? vehicleInfoId;
-  int? infraInfoId;
+  int? vehicleId;
+  int? infraId;
   int? objectId;
   int? age;
   double? score;
@@ -234,8 +226,8 @@ class DetectedObjectHistory {
     this.detectedObjectId,
     this.changedAt,
     this.sourceKind,
-    this.vehicleInfoId,
-    this.infraInfoId,
+    this.vehicleId,
+    this.infraId,
     this.objectId,
     this.age,
     this.score,
@@ -263,8 +255,8 @@ class DetectedObjectHistory {
     detectedObjectId = _parseInt(json['detected_object_id']);
     changedAt = _parseString(json['changed_at']);
     sourceKind = _parseString(json['source_kind']);
-    vehicleInfoId = _parseInt(json['vehicle_info_id']);
-    infraInfoId = _parseInt(json['infra_info_id']);
+    vehicleId = _parseInt(json['vehicle_id']);
+    infraId = _parseInt(json['infra_id']);
     objectId = _parseInt(json['object_id']);
     age = _parseInt(json['age']);
     score = _parseDouble(json['score']);
@@ -314,8 +306,8 @@ class DetectedObjectHistory {
       'detected_object_id': detectedObjectId,
       'changed_at': changedAt,
       'source_kind': sourceKind,
-      'vehicle_info_id': vehicleInfoId,
-      'infra_info_id': infraInfoId,
+      'vehicle_id': vehicleId,
+      'infra_id': infraId,
       'object_id': objectId,
       'age': age,
       'score': score,
