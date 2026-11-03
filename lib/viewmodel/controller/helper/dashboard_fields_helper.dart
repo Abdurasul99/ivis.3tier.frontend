@@ -11,7 +11,6 @@ class DashboardFieldsHelper {
     if (type == FmsEntityType.vehicle) {
       return <String>[
         'history_id',
-        'vehicle_info_id',
         'vehicle_id',
         'msg_id',
         'msg_seq',
@@ -47,7 +46,6 @@ class DashboardFieldsHelper {
     }
     return <String>[
       'history_id',
-      'infra_info_id',
       'infra_id',
       'msg_id',
       'msg_seq',
@@ -69,9 +67,7 @@ class DashboardFieldsHelper {
       'detected_object_id',
       'source_kind',
       'vehicle_id',
-      'vehicle_info_id',
       'infra_id',
-      'infra_info_id',
       'object_id',
       'object_type',
       'msg_id',

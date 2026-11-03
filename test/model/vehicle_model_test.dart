@@ -48,7 +48,7 @@ void main() {
       expect(vehicle.vehicleId, 42);
     });
 
-    test('대체 키(id, type, name) 사용 시 올바르게 파싱', () {
+    test('alternative keys (type, name) are parsed; old row id is not a device number', () {
       // Arrange
       final Map<String, dynamic> json = {
         'id': 10,
@@ -61,7 +61,8 @@ void main() {
       final Vehicle vehicle = Vehicle.fromJson(json);
 
       // Assert
-      expect(vehicle.vehicleId, 10);
+      // 'id' was a table row id, not the device number — not used as vehicle_id since 2026-10-12
+      expect(vehicle.vehicleId, isNull);
       expect(vehicle.vehicleType, 'truck');
       expect(vehicle.make, 'Porter');
       expect(vehicle.modelName, 'Light truck');
@@ -136,12 +137,11 @@ void main() {
     test('정상 JSON에서 speed/position 필드 파싱', () {
       // Arrange
       final Map<String, dynamic> json = {
-        'id': 100,
         'vehicle_id': 1,
         'msg_id': 1,
         'msg_seq': 5,
-        'kph': 60.0,
-        'mps': 16.67,
+        'kph': 3, // field 7 velocity_eventflag (event code), not a speed
+        'mps': 16.0,
         'pos_x_m': 100.5,
         'pos_y_m': 200.3,
         'pos_z_m': 0.0,
@@ -154,10 +154,10 @@ void main() {
       final VehicleInfo info = VehicleInfo.fromJson(json);
 
       // Assert
-      expect(info.id, 100);
       expect(info.vehicleId, 1);
-      expect(info.velocityKph, 60.0);
-      expect(info.velocityMps, closeTo(16.67, 0.01));
+      // no velocity_kph in the JSON → mps × 3.6; the event code in 'kph' is ignored
+      expect(info.velocityKph, closeTo(57.6, 1e-9));
+      expect(info.velocityMps, 16.0);
       expect(info.positionX, 100.5);
       expect(info.orientationHeading, 45.0);
       expect(info.numberOfObjects, 3);
@@ -212,7 +212,6 @@ void main() {
     test('toJson 직렬화 — 이중 키 포함 확인', () {
       // Arrange
       final VehicleInfo info = VehicleInfo(
-        id: 1,
         velocityKph: 50.0,
         positionX: 10.0,
         orientationHeading: 30.0,
@@ -237,10 +236,10 @@ void main() {
       // Arrange
       final Map<String, dynamic> json = {
         'history_id': 500,
-        'vehicle_info_id': 100,
         'vehicle_id': 1,
         'changed_at': '2024-05-01T12:00:00',
-        'kph': 30.0,
+        'kph': 7, // event code, must not be read as speed
+        'velocity_kph': 30.0,
         'number_of_objects': 2,
       };
 
@@ -249,18 +248,16 @@ void main() {
 
       // Assert
       expect(history.historyId, 500);
-      expect(history.vehicleInfoId, 100);
       expect(history.vehicleId, 1);
       expect(history.changedAt, '2024-05-01T12:00:00');
       expect(history.velocityKph, 30.0);
       expect(history.numberOfObjects, 2);
     });
 
-    test('toJson에 history_id와 vehicle_info_id 포함', () {
+    test('toJson includes history_id and vehicle_id', () {
       // Arrange
       final VehicleInfoHistory history = VehicleInfoHistory(
         historyId: 99,
-        vehicleInfoId: 200,
         vehicleId: 3,
         velocityKph: 20.0,
       );
@@ -270,7 +267,6 @@ void main() {
 
       // Assert
       expect(json['history_id'], 99);
-      expect(json['vehicle_info_id'], 200);
       expect(json['vehicle_id'], 3);
       expect(json['kph'], 20.0);
     });
@@ -285,8 +281,8 @@ void main() {
       final Map<String, dynamic> json = {
         'totalCount': 2,
         'items': [
-          {'id': 1, 'vehicle_id': 1, 'kph': 60.0},
-          {'id': 2, 'vehicle_id': 1, 'kph': 80.0},
+          {'id': 1, 'vehicle_id': 1, 'velocity_kph': 60.0},
+          {'id': 2, 'vehicle_id': 1, 'velocity_kph': 80.0},
         ],
       };
 
@@ -336,9 +332,9 @@ void main() {
       final Map<String, dynamic> json = {
         'totalCount': 3,
         'items': [
-          {'history_id': 1, 'vehicle_id': 1, 'kph': 40.0},
-          {'history_id': 2, 'vehicle_id': 1, 'kph': 55.0},
-          {'history_id': 3, 'vehicle_id': 1, 'kph': 70.0},
+          {'history_id': 1, 'vehicle_id': 1, 'velocity_kph': 40.0},
+          {'history_id': 2, 'vehicle_id': 1, 'velocity_kph': 55.0},
+          {'history_id': 3, 'vehicle_id': 1, 'velocity_kph': 70.0},
         ],
       };
 
@@ -370,7 +366,7 @@ void main() {
         'totalCount': 2,
         'items': [
           'invalid_string_entry', // Map 이 아닌 항목 — 무시됨
-          {'history_id': 10, 'kph': 100.0},
+          {'history_id': 10, 'velocity_kph': 100.0},
         ],
       };
 

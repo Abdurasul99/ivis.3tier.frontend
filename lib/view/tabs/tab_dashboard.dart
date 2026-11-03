@@ -17,6 +17,7 @@ import '../../model/object_model.dart';
 import '../../view/components/dashboard/objects_status_grid.dart';
 import '../../view/components/infra_vehicle_map.dart';
 import '../../viewmodel/controller/dashboard_controller.dart';
+import '../../viewmodel/controller/helper/dashboard_format_helper.dart';
 import '../../viewmodel/controller/locale_controller.dart';
 import '../../viewmodel/repository/log_repository.dart';
 
@@ -155,9 +156,10 @@ class _TabDashboardState extends State<TabDashboard>
     final Map<String, dynamic> pageRow = _controller.pageRows[rowIdx];
     // 차량 모드: 지도 라이브 추적
     if (_controller.currentEntityType != FmsEntityType.infra) {
-      final int vehicleId =
-          _controller.parseIntValue(pageRow['vehicle_id']);
-      if (vehicleId > 0) {
+      // Vehicle 0 is a real device (spec uint8 0-255)
+      final int? vehicleId =
+          DashboardFormatHelper.deviceIdOrNull(pageRow['vehicle_id']);
+      if (vehicleId != null) {
         _mapPanelKey.currentState?.selectVehicle(vehicleId);
       }
     }
@@ -398,9 +400,15 @@ class _TabDashboardState extends State<TabDashboard>
     final double posY = double.tryParse(
             _controller.formatCellValue(row['pos_y_m'] ?? row['position_y'])) ??
         0.0;
-    final double kphVal = double.tryParse(
-            _controller.formatCellValue(row['kph'] ?? row['velocity_kph'])) ??
-        0.0;
+    // 속도는 mps(초속, m/s)×3.6 으로 계산한다. KIAPI 는 kph 칸을 event_flag 로 쓰므로
+    // 실제 속도가 아니다. mps 가 없을 때만 kph 를 쓴다.
+    final double? mpsVal = double.tryParse(
+        _controller.formatCellValue(row['mps'] ?? row['velocity_mps']));
+    final double kphVal = mpsVal != null
+        ? mpsVal * 3.6
+        : (double.tryParse(_controller
+                .formatCellValue(row['kph'] ?? row['velocity_kph'])) ??
+            0.0);
     final bool isMoving = kphVal > 0.5;
     final bool hasPosition = posX > 1000 && posY > 1000;
     return Container(
@@ -439,9 +447,6 @@ class _TabDashboardState extends State<TabDashboard>
   Widget _buildRowSummaryCard(Map<String, dynamic> row) {
     final bool isInfra = _controller.currentEntityType == FmsEntityType.infra;
     final String historyIdText = _controller.formatCellValue(row['history_id']);
-    final String statusIdText = isInfra
-        ? _controller.formatCellValue(row['infra_info_id'])
-        : _controller.formatCellValue(row['vehicle_info_id']);
     final String primaryLabel = isInfra ? '인프라 ID' : '차량 ID';
     final String primaryValue = isInfra
         ? _controller.formatCellValue(row['infra_id'])
@@ -482,7 +487,6 @@ class _TabDashboardState extends State<TabDashboard>
                   color: Colors.white)),
           const SizedBox(height: 10),
           Wrap(spacing: 8, runSpacing: 6, children: <Widget>[
-            _chip('STATUS ID', statusIdText, const Color(0xFF1976D2)),
             _chip(primaryLabel, primaryValue, const Color(0xFF388E3C)),
             _chip('MSG ID', msgIdValue, const Color(0xFFE65100)),
           ]),
@@ -522,7 +526,7 @@ class _TabDashboardState extends State<TabDashboard>
   Widget _buildRowDetailTable(Map<String, dynamic> row) {
     final List<String> columns = _controller.currentAllFields;
     const List<String> idFields = <String>[
-      'history_id', 'vehicle_info_id', 'infra_info_id',
+      'history_id',
       'vehicle_id', 'infra_id', 'msg_id', 'msg_seq', 'msg_length',
     ];
     const List<String> posFields = <String>[
@@ -713,7 +717,7 @@ class _TabDashboardState extends State<TabDashboard>
 
     const List<String> skipInBody = <String>[
       'detected_object_id', 'object_type', 'source_kind',
-      'vehicle_id', 'vehicle_info_id', 'infra_id', 'infra_info_id',
+      'vehicle_id', 'infra_id',
     ];
 
     return Container(
@@ -818,7 +822,6 @@ class _TabDashboardState extends State<TabDashboard>
       <String, List<String>>{
     '기본': <String>[
       'history_id',
-      'vehicle_info_id',
       'vehicle_id',
       'changed_at_date',
       'changed_at_time',
@@ -828,7 +831,6 @@ class _TabDashboardState extends State<TabDashboard>
     ],
     '내비게이션': <String>[
       'history_id',
-      'vehicle_info_id',
       'vehicle_id',
       'changed_at_date',
       'changed_at_time',
@@ -842,7 +844,6 @@ class _TabDashboardState extends State<TabDashboard>
     ],
     'IMU': <String>[
       'history_id',
-      'vehicle_info_id',
       'vehicle_id',
       'changed_at_date',
       'changed_at_time',
@@ -856,7 +857,6 @@ class _TabDashboardState extends State<TabDashboard>
     ],
     '제어': <String>[
       'history_id',
-      'vehicle_info_id',
       'vehicle_id',
       'changed_at_date',
       'changed_at_time',
@@ -873,7 +873,6 @@ class _TabDashboardState extends State<TabDashboard>
   static const Map<String, List<String>> _infraPresets = <String, List<String>>{
     '기본': <String>[
       'history_id',
-      'infra_info_id',
       'infra_id',
       'changed_at_date',
       'changed_at_time',
@@ -1313,7 +1312,11 @@ class _TabDashboardState extends State<TabDashboard>
         return;
       }
 
-      await _logRepository.downloadLogFile(exportResult.fileName);
+      await _logRepository.downloadLogFile(
+        exportResult.fileName,
+        exp: exportResult.downloadExp,
+        sig: exportResult.downloadSig,
+      );
 
       if (mounted) {
         final bool cut = exportResult.truncated;
@@ -1472,8 +1475,6 @@ class _TabDashboardState extends State<TabDashboard>
   static const Map<String, double> _columnWidths = <String, double>{
     // ID / 시퀀스
     'history_id': 90,
-    'vehicle_info_id': 110,
-    'infra_info_id': 110,
     'vehicle_id': 90,
     'infra_id': 90,
     'msg_id': 90,
@@ -1528,8 +1529,6 @@ class _TabDashboardState extends State<TabDashboard>
   static const Map<String, String> _filterHints = <String, String>{
     // ID 컬럼: 정확한 값 검색
     'history_id': '# 검색',
-    'vehicle_info_id': '차량 정보 ID',
-    'infra_info_id': '인프라 정보 ID',
     'vehicle_id': '차량 ID',
     'infra_id': '인프라 ID',
     'msg_id': 'MSG ID',

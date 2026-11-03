@@ -7,15 +7,26 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../constants/constants.dart';
 import '../controller/user_controller.dart';
 
+/// Signed download link parts from the server (a browser link cannot carry the token header).
+int? _downloadExpOf(Map<String, dynamic> json) => int.tryParse('${json['downloadExp'] ?? ''}');
+String? _downloadSigOf(Map<String, dynamic> json) {
+  final String sig = '${json['downloadSig'] ?? ''}'.trim();
+  return sig.isEmpty ? null : sig;
+}
+
 class LogFileInfo {
   final String fileName;
   final int sizeBytes;
   final DateTime? lastModified;
+  final int? downloadExp;
+  final String? downloadSig;
 
   LogFileInfo({
     required this.fileName,
     required this.sizeBytes,
     this.lastModified,
+    this.downloadExp,
+    this.downloadSig,
   });
 
   factory LogFileInfo.fromJson(Map<String, dynamic> json) {
@@ -36,6 +47,8 @@ class LogFileInfo {
       fileName: name,
       sizeBytes: size,
       lastModified: lm,
+      downloadExp: _downloadExpOf(json),
+      downloadSig: _downloadSigOf(json),
     );
   }
 }
@@ -45,12 +58,16 @@ class HistoryExportResult {
   final int rowCount;
   final int columnCount;
   final bool truncated;
+  final int? downloadExp;
+  final String? downloadSig;
 
   HistoryExportResult({
     required this.fileName,
     required this.rowCount,
     required this.columnCount,
     this.truncated = false,
+    this.downloadExp,
+    this.downloadSig,
   });
 }
 
@@ -112,17 +129,23 @@ class LogRepository {
       }
     }
 
-    final List<Map<String, dynamic>> onlyXls = rawList.whereType<Map<String, dynamic>>().where((file) {
+    // history exports are CSV (Postgres COPY); older ones were Excel
+    final List<Map<String, dynamic>> exportFiles = rawList.whereType<Map<String, dynamic>>().where((file) {
       final String name = (file['fileName'] ?? file['file_name'] ?? '').toString();
       final String lowered = name.toLowerCase();
-      return lowered.endsWith('.xls') || lowered.endsWith('.xlsx');
+      return lowered.endsWith('.csv') || lowered.endsWith('.xls') || lowered.endsWith('.xlsx');
     }).toList();
 
-    return onlyXls.map((e) => LogFileInfo.fromJson(e)).toList();
+    return exportFiles.map((e) => LogFileInfo.fromJson(e)).toList();
   }
 
-  Future<void> downloadLogFile(String fileName) async {
-    final Uri uri = buildUri('/api/broker-debug/download/$fileName');
+  /// Opens the download in the browser. The link carries the server's short-lived signature
+  /// (exp, sig) instead of the access token, which a plain link cannot send as a header.
+  Future<void> downloadLogFile(String fileName, {int? exp, String? sig}) async {
+    final Uri uri = buildUri(
+      '/api/broker-debug/download/$fileName',
+      query: (exp != null && sig != null) ? <String, dynamic>{'exp': exp, 'sig': sig} : null,
+    );
     await launchUrl(uri, mode: LaunchMode.externalApplication);
   }
 
@@ -205,6 +228,8 @@ class LogRepository {
       rowCount: rowCount,
       columnCount: columnCount,
       truncated: truncated,
+      downloadExp: _downloadExpOf(bodyMap),
+      downloadSig: _downloadSigOf(bodyMap),
     );
   }
 }

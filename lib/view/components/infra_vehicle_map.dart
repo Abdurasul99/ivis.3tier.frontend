@@ -170,8 +170,9 @@ class _VehicleLiveTrackingSession {
       return 'det:$detectedId';
     }
 
-    final int objectId = object.objectId ?? 0;
-    if (objectId > 0) {
+    // object_id is spec uint16 0–65535: 0 is a real object number
+    final int? objectId = object.objectId;
+    if (objectId != null && objectId >= 0) {
       return 'obj:$objectId';
     }
 
@@ -561,7 +562,8 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
   int _lastVehicleObjectsRefreshMs = 0;
   static const int _vehicleObjectsRefreshMinIntervalMs = 450;
 
-  final Map<int, List<DetectedObject>> _objectsCacheByVehicleInfoId =
+  // 탐지 객체 캐시 — 장치 번호(vehicle_id, 0~255) 기준
+  final Map<int, List<DetectedObject>> _objectsCacheByVehicleId =
       <int, List<DetectedObject>>{};
   final Map<int, int> _objectsCacheTimestampMs = <int, int>{};
 
@@ -594,8 +596,7 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
 
   Map<String, dynamic>? _registryVehicleById(int vehicleId) {
     for (final Map<String, dynamic> reg in _offlineVehicles) {
-      final int rid = int.tryParse(reg['device_id']?.toString() ?? '') ?? 0;
-      if (rid == vehicleId) {
+      if (_deviceIdOrNull(reg['device_id']) == vehicleId) {
         return reg;
       }
     }
@@ -665,18 +666,19 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
   Set<int> _allKnownVehicleIds() {
     final Set<int> ids = <int>{};
     for (final Vehicle v in _vehicleCtrl.vehicles) {
-      if (v.vehicleId != null && v.vehicleId! > 0) {
-        ids.add(v.vehicleId!);
+      final int? id = _deviceIdOrNull(v.vehicleId);
+      if (id != null) {
+        ids.add(id);
       }
     }
     ids.addAll(_tracked.keys);
     for (final Map<String, dynamic> reg in _offlineVehicles) {
-      final int id = int.tryParse(reg['device_id']?.toString() ?? '') ?? 0;
-      if (id > 0) {
+      final int? id = _deviceIdOrNull(reg['device_id']);
+      if (id != null) {
         ids.add(id);
       }
     }
-    if (_selectedVehicleId != null && _selectedVehicleId! > 0) {
+    if (_selectedVehicleId != null) {
       ids.add(_selectedVehicleId!);
     }
     return ids;
@@ -755,7 +757,7 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
 
   void _updateSelectedVehicleSession({required int nowMs}) {
     final int? vehicleId = _selectedVehicleId;
-    if (vehicleId == null || vehicleId <= 0) {
+    if (vehicleId == null) {
       return;
     }
 
@@ -1166,7 +1168,8 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
     await _vehicleCtrl.reqLoadVehicles();
     if (_disposed) return;
 
-    _selectedInfraId = 0;
+    // nothing selected yet (null, not 0: infra 0 is a real device)
+    _selectedInfraId = null;
 
     // 레지스트리 오프라인 장치 초기 로드 (telemetry 없는 등록 장치용)
     unawaited(_fetchRegistryDevices());
@@ -1302,14 +1305,14 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
     }
   }
 
-  Future<List<DetectedObject>> _fetchDetectedObjectsByVehicleInfoId(
-      int vehicleInfoId,
+  Future<List<DetectedObject>> _fetchDetectedObjectsByVehicleId(
+      int vehicleId,
       {int? vehicleTimestampMs}) async {
     try {
       final Uri uri = buildApiUri('/api/detectedObjects/byVehicleInfo');
 
       final Map<String, dynamic> requestBody = <String, dynamic>{
-        'vehicle_info_id': vehicleInfoId,
+        'vehicle_id': vehicleId,
         'latest_only': true,
       };
 
@@ -1366,9 +1369,10 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
         grouped = decoded['body'];
       }
       if (grouped is Map) {
+        // 응답 키 = 차량 번호(문자열). 0 도 유효한 번호이므로 파싱 실패(null)만 제외
         grouped.forEach((dynamic key, dynamic value) {
-          final int vid = int.tryParse(key.toString()) ?? 0;
-          if (vid > 0) {
+          final int? vid = int.tryParse(key.toString());
+          if (vid != null) {
             result[vid] = _parseDetectedObjectsResponse(value);
           }
         });
@@ -1379,8 +1383,8 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
     }
   }
 
-  Future<List<DetectedObject>> _fetchDetectedObjectsByInfraInfoId(
-      int infraInfoId) async {
+  Future<List<DetectedObject>> _fetchDetectedObjectsByInfraId(
+      int infraId) async {
     try {
       final Uri uri = buildApiUri('/api/detectedObjects/byInfraInfo');
       final http.Response resp = await http
@@ -1388,7 +1392,7 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
             uri,
             headers: _getAuthHeaders(),
             body: jsonEncode(<String, dynamic>{
-              'infra_info_id': infraInfoId,
+              'infra_id': infraId,
               'limit': 500,
               'offset': 0,
             }),
@@ -1489,9 +1493,8 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
           <int, Map<String, dynamic>>{};
       for (final dynamic raw in vehicleList) {
         if (raw is! Map<String, dynamic>) continue;
-        final int vId =
-            _parseInt(raw['vehicle_id']) ?? _parseInt(raw['vehicleId']) ?? 0;
-        if (vId <= 0) continue;
+        final int? vId = _deviceIdOrNull(raw['vehicle_id'] ?? raw['vehicleId']);
+        if (vId == null) continue;
         final int rawTsMs = _parseInt(raw['time_stamp_ms']) ??
             _parseInt(raw['timeStampMs']) ??
             0;
@@ -1508,16 +1511,15 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
       final List<Map<String, dynamic>> effectiveVehicleList =
           latestPerVehicle.values.toList();
 
-      final Map<int, int> vehicleIdToVehicleInfoId = <int, int>{};
+      // 탐지 객체 조회/캐시 대상: 장치 번호(vehicle_id) → 텔레메트리 timestamp
       final Map<int, int> vehicleIdToTimestampMs = <int, int>{};
 
       for (final dynamic item in effectiveVehicleList) {
         if (item is! Map<String, dynamic>) continue;
         final Map<String, dynamic> v = item;
 
-        final int vehicleId =
-            _parseInt(v['vehicle_id']) ?? _parseInt(v['vehicleId']) ?? 0;
-        if (vehicleId <= 0) continue;
+        final int? vehicleId = _deviceIdOrNull(v['vehicle_id'] ?? v['vehicleId']);
+        if (vehicleId == null) continue;
 
         final double rawX = _parseDouble(v['pos_x_m']) ??
             _parseDouble(v['position_x']) ??
@@ -1532,11 +1534,13 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
         if (!geo.isValidLatLng(vehicleLatLng.latitude, vehicleLatLng.longitude))
           continue;
 
-        final double heading = geo.normalizeHeadingDegrees(
-            _parseDouble(v['heading_deg']) ??
-                _parseDouble(v['orientation_heading']) ??
-                _parseDouble(v['orientationHeading']) ??
-                0.0);
+        // The API sends the spec heading (yaw: east = 0°, counter-clockwise). Everything on
+        // the map — marker rotation, prediction, the rollback guard — works in compass
+        // bearings (north = 0°, clockwise), so convert once here.
+        final double? yaw = _parseDouble(v['heading_deg']) ??
+            _parseDouble(v['orientation_heading']) ??
+            _parseDouble(v['orientationHeading']);
+        final double heading = yaw == null ? 0.0 : geo.compassBearingFromYaw(yaw);
 
         final VehicleTrackingData tracking =
             _tracked[vehicleId] ?? VehicleTrackingData();
@@ -1562,14 +1566,15 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
           continue;
         }
 
-        final double kph = _parseDouble(v['kph']) ??
-            _parseDouble(v['velocity_kph']) ??
-            _parseDouble(v['velocityKph']) ??
-            0.0;
-        double mps = _parseDouble(v['mps']) ??
+        // Speed: velocity_kph is computed by the parser (velocity_mps × 3.6). The API key "kph"
+        // is NOT a speed any more — it carries field 7 velocity_eventflag (event code 0-9).
+        final double? apiMps = _parseDouble(v['mps']) ??
             _parseDouble(v['velocity_mps']) ??
-            _parseDouble(v['velocityMps']) ??
-            kph / 3.6;
+            _parseDouble(v['velocityMps']);
+        final double kph = _parseDouble(v['velocity_kph']) ??
+            _parseDouble(v['velocityKph']) ??
+            (apiMps ?? 0.0) * 3.6;
+        double mps = apiMps ?? kph / 3.6;
 
         if (hasFreshTelemetry &&
             mps < _vehiclePredictMinSpeedMps &&
@@ -1623,10 +1628,7 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
             _parseDouble(v['positionZ']) ??
             0.0;
 
-        final int vehicleInfoId = _parseInt(v['id']) ?? 0;
-
         final VehicleInfo vInfo = VehicleInfo(
-          id: vehicleInfoId,
           vehicleId: vehicleId,
           msgId: _parseInt(v['msg_id']) ?? _parseInt(v['msgId']),
           msgSeq: _parseInt(v['msg_seq']) ?? _parseInt(v['msgSeq']),
@@ -1744,21 +1746,17 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
 
         _tracked[vehicleId] = tracking;
 
-        if (vehicleInfoId > 0) {
-          vehicleIdToVehicleInfoId[vehicleId] = vehicleInfoId;
-          vehicleIdToTimestampMs[vehicleId] = tsMs;
-        }
+        vehicleIdToTimestampMs[vehicleId] = tsMs;
       }
 
-      for (final MapEntry<int, int> entry in vehicleIdToVehicleInfoId.entries) {
+      for (final MapEntry<int, int> entry in vehicleIdToTimestampMs.entries) {
         final int vehicleId = entry.key;
-        final int vehicleInfoId = entry.value;
-        final int tsMs = vehicleIdToTimestampMs[vehicleId] ?? 0;
-        final int cachedTs = _objectsCacheTimestampMs[vehicleInfoId] ?? -1;
+        final int tsMs = entry.value;
+        final int cachedTs = _objectsCacheTimestampMs[vehicleId] ?? -1;
         if (cachedTs == tsMs &&
-            _objectsCacheByVehicleInfoId.containsKey(vehicleInfoId)) {
+            _objectsCacheByVehicleId.containsKey(vehicleId)) {
           _tracked[vehicleId]?.objects =
-              _objectsCacheByVehicleInfoId[vehicleInfoId] ?? <DetectedObject>[];
+              _objectsCacheByVehicleId[vehicleId] ?? <DetectedObject>[];
         }
       }
 
@@ -1768,7 +1766,6 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
       _rebuildMarkersThrottled();
 
       _scheduleVehicleObjectsRefresh(
-        vehicleIdToVehicleInfoId: Map<int, int>.from(vehicleIdToVehicleInfoId),
         vehicleIdToTimestampMs: Map<int, int>.from(vehicleIdToTimestampMs),
       );
     } catch (e) {
@@ -1780,7 +1777,6 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
   }
 
   void _scheduleVehicleObjectsRefresh({
-    required Map<int, int> vehicleIdToVehicleInfoId,
     required Map<int, int> vehicleIdToTimestampMs,
   }) {
     if (_disposed || !mounted) {
@@ -1799,7 +1795,6 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
     _vehicleObjectsRefreshInFlight = true;
 
     unawaited(_refreshVehicleObjects(
-      vehicleIdToVehicleInfoId: vehicleIdToVehicleInfoId,
       vehicleIdToTimestampMs: vehicleIdToTimestampMs,
     ).whenComplete(() {
       _vehicleObjectsRefreshInFlight = false;
@@ -1807,25 +1802,23 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
   }
 
   Future<void> _refreshVehicleObjects({
-    required Map<int, int> vehicleIdToVehicleInfoId,
     required Map<int, int> vehicleIdToTimestampMs,
   }) async {
     try {
       final List<int> vehicleIdsToFetch = <int>[];
-      for (final MapEntry<int, int> entry in vehicleIdToVehicleInfoId.entries) {
+      for (final MapEntry<int, int> entry in vehicleIdToTimestampMs.entries) {
         final int vehicleId = entry.key;
-        final int vehicleInfoId = entry.value;
-        final int tsMs = vehicleIdToTimestampMs[vehicleId] ?? 0;
-        final int cachedTs = _objectsCacheTimestampMs[vehicleInfoId] ?? -1;
+        final int tsMs = entry.value;
+        final int cachedTs = _objectsCacheTimestampMs[vehicleId] ?? -1;
         final bool needsFetch =
-            !_objectsCacheByVehicleInfoId.containsKey(vehicleInfoId) ||
+            !_objectsCacheByVehicleId.containsKey(vehicleId) ||
                 cachedTs != tsMs;
 
         if (needsFetch) {
           vehicleIdsToFetch.add(vehicleId);
         } else {
           _tracked[vehicleId]?.objects =
-              _objectsCacheByVehicleInfoId[vehicleInfoId] ?? <DetectedObject>[];
+              _objectsCacheByVehicleId[vehicleId] ?? <DetectedObject>[];
         }
       }
 
@@ -1843,14 +1836,11 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
         final Map<int, List<DetectedObject>> grouped =
             await _fetchDetectedObjectsBatchByVehicleIds(chunk);
         for (final int vehicleId in chunk) {
-          final int vehicleInfoId = vehicleIdToVehicleInfoId[vehicleId] ?? 0;
           final int tsMs = vehicleIdToTimestampMs[vehicleId] ?? 0;
           final List<DetectedObject> objects =
               grouped[vehicleId] ?? <DetectedObject>[];
-          if (vehicleInfoId > 0) {
-            _objectsCacheByVehicleInfoId[vehicleInfoId] = objects;
-            _objectsCacheTimestampMs[vehicleInfoId] = tsMs;
-          }
+          _objectsCacheByVehicleId[vehicleId] = objects;
+          _objectsCacheTimestampMs[vehicleId] = tsMs;
           _tracked[vehicleId]?.objects = objects;
         }
       }
@@ -1879,7 +1869,7 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
             body: jsonEncode(<String, dynamic>{
               'limit': _infraStatusFetchLimit,
               'offset': 0,
-              // 2026-08-07: 지도는 응답에서 id / infra_id / time_stamp_ms 만 사용한다.
+              // 2026-08-07: 지도는 응답에서 infra_id / time_stamp_ms 만 사용한다.
               //   중첩 objects(레코드당 3개 × 27필드)는 쓰지 않으면서 응답의 대부분을
               //   차지해 인프라 255개 기준 501KB 였다. 이 옵션으로 48KB 로 줄어든다(약 10배).
               //   객체 상세는 마커 클릭 시 detectedObjects/byInfraInfo 로 따로 조회한다.
@@ -1924,28 +1914,25 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
           continue;
         }
         final Map<String, dynamic> inf = item;
-        final int infraId =
-            _parseInt(inf['infra_id']) ?? _parseInt(inf['infraId']) ?? 0;
-        if (infraId <= 0) {
+        final int? infraId = _deviceIdOrNull(inf['infra_id'] ?? inf['infraId']);
+        if (infraId == null) {
           continue;
         }
 
         final int tsMs = _parseInt(inf['time_stamp_ms']) ??
             _parseInt(inf['timeStampMs']) ??
             -1;
-        final int rowId = _parseInt(inf['id']) ?? -1;
         final Map<String, dynamic>? existing = latestPerInfra[infraId];
         if (existing == null) {
           latestPerInfra[infraId] = inf;
           continue;
         }
 
+        // infra_info 의 행 id 컬럼은 삭제됨(기본키 = infra_id) → timestamp 로만 비교
         final int existingTsMs = _parseInt(existing['time_stamp_ms']) ??
             _parseInt(existing['timeStampMs']) ??
             -1;
-        final int existingRowId = _parseInt(existing['id']) ?? -1;
-        final bool isNewer = tsMs > existingTsMs ||
-            (tsMs == existingTsMs && rowId > existingRowId);
+        final bool isNewer = tsMs > existingTsMs;
         if (isNewer) {
           latestPerInfra[infraId] = inf;
         }
@@ -1963,14 +1950,11 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
         if (!_isInfraStatusFresh(tsMs, nowMs: nowMs)) {
           continue;
         }
-        final int infraInfoId =
-            _parseInt(raw['id']) ?? _parseInt(raw['infra_info_id']) ?? 0;
         final int objectCount = _parseInt(raw['number_of_objects']) ?? 0;
         final LatLng infraPos = _resolveInfraPosition(infraId);
 
         nextInfraSnapshots[infraId] = _InfraSnapshot(
           info: InfraInfo(
-            id: infraInfoId,
             infraId: infraId,
             timeStampMs: tsMs,
             numberOfObjects: objectCount,
@@ -1981,7 +1965,7 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
       }
 
       Map<String, dynamic>? selectedInfraRaw;
-      if (_selectedInfraId != null && _selectedInfraId! > 0) {
+      if (_selectedInfraId != null) {
         final Map<String, dynamic>? candidate =
             latestPerInfra[_selectedInfraId!];
         final int candidateTsMs = _parseInt(candidate?['time_stamp_ms']) ??
@@ -1993,10 +1977,9 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
       }
 
       if (selectedInfraRaw == null &&
-          (_selectedInfraId == null || _selectedInfraId! <= 0) &&
+          _selectedInfraId == null &&
           latestPerInfra.isNotEmpty) {
         int newestTsMs = -1;
-        int newestRowId = -1;
         for (final Map<String, dynamic> inf in latestPerInfra.values) {
           final int tsMs = _parseInt(inf['time_stamp_ms']) ??
               _parseInt(inf['timeStampMs']) ??
@@ -2004,13 +1987,10 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
           if (!_isInfraStatusFresh(tsMs, nowMs: nowMs)) {
             continue;
           }
-          final int rowId = _parseInt(inf['id']) ?? -1;
-          final bool isNewer =
-              tsMs > newestTsMs || (tsMs == newestTsMs && rowId > newestRowId);
+          final bool isNewer = tsMs > newestTsMs;
           if (selectedInfraRaw == null || isNewer) {
             selectedInfraRaw = inf;
             newestTsMs = tsMs;
-            newestRowId = rowId;
           }
         }
       }
@@ -2018,7 +1998,7 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
       _infraSnapshots = nextInfraSnapshots;
 
       if (selectedInfraRaw == null) {
-        if ((_selectedInfraId ?? 0) > 0) {
+        if (_selectedInfraId != null) {
           final _InfraSnapshot? selectedSnapshot =
               _infraSnapshots[_selectedInfraId!];
           _infraInfo = selectedSnapshot?.info;
@@ -2046,10 +2026,6 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
       final int tsMs = _parseInt(selectedInfraRaw['time_stamp_ms']) ??
           _parseInt(selectedInfraRaw['timeStampMs']) ??
           0;
-      final int infraInfoId = _parseInt(selectedInfraRaw['id']) ??
-          _parseInt(selectedInfraRaw['infra_info_id']) ??
-          0;
-
       final int declaredObjectCount =
           _parseInt(selectedInfraRaw['number_of_objects']) ?? 0;
       final int? selectedMsgSeq = _parseInt(selectedInfraRaw['msg_seq']);
@@ -2064,8 +2040,9 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
         preferredMsgSeq: selectedMsgSeq,
       );
 
-      if (objects.isEmpty && infraInfoId > 0 && declaredObjectCount > 0) {
-        objects = await _fetchDetectedObjectsByInfraInfoId(infraInfoId);
+      // 탐지 객체는 장치 번호(infra_id)로 조회
+      if (objects.isEmpty && declaredObjectCount > 0) {
+        objects = await _fetchDetectedObjectsByInfraId(infraId);
         objects = _keepLatestObjectBatch(
           objects,
           expectedCount: declaredObjectCount,
@@ -2075,7 +2052,6 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
 
       final LatLng infraPos = _resolveInfraPosition(infraId);
       final InfraInfo selectedInfo = InfraInfo(
-        id: infraInfoId,
         infraId: infraId,
         timeStampMs: tsMs,
         numberOfObjects:
@@ -2113,6 +2089,12 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
     return int.tryParse(v.toString());
   }
 
+  /// Device number (spec uint8 0–255; 0 is a real device). null when the value is not one.
+  int? _deviceIdOrNull(dynamic v) {
+    final int? id = _parseInt(v);
+    return (id != null && id >= 0 && id <= 255) ? id : null;
+  }
+
   double? _parseDouble(dynamic v) {
     if (v == null) return null;
     if (v is double) return v;
@@ -2122,8 +2104,7 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
 
   Map<String, dynamic>? _registryInfraById(int infraId) {
     for (final Map<String, dynamic> reg in _offlineInfras) {
-      final int rid = int.tryParse(reg['device_id']?.toString() ?? '') ?? 0;
-      if (rid == infraId) {
+      if (_deviceIdOrNull(reg['device_id']) == infraId) {
         return reg;
       }
     }
@@ -2131,7 +2112,7 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
   }
 
   LatLng _fallbackInfraPosition(int infraId) {
-    final int safeInfraId = infraId <= 0 ? 1 : infraId;
+    final int safeInfraId = infraId < 0 ? 1 : infraId;
     final double distanceMeters = 25.0 + ((safeInfraId % 4) * 18.0);
     final double bearingDegrees = ((safeInfraId * 67) % 360).toDouble();
     return _offsetLatLngByMeters(
@@ -2163,8 +2144,8 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
       positions.add(s.position);
     }
     for (final Map<String, dynamic> reg in _offlineInfras) {
-      final int iid = int.tryParse(reg['device_id']?.toString() ?? '') ?? 0;
-      if (iid > 0 && !_infraSnapshots.containsKey(iid)) {
+      final int? iid = _deviceIdOrNull(reg['device_id']);
+      if (iid != null && !_infraSnapshots.containsKey(iid)) {
         positions.add(_resolveInfraPosition(iid));
       }
     }
@@ -2247,12 +2228,12 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
   Set<int> _allKnownInfraIds() {
     final Set<int> ids = _infraSnapshots.keys.toSet();
     for (final Map<String, dynamic> reg in _offlineInfras) {
-      final int id = int.tryParse(reg['device_id']?.toString() ?? '') ?? 0;
-      if (id > 0) {
+      final int? id = _deviceIdOrNull(reg['device_id']);
+      if (id != null) {
         ids.add(id);
       }
     }
-    if (_selectedInfraId != null && _selectedInfraId! > 0) {
+    if (_selectedInfraId != null) {
       ids.add(_selectedInfraId!);
     }
     return ids;
@@ -2304,8 +2285,8 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
       result.add(DetectedObject(
         detectedObjectId: _parseInt(o['id']) ?? i,
         sourceKind: o['source_kind']?.toString(),
-        vehicleInfoId: _parseInt(o['vehicle_info_id']),
-        infraInfoId: _parseInt(o['infra_info_id']),
+        vehicleId: _parseInt(o['vehicle_id']),
+        infraId: _parseInt(o['infra_id']),
         objectId: _parseInt(o['object_id']) ?? _parseInt(o['objectId']) ?? i,
         msgId: _parseInt(o['msg_id']),
         msgSeq: _parseInt(o['msg_seq']),
@@ -2320,10 +2301,12 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
         positionZ: _parseDouble(o['position_z']) ??
             _parseDouble(o['positionZ']) ??
             0.0,
-        orientationHeading: _parseDouble(o['orientation_heading']) ??
-            _parseDouble(o['orientationHeading']) ??
-            _parseDouble(o['heading']) ??
-            0.0,
+        // object heading is yaw too (spec field 36) → compass bearing for the map
+        orientationHeading: geo.compassBearingFromYaw(
+            _parseDouble(o['orientation_heading']) ??
+                _parseDouble(o['orientationHeading']) ??
+                _parseDouble(o['heading']) ??
+                90.0), // missing → yaw 90 = north = 0, as before
       ));
     }
     return result;
@@ -3005,8 +2988,8 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
 
     // 레지스트리에 등록됐지만 라이브 telemetry가 없는 차량 → 오프라인 마커
     for (final Map<String, dynamic> reg in _offlineVehicles) {
-      final int vid = int.tryParse(reg['device_id']?.toString() ?? '') ?? 0;
-      if (vid <= 0) continue;
+      final int? vid = _deviceIdOrNull(reg['device_id']);
+      if (vid == null) continue;
       if (_isVehicleOnline(vid, nowMs: now)) continue;
       final LatLng? rawPosition = _resolvedVehiclePosition(vid, nowMs: now);
       if (rawPosition == null) continue;
@@ -3081,8 +3064,8 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
       }
 
       for (final Map<String, dynamic> reg in _offlineInfras) {
-        final int iid = int.tryParse(reg['device_id']?.toString() ?? '') ?? 0;
-        if (iid <= 0 || liveInfraIds.contains(iid)) continue;
+        final int? iid = _deviceIdOrNull(reg['device_id']);
+        if (iid == null || liveInfraIds.contains(iid)) continue;
         final LatLng markerPosition = _resolveInfraPosition(iid);
         newMarkers.add(Marker(
           markerId: MarkerId('vi_offline_infra_$iid'),
@@ -3127,10 +3110,8 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
             BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure);
     final BitmapDescriptor offlineInfraIcon = _infraOfflineIcon ??
         BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueCyan);
-    final int selectedInfraId =
-        (_selectedInfraId != null && _selectedInfraId! > 0)
-            ? _selectedInfraId!
-            : (_infraInfo?.infraId ?? 0);
+    // null = nothing selected (0 would highlight the real infra 0)
+    final int? selectedInfraId = _selectedInfraId ?? _infraInfo?.infraId;
     final Set<int> liveInfraIds = _infraSnapshots.keys.toSet();
 
     for (final MapEntry<int, _InfraSnapshot> entry in _infraSnapshots.entries) {
@@ -3168,7 +3149,7 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
     }
 
     final LatLng infraBasePos = _infraMarkerPos ??
-        (_selectedInfraId != null && _selectedInfraId! > 0
+        (_selectedInfraId != null
             ? _resolveInfraPosition(_selectedInfraId!)
             : const LatLng(kiapiInfraLat, kiapiInfraLon));
 
@@ -3211,8 +3192,8 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
 
     // 레지스트리에 등록됐지만 라이브 telemetry가 없는 인프라 → 오프라인 마커
     for (final Map<String, dynamic> reg in _offlineInfras) {
-      final int iid = int.tryParse(reg['device_id']?.toString() ?? '') ?? 0;
-      if (iid <= 0) continue;
+      final int? iid = _deviceIdOrNull(reg['device_id']);
+      if (iid == null) continue;
       if (liveInfraIds.contains(iid)) continue;
       final bool isSelected = iid == selectedInfraId;
       final LatLng markerPosition = _resolveInfraPosition(iid);
@@ -3252,8 +3233,8 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
           BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue);
 
       for (final Map<String, dynamic> reg in _offlineVehicles) {
-        final int vid = int.tryParse(reg['device_id']?.toString() ?? '') ?? 0;
-        if (vid <= 0 || _isVehicleOnline(vid, nowMs: nowMs)) continue;
+        final int? vid = _deviceIdOrNull(reg['device_id']);
+        if (vid == null || _isVehicleOnline(vid, nowMs: nowMs)) continue;
         final LatLng? rawPos = _resolvedVehiclePosition(vid, nowMs: nowMs);
         if (rawPos == null) continue;
         final LatLng markerPosition = _avoidStationOverlap(rawPos, vid);
