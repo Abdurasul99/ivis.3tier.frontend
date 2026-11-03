@@ -148,7 +148,7 @@ void main() {
       ctrl.historyItemsInternal = [VehicleInfoHistory(historyId: 1)];
       ctrl.historyTotalCountInternal = 10;
       ctrl.historyOffsetInternal = 18;
-      ctrl.latestVehicleInfoInternal = VehicleInfo(id: 1);
+      ctrl.latestVehicleInfoInternal = VehicleInfo(vehicleId:1);
 
       // Act
       ctrl.clearHistory();
@@ -168,7 +168,7 @@ void main() {
     test('statusItems, totalCount, offset이 초기화', () {
       // Arrange
       final VehicleController ctrl = Get.find<VehicleController>();
-      ctrl.statusItemsInternal = [VehicleInfo(id: 1)];
+      ctrl.statusItemsInternal = [VehicleInfo(vehicleId:1)];
       ctrl.statusTotalCountInternal = 50;
       ctrl.statusOffsetInternal = 100;
 
@@ -193,7 +193,7 @@ void main() {
       ctrl.setDateRange(1700000000, 1700001000);
       ctrl.historyItemsInternal = [VehicleInfoHistory(historyId: 1)];
       ctrl.historyTotalCountInternal = 5;
-      ctrl.statusItemsInternal = [VehicleInfo(id: 1)];
+      ctrl.statusItemsInternal = [VehicleInfo(vehicleId:1)];
       ctrl.isLoadingInternal = true;
 
       // Act
@@ -279,7 +279,7 @@ void main() {
     test('hasToken=false이면 statusItems를 비우고 반환', () async {
       // Arrange
       final VehicleController ctrl = Get.find<VehicleController>();
-      ctrl.statusItemsInternal = [VehicleInfo(id: 1)];
+      ctrl.statusItemsInternal = [VehicleInfo(vehicleId:1)];
       ctrl.statusTotalCountInternal = 5;
 
       // Act
@@ -298,7 +298,7 @@ void main() {
     test('hasToken=false이면 latestVehicleInfo를 null로 설정', () async {
       // Arrange
       final VehicleController ctrl = Get.find<VehicleController>();
-      ctrl.latestVehicleInfoInternal = VehicleInfo(id: 99);
+      ctrl.latestVehicleInfoInternal = VehicleInfo(vehicleId:99);
 
       // Act
       await ctrl.reqLoadLatestVehicleInfo(1);

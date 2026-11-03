@@ -119,7 +119,6 @@ void main() {
     test('Repository가 VehicleInfo를 반환하면 latestVehicleInfo에 저장', () async {
       // Arrange
       fakeRepo.latestInfoResult = VehicleInfo(
-        id: 500,
         vehicleId: 1,
         velocityKph: 80.0,
         orientationHeading: 45.0,
@@ -130,7 +129,7 @@ void main() {
 
       // Assert
       expect(ctrl.latestVehicleInfo, isNotNull);
-      expect(ctrl.latestVehicleInfo!.id, 500);
+      expect(ctrl.latestVehicleInfo!.vehicleId, 1);
       expect(ctrl.latestVehicleInfo!.velocityKph, 80.0);
     });
 
@@ -147,7 +146,7 @@ void main() {
 
     test('Repository 예외 시 latestVehicleInfo는 null 유지', () async {
       // Arrange
-      ctrl.latestVehicleInfoInternal = VehicleInfo(id: 999); // 기존 값
+      ctrl.latestVehicleInfoInternal = VehicleInfo(vehicleId:999); // 기존 값
       fakeRepo.shouldThrow = true;
 
       // Act
@@ -244,8 +243,8 @@ void main() {
       fakeRepo.statusResult = VehicleInfoResult(
         totalCount: 2,
         items: <VehicleInfo>[
-          VehicleInfo(id: 1, velocityKph: 60.0),
-          VehicleInfo(id: 2, velocityKph: 80.0),
+          VehicleInfo(vehicleId:1, velocityKph: 60.0),
+          VehicleInfo(vehicleId:2, velocityKph: 80.0),
         ],
       );
 
@@ -260,7 +259,7 @@ void main() {
 
     test('Repository 예외 시 statusItems 초기화 및 isLoading=false', () async {
       // Arrange
-      ctrl.statusItemsInternal = <VehicleInfo>[VehicleInfo(id: 1)];
+      ctrl.statusItemsInternal = <VehicleInfo>[VehicleInfo(vehicleId:1)];
       fakeRepo.shouldThrow = true;
 
       // Act

@@ -21,6 +21,16 @@ class DashboardFormatHelper {
     return int.tryParse(value.toString()) ?? 0;
   }
 
+  /// Device number (vehicle_id / infra_id, spec uint8 0–255; 0 is a real device).
+  /// null when the value is missing or not a valid device number — never 0 by default.
+  static int? deviceIdOrNull(dynamic value) {
+    if (value == null) return null;
+    final int? id = value is int
+        ? value
+        : (value is num ? (value == value.roundToDouble() ? value.toInt() : null) : int.tryParse(value.toString().trim()));
+    return (id != null && id >= 0 && id <= 255) ? id : null;
+  }
+
   // 임의 값을 int로 변환하되 실패 시 지정 fallback 반환
   static int parseIntOrFallback(dynamic value, int fallback) {
     if (value == null) return fallback;

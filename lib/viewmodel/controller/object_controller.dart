@@ -26,8 +26,8 @@ class ObjectController extends GetxController {
   int pageOffsetInternal = 0;
   int totalCountInternal = 0;
   DetectedObjectScope scopeInternal = DetectedObjectScope.vehicleInfo;
-  int? currentVehicleInfoIdInternal;
-  int? currentInfraInfoIdInternal;
+  int? currentVehicleIdInternal;
+  int? currentInfraIdInternal;
 
   List<DetectedObject> get detectedObjects {
     return detectedObjectsInternal;
@@ -53,12 +53,12 @@ class ObjectController extends GetxController {
     return scopeInternal;
   }
 
-  int? get currentVehicleInfoId {
-    return currentVehicleInfoIdInternal;
+  int? get currentVehicleId {
+    return currentVehicleIdInternal;
   }
 
-  int? get currentInfraInfoId {
-    return currentInfraInfoIdInternal;
+  int? get currentInfraId {
+    return currentInfraIdInternal;
   }
 
   ObjectRepository get repository {
@@ -109,10 +109,11 @@ class ObjectController extends GetxController {
     return max(1, pages);
   }
 
-  Future<void> setVehicleInfoRow(int vehicleInfoId) async {
+  // 차량 번호(vehicle_id)로 조회 대상 지정 (0 도 유효한 번호)
+  Future<void> setVehicleInfoRow(int vehicleId) async {
     scopeInternal = DetectedObjectScope.vehicleInfo;
-    currentVehicleInfoIdInternal = vehicleInfoId;
-    currentInfraInfoIdInternal = null;
+    currentVehicleIdInternal = vehicleId;
+    currentInfraIdInternal = null;
     pageOffsetInternal = 0;
     totalCountInternal = 0;
     detectedObjectsInternal = <DetectedObject>[];
@@ -120,10 +121,11 @@ class ObjectController extends GetxController {
     await loadPage(offset: 0, limit: pageLimitInternal);
   }
 
-  Future<void> setInfraInfoRow(int infraInfoId) async {
+  // 인프라 번호(infra_id)로 조회 대상 지정 (0 도 유효한 번호)
+  Future<void> setInfraInfoRow(int infraId) async {
     scopeInternal = DetectedObjectScope.infraInfo;
-    currentInfraInfoIdInternal = infraInfoId;
-    currentVehicleInfoIdInternal = null;
+    currentInfraIdInternal = infraId;
+    currentVehicleIdInternal = null;
     pageOffsetInternal = 0;
     totalCountInternal = 0;
     detectedObjectsInternal = <DetectedObject>[];
@@ -145,14 +147,14 @@ class ObjectController extends GetxController {
 
     final bool isVehicleScope =
         scopeInternal == DetectedObjectScope.vehicleInfo;
-    if (isVehicleScope && currentVehicleInfoIdInternal == null) {
+    if (isVehicleScope && currentVehicleIdInternal == null) {
       detectedObjectsInternal = <DetectedObject>[];
       totalCountInternal = 0;
       pageOffsetInternal = 0;
       update();
       return;
     }
-    if (!isVehicleScope && currentInfraInfoIdInternal == null) {
+    if (!isVehicleScope && currentInfraIdInternal == null) {
       detectedObjectsInternal = <DetectedObject>[];
       totalCountInternal = 0;
       pageOffsetInternal = 0;
@@ -167,16 +169,16 @@ class ObjectController extends GetxController {
       DetectedObjectResult? result;
 
       if (isVehicleScope) {
-        final int vehicleInfoId = currentVehicleInfoIdInternal!;
+        final int vehicleId = currentVehicleIdInternal!;
         result = await repositoryInternal.requestByVehicleInfo(
-          vehicleInfoId: vehicleInfoId,
+          vehicleId: vehicleId,
           limit: limit,
           offset: offset,
         );
       } else {
-        final int infraInfoId = currentInfraInfoIdInternal!;
+        final int infraId = currentInfraIdInternal!;
         result = await repositoryInternal.requestByInfraInfo(
-          infraInfoId: infraInfoId,
+          infraId: infraId,
           limit: limit,
           offset: offset,
         );
@@ -206,12 +208,11 @@ class ObjectController extends GetxController {
   }
 
   Future<DetectedObjectResult?> fetchByVehicleInfo({
-    required int vehicleInfoId,
+    required int vehicleId,
     int offset = 0,
     int limit = 200,
     bool latestOnly = false,
     int? vehicleTimeStampMs,
-    int? vehicleId,
     int? msgSeq,
     int? expectedObjectCount,
   }) async {
@@ -221,12 +222,11 @@ class ObjectController extends GetxController {
 
     try {
       return await repositoryInternal.requestByVehicleInfo(
-        vehicleInfoId: vehicleInfoId,
+        vehicleId: vehicleId,
         limit: limit,
         offset: offset,
         latestOnly: latestOnly,
         vehicleTimeStampMs: vehicleTimeStampMs,
-        vehicleId: vehicleId,
         msgSeq: msgSeq,
         expectedObjectCount: expectedObjectCount,
       );
@@ -239,12 +239,11 @@ class ObjectController extends GetxController {
   }
 
   Future<DetectedObjectResult?> fetchByInfraInfo({
-    required int infraInfoId,
+    required int infraId,
     int offset = 0,
     int limit = 200,
     bool latestOnly = false,
     int? infraTimeStampMs,
-    int? infraId,
     int? msgSeq,
     int? expectedObjectCount,
   }) async {
@@ -254,12 +253,11 @@ class ObjectController extends GetxController {
 
     try {
       return await repositoryInternal.requestByInfraInfo(
-        infraInfoId: infraInfoId,
+        infraId: infraId,
         limit: limit,
         offset: offset,
         latestOnly: latestOnly,
         infraTimeStampMs: infraTimeStampMs,
-        infraId: infraId,
         msgSeq: msgSeq,
         expectedObjectCount: expectedObjectCount,
       );
@@ -294,8 +292,8 @@ class ObjectController extends GetxController {
     pageOffsetInternal = 0;
     totalCountInternal = 0;
     scopeInternal = DetectedObjectScope.vehicleInfo;
-    currentVehicleInfoIdInternal = null;
-    currentInfraInfoIdInternal = null;
+    currentVehicleIdInternal = null;
+    currentInfraIdInternal = null;
     update();
   }
 }

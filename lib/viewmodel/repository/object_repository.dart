@@ -12,13 +12,13 @@ class ObjectRepository extends BaseRepository {
   final String _byInfraHistoryPath = '/api/detectedObjects/byInfraHistory';
   final String _historyPath = '/api/detectedObjects/history';
 
+  // 차량 번호(vehicle_id, 0~255 / 0 도 유효)로 탐지 객체 조회
   Future<DetectedObjectResult?> requestByVehicleInfo({
-    required int vehicleInfoId,
+    required int vehicleId,
     int limit = 50000,
     int offset = 0,
     bool latestOnly = false,
     int? vehicleTimeStampMs,
-    int? vehicleId,
     int? msgSeq,
     int? expectedObjectCount,
   }) async {
@@ -26,7 +26,7 @@ class ObjectRepository extends BaseRepository {
 
     try {
       final Map<String, dynamic> payload = <String, dynamic>{
-        'vehicle_info_id': vehicleInfoId,
+        'vehicle_id': vehicleId,
         'limit': limit,
         'offset': offset,
       };
@@ -36,9 +36,6 @@ class ObjectRepository extends BaseRepository {
       }
       if (vehicleTimeStampMs != null) {
         payload['vehicle_time_stamp_ms'] = vehicleTimeStampMs;
-      }
-      if (vehicleId != null) {
-        payload['vehicle_id'] = vehicleId;
       }
       if (msgSeq != null) {
         payload['msg_seq'] = msgSeq;
@@ -89,13 +86,13 @@ class ObjectRepository extends BaseRepository {
     }
   }
 
+  // 인프라 번호(infra_id, 0~255 / 0 도 유효)로 탐지 객체 조회
   Future<DetectedObjectResult?> requestByInfraInfo({
-    required int infraInfoId,
+    required int infraId,
     int limit = 200,
     int offset = 0,
     bool latestOnly = false,
     int? infraTimeStampMs,
-    int? infraId,
     int? msgSeq,
     int? expectedObjectCount,
   }) async {
@@ -103,7 +100,7 @@ class ObjectRepository extends BaseRepository {
 
     try {
       final Map<String, dynamic> payload = <String, dynamic>{
-        'infra_info_id': infraInfoId,
+        'infra_id': infraId,
         'limit': limit,
         'offset': offset,
       };
@@ -113,9 +110,6 @@ class ObjectRepository extends BaseRepository {
       }
       if (infraTimeStampMs != null) {
         payload['infra_time_stamp_ms'] = infraTimeStampMs;
-      }
-      if (infraId != null) {
-        payload['infra_id'] = infraId;
       }
       if (msgSeq != null) {
         payload['msg_seq'] = msgSeq;

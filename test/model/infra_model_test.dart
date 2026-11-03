@@ -13,7 +13,6 @@ void main() {
     test('정상 JSON에서 모든 필드 파싱', () {
       // Arrange
       final Map<String, dynamic> json = <String, dynamic>{
-        'id': 10,
         'infra_id': 1,
         'msg_id': 5,
         'msg_seq': 3,
@@ -31,7 +30,6 @@ void main() {
       final InfraInfo info = InfraInfo.fromJson(json);
 
       // Assert
-      expect(info.id, 10);
       expect(info.infraId, 1);
       expect(info.msgId, 5);
       expect(info.msgSeq, 3);
@@ -118,7 +116,6 @@ void main() {
       final InfraInfo info = InfraInfo.fromJson(json);
 
       // Assert
-      expect(info.id, isNull);
       expect(info.infraId, isNull);
       expect(info.numberOfObjects, isNull);
       expect(info.payloadCrcOk, isNull);
@@ -142,7 +139,6 @@ void main() {
     test('모든 필드가 toJson에 포함', () {
       // Arrange
       final InfraInfo info = InfraInfo(
-        id: 1,
         infraId: 2,
         msgId: 3,
         msgSeq: 4,
@@ -159,7 +155,8 @@ void main() {
       final Map<String, dynamic> json = info.toJson();
 
       // Assert
-      expect(json['id'], 1);
+      // infra_info.id was dropped (infra_id is the key), so toJson has no 'id'
+      expect(json.containsKey('id'), isFalse);
       expect(json['infra_id'], 2);
       expect(json['msg_id'], 3);
       expect(json['time_stamp_ms'], 1700000000000);
@@ -190,8 +187,8 @@ void main() {
       final Map<String, dynamic> json = <String, dynamic>{
         'totalCount': 2,
         'items': <dynamic>[
-          <String, dynamic>{'id': 1, 'infra_id': 1, 'number_of_objects': 3},
-          <String, dynamic>{'id': 2, 'infra_id': 1, 'number_of_objects': 0},
+          <String, dynamic>{'infra_id': 1, 'number_of_objects': 3},
+          <String, dynamic>{'infra_id': 2, 'number_of_objects': 0},
         ],
       };
 
@@ -202,7 +199,7 @@ void main() {
       expect(result.totalCount, 2);
       expect(result.items.length, 2);
       expect(result.items[0].numberOfObjects, 3);
-      expect(result.items[1].id, 2);
+      expect(result.items[1].infraId, 2);
     });
 
     test('items가 없으면 빈 리스트', () {
@@ -240,7 +237,6 @@ void main() {
       // Arrange
       final Map<String, dynamic> json = <String, dynamic>{
         'history_id': 100,
-        'infra_info_id': 50,
         'infra_id': 1,
         'changed_at': '2024-05-01T12:00:00',
         'msg_id': 10,
@@ -254,7 +250,6 @@ void main() {
 
       // Assert
       expect(history.historyId, 100);
-      expect(history.infraInfoId, 50);
       expect(history.infraId, 1);
       expect(history.changedAt, '2024-05-01T12:00:00');
       expect(history.numberOfObjects, 2);
@@ -274,11 +269,10 @@ void main() {
       expect(history.timeStampMs, 1700000001);
     });
 
-    test('toJson에 history_id와 infra_info_id 포함', () {
+    test('toJson에 history_id와 infra_id 포함', () {
       // Arrange
       final InfraInfoHistory history = InfraInfoHistory(
         historyId: 200,
-        infraInfoId: 100,
         infraId: 3,
         numberOfObjects: 5,
       );
@@ -288,7 +282,8 @@ void main() {
 
       // Assert
       expect(json['history_id'], 200);
-      expect(json['infra_info_id'], 100);
+      // infra_info_history.infra_info_id was dropped: the history row links by infra_id
+      expect(json.containsKey('infra_info_id'), isFalse);
       expect(json['infra_id'], 3);
       expect(json['number_of_objects'], 5);
     });
