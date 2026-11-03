@@ -1,7 +1,7 @@
 # ivis.3tier.frontend
 Dasboard to monitor vechicle data
 Here's the website url
-http://<SERVER_DOMAIN>/#/login
+http://office.3-tier.com/#/login
 for frontend view only 
 
 차량·인프라 텔레메트리를 실시간으로 보여주는 IVIS 3Tier 대시보드(Flutter Web)입니다.
