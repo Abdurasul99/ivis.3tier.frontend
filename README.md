@@ -67,6 +67,16 @@ packages/pluto_grid/   그리드 라이브러리 (로컬 패키지)
 test/                  단위·위젯 테스트
 web/                   index.html
 
+### Google Maps API 키
+`web/maps_key.js` 에 Google Maps API 키를 붙여 넣습니다.
+
+1. `web/maps_key.example.js` 를 `web/maps_key.js` 로 복사합니다.
+2. `YOUR_GOOGLE_MAPS_API_KEY` 를 본인 키로 바꿉니다:
+   `window.GOOGLE_MAPS_API_KEY = 'your-key-here';`
+3. 앱을 다시 실행(빌드)합니다.
+
+`web/maps_key.js` 는 git 에 올라가지 않습니다. 키를 커밋하지 마세요.
+
 
  보안
 - 실제 서버 IP, 도메인, 계정, 비밀번호, 키는 README·이슈·커밋 메시지에 적지 않습니다.
@@ -146,6 +156,17 @@ lib/
 packages/pluto_grid/   grid library (local package)
 test/                  unit and widget tests
 web/                   index.html
+
+
+### Google Maps API key
+Paste your Google Maps API key into `web/maps_key.js`:
+
+1. Copy `web/maps_key.example.js` to `web/maps_key.js`.
+2. Replace `YOUR_GOOGLE_MAPS_API_KEY` with your key:
+   `window.GOOGLE_MAPS_API_KEY = 'your-key-here';`
+3. Run or build the app again.
+
+`web/maps_key.js` is git-ignored. Never commit the key.
 
 
 Security
