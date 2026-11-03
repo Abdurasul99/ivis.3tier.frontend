@@ -393,34 +393,29 @@ class DashboardObjectsStatusController extends GetxController {
     final int? expectedCountForRequest =
         expectedObjectCount > 0 ? expectedObjectCount : null;
 
+    // 장치 번호(vehicle_id / infra_id)가 유일한 식별자 — 0 도 유효하므로 null 일 때만 생략
     if (_currentEntityType == FmsEntityType.vehicle) {
-      final int vehicleInfoId =
-          DashboardFormatHelper.parseIntValue(row['vehicle_info_id']);
-      if (vehicleInfoId <= 0) return <DetectedObject>[];
-      final int vehicleId =
-          DashboardFormatHelper.parseIntValue(row['vehicle_id']);
+      // an unparseable cell must not turn into device 0
+      final int? vehicleId = DashboardFormatHelper.deviceIdOrNull(row['vehicle_id']);
+      if (vehicleId == null) return <DetectedObject>[];
       result = await _objectCtrl.fetchByVehicleInfo(
-        vehicleInfoId: vehicleInfoId,
+        vehicleId: vehicleId,
         offset: 0,
         limit: limit,
         latestOnly: latestOnly,
         vehicleTimeStampMs: rowTimeStampMs,
-        vehicleId: vehicleId > 0 ? vehicleId : null,
         msgSeq: rowMsgSeq,
         expectedObjectCount: expectedCountForRequest,
       );
     } else {
-      final int infraInfoId =
-          DashboardFormatHelper.parseIntValue(row['infra_info_id']);
-      if (infraInfoId <= 0) return <DetectedObject>[];
-      final int infraId = DashboardFormatHelper.parseIntValue(row['infra_id']);
+      final int? infraId = DashboardFormatHelper.deviceIdOrNull(row['infra_id']);
+      if (infraId == null) return <DetectedObject>[];
       result = await _objectCtrl.fetchByInfraInfo(
-        infraInfoId: infraInfoId,
+        infraId: infraId,
         offset: 0,
         limit: limit,
         latestOnly: latestOnly,
         infraTimeStampMs: rowTimeStampMs,
-        infraId: infraId > 0 ? infraId : null,
         msgSeq: rowMsgSeq,
         expectedObjectCount: expectedCountForRequest,
       );

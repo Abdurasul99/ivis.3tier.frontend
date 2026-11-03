@@ -29,9 +29,13 @@ class LogController extends GetxController {
 
       final LogFileInfo latest = files.first;
 
-      await _repository.downloadLogFile(latest.fileName);
+      await _repository.downloadLogFile(
+        latest.fileName,
+        exp: latest.downloadExp,
+        sig: latest.downloadSig,
+      );
 
-      Get.snackbar('완료', 'XLS 로그 파일 다운로드를 시작했습니다.');
+      Get.snackbar('완료', '로그 파일 다운로드를 시작했습니다.');
     } catch (e) {
       Get.snackbar('오류', '로그 다운로드 중 문제가 발생했습니다.');
     } finally {

@@ -42,8 +42,8 @@ void main() {
       expect(ctrl.pageOffset, 0);
       expect(ctrl.totalCount, 0);
       expect(ctrl.scope, DetectedObjectScope.vehicleInfo);
-      expect(ctrl.currentVehicleInfoId, isNull);
-      expect(ctrl.currentInfraInfoId, isNull);
+      expect(ctrl.currentVehicleId, isNull);
+      expect(ctrl.currentInfraId, isNull);
     });
   });
 
@@ -204,8 +204,8 @@ void main() {
       ctrl.pageLimitInternal = 500;
       ctrl.pageOffsetInternal = 400;
       ctrl.totalCountInternal = 1000;
-      ctrl.currentVehicleInfoIdInternal = 10;
-      ctrl.currentInfraInfoIdInternal = 20;
+      ctrl.currentVehicleIdInternal = 10;
+      ctrl.currentInfraIdInternal = 20;
 
       // Act
       ctrl.reset();
@@ -217,8 +217,8 @@ void main() {
       expect(ctrl.pageOffset, 0);
       expect(ctrl.totalCount, 0);
       expect(ctrl.scope, DetectedObjectScope.vehicleInfo);
-      expect(ctrl.currentVehicleInfoId, isNull);
-      expect(ctrl.currentInfraInfoId, isNull);
+      expect(ctrl.currentVehicleId, isNull);
+      expect(ctrl.currentInfraId, isNull);
     });
   });
 
@@ -250,7 +250,7 @@ void main() {
       ctrl.detectedObjectsInternal = <DetectedObject>[
         DetectedObject(detectedObjectId: 1),
       ];
-      ctrl.currentVehicleInfoIdInternal = 5;
+      ctrl.currentVehicleIdInternal = 5;
 
       // Act (UserController에 토큰 없음 — setUp 기본 상태)
       await ctrl.loadPage(offset: 0, limit: 200);
@@ -273,7 +273,7 @@ void main() {
     test('vehicle 스코프에서 Repository가 결과를 반환하면 상태 갱신', () async {
       // Arrange
       ctrl.scopeInternal = DetectedObjectScope.vehicleInfo;
-      ctrl.currentVehicleInfoIdInternal = 1;
+      ctrl.currentVehicleIdInternal = 1;
       fakeRepo.byVehicleInfoResult = DetectedObjectResult(
         totalCount: 2,
         items: <DetectedObject>[
@@ -295,7 +295,7 @@ void main() {
     test('infra 스코프에서 Repository가 결과를 반환하면 상태 갱신', () async {
       // Arrange
       ctrl.scopeInternal = DetectedObjectScope.infraInfo;
-      ctrl.currentInfraInfoIdInternal = 5;
+      ctrl.currentInfraIdInternal = 5;
       fakeRepo.byInfraInfoResult = DetectedObjectResult(
         totalCount: 3,
         items: <DetectedObject>[
@@ -316,7 +316,7 @@ void main() {
     test('Repository 예외 시 detectedObjects 초기화', () async {
       // Arrange
       ctrl.scopeInternal = DetectedObjectScope.vehicleInfo;
-      ctrl.currentVehicleInfoIdInternal = 1;
+      ctrl.currentVehicleIdInternal = 1;
       ctrl.detectedObjectsInternal = <DetectedObject>[
         DetectedObject(detectedObjectId: 1),
       ];

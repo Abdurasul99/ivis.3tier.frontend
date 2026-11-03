@@ -18,6 +18,16 @@ double normalizeHeadingDegrees(double heading) {
   return normalized;
 }
 
+/// Converts the protocol heading to the angle the map uses.
+///
+/// Spec 260427 fields 12 / 36 (orientation.heading) are yaw: east = 0°, counter-clockwise,
+/// which is what KIAPI and the simulator send. The map, the marker rotation and every
+/// bearing calculation here use compass bearings: north = 0°, clockwise.
+/// Examples: yaw 0 (east) → 90, yaw 90 (north) → 0, yaw 180 (west) → 270.
+double compassBearingFromYaw(double yawDegrees) {
+  return normalizeHeadingDegrees(90.0 - yawDegrees);
+}
+
 double shortestAngleDelta(double fromDegrees, double toDegrees) {
   double delta = normalizeHeadingDegrees(toDegrees) - normalizeHeadingDegrees(fromDegrees);
   if (delta > 180.0) {

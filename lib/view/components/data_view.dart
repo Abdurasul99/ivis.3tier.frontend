@@ -29,9 +29,7 @@ int _parseInt(dynamic value) {
 
 List<String> _getPreferredVehicleColumns() {
   return <String>[
-    'id',
     'history_id',
-    'vehicle_info_id',
     'vehicle_id',
     'msg_id',
     'msg_seq',
@@ -72,7 +70,6 @@ List<String> _getPreferredVehicleColumns() {
 List<String> _getPreferredInfraColumns() {
   return <String>[
     'history_id',
-    'infra_info_id',
     'changed_at_date',
     'changed_at_time',
     'msg_seq',
@@ -94,8 +91,8 @@ List<String> _getPreferredObjectColumns() {
   return <String>[
     'detected_object_id',
     'source_kind',
-    'vehicle_info_id',
-    'infra_info_id',
+    'vehicle_id',
+    'infra_id',
     'object_id',
     'age',
     'score',
@@ -202,11 +199,12 @@ Widget _buildRowSummaryCard(String entityType, Map<String, dynamic> row) {
   String primaryValue;
 
   if (entityType == 'infra') {
+    // 장치 번호(infra_id / vehicle_id)가 식별자 — 행 id(info id) 컬럼은 삭제됨
     idText = _formatCellValue(row['history_id']);
-    primaryLabel = 'Infra info ID';
-    primaryValue = _formatCellValue(row['infra_info_id']);
+    primaryLabel = 'Infra ID';
+    primaryValue = _formatCellValue(row['infra_id']);
   } else if (entityType == 'vehicle') {
-    idText = _formatCellValue(row['id']);
+    idText = _formatCellValue(row['history_id']);
     primaryLabel = 'Vehicle ID';
     primaryValue = _formatCellValue(row['vehicle_id']);
   } else {

@@ -20,7 +20,7 @@ class Vehicle {
   });
 
   Vehicle.fromJson(Map<String, dynamic> json) {
-    vehicleId = _parseInt(json['vehicle_id'] ?? json['id']);
+    vehicleId = _parseInt(json['vehicle_id']);
     vehicleType = _parseString(json['vehicle_type'] ?? json['type']);
     make = _parseString(json['make'] ?? json['name']);
     modelName = _parseString(
@@ -57,7 +57,6 @@ class Vehicle {
 }
 
 class VehicleInfo {
-  int? id;
   int? vehicleId;
   int? msgId;
   int? msgSeq;
@@ -90,7 +89,6 @@ class VehicleInfo {
   String? updatedTs;
 
   VehicleInfo({
-    this.id,
     this.vehicleId,
     this.msgId,
     this.msgSeq,
@@ -124,7 +122,6 @@ class VehicleInfo {
   });
 
   VehicleInfo.fromJson(Map<String, dynamic> json) {
-    id = _parseInt(json['id']);
     vehicleId = _parseInt(json['vehicle_id']);
     msgId = _parseInt(json['msg_id']);
     msgSeq = _parseInt(json['msg_seq']);
@@ -132,8 +129,11 @@ class VehicleInfo {
     timeStamp = _parseInt(json['time_stamp']);
     timeStampMs = _parseInt(json['time_stamp_ms']);
     navsat = _parseInt(json['navsat']);
-    velocityKph = _parseDouble(json['kph'] ?? json['velocity_kph']);
     velocityMps = _parseDouble(json['mps'] ?? json['velocity_mps']);
+    // velocity_kph is computed by the parser (mps × 3.6). The API key "kph" is field 7
+    // velocity_eventflag (event code 0-9), not a speed.
+    velocityKph = _parseDouble(json['velocity_kph']) ??
+        (velocityMps != null ? velocityMps! * 3.6 : null);
     positionX = _parseDouble(json['pos_x_m'] ?? json['position_x']);
     positionY = _parseDouble(json['pos_y_m'] ?? json['position_y']);
     positionZ = _parseDouble(json['pos_z_m'] ?? json['position_z']);
@@ -195,7 +195,6 @@ class VehicleInfo {
 
   Map<String, dynamic> toJson() {
     return <String, dynamic>{
-      'id': id,
       'vehicle_id': vehicleId,
       'msg_id': msgId,
       'msg_seq': msgSeq,
@@ -285,7 +284,6 @@ class VehicleInfoResult {
 
 class VehicleInfoHistory {
   int? historyId;
-  int? vehicleInfoId;
   int? vehicleId;
   String? changedAt;
   int? msgId;
@@ -321,7 +319,6 @@ class VehicleInfoHistory {
 
   VehicleInfoHistory({
     this.historyId,
-    this.vehicleInfoId,
     this.vehicleId,
     this.changedAt,
     this.msgId,
@@ -358,7 +355,6 @@ class VehicleInfoHistory {
 
   VehicleInfoHistory.fromJson(Map<String, dynamic> json) {
     historyId = _parseInt(json['history_id']);
-    vehicleInfoId = _parseInt(json['vehicle_info_id']);
     vehicleId = _parseInt(json['vehicle_id']);
     changedAt = _parseString(json['changed_at']);
     msgId = _parseInt(json['msg_id']);
@@ -367,8 +363,11 @@ class VehicleInfoHistory {
     timeStamp = _parseInt(json['time_stamp']);
     timeStampMs = _parseInt(json['time_stamp_ms']);
     navsat = _parseInt(json['navsat']);
-    velocityKph = _parseDouble(json['kph'] ?? json['velocity_kph']);
     velocityMps = _parseDouble(json['mps'] ?? json['velocity_mps']);
+    // velocity_kph is computed by the parser (mps × 3.6). The API key "kph" is field 7
+    // velocity_eventflag (event code 0-9), not a speed.
+    velocityKph = _parseDouble(json['velocity_kph']) ??
+        (velocityMps != null ? velocityMps! * 3.6 : null);
     positionX = _parseDouble(json['pos_x_m'] ?? json['position_x']);
     positionY = _parseDouble(json['pos_y_m'] ?? json['position_y']);
     positionZ = _parseDouble(json['pos_z_m'] ?? json['position_z']);
@@ -448,7 +447,6 @@ class VehicleInfoHistory {
   Map<String, dynamic> toJson() {
     return <String, dynamic>{
       'history_id': historyId,
-      'vehicle_info_id': vehicleInfoId,
       'vehicle_id': vehicleId,
       'changed_at': changedAt,
       'msg_id': msgId,

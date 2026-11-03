@@ -1,7 +1,6 @@
 import 'object_model.dart';
 
 class InfraInfo {
-  int? id;
   int? infraId;
   int? msgId;
   int? msgSeq;
@@ -15,7 +14,6 @@ class InfraInfo {
   String? updatedTs;
 
   InfraInfo({
-    this.id,
     this.infraId,
     this.msgId,
     this.msgSeq,
@@ -30,7 +28,6 @@ class InfraInfo {
   });
 
   InfraInfo.fromJson(Map<String, dynamic> json) {
-    id = _parseInt(json['id']);
     infraId = _parseInt(json['infra_id']);
     msgId = _parseInt(json['msg_id']);
     msgSeq = _parseInt(json['msg_seq']);
@@ -73,7 +70,6 @@ class InfraInfo {
 
   Map<String, dynamic> toJson() {
     return <String, dynamic>{
-      'id': id,
       'infra_id': infraId,
       'msg_id': msgId,
       'msg_seq': msgSeq,
@@ -128,7 +124,6 @@ class InfraInfoResult {
 
 class InfraInfoHistory {
   int? historyId;
-  int? infraInfoId;
   int? infraId;
   String? changedAt;
   int? msgId;
@@ -145,7 +140,6 @@ class InfraInfoHistory {
 
   InfraInfoHistory({
     this.historyId,
-    this.infraInfoId,
     this.infraId,
     this.changedAt,
     this.msgId,
@@ -163,7 +157,6 @@ class InfraInfoHistory {
 
   InfraInfoHistory.fromJson(Map<String, dynamic> json) {
     historyId = _parseInt(json['history_id']);
-    infraInfoId = _parseInt(json['infra_info_id']);
     infraId = _parseInt(json['infra_id']);
     changedAt = _parseString(json['changed_at']);
     msgId = _parseInt(json['msg_id']);
@@ -225,7 +218,6 @@ class InfraInfoHistory {
   Map<String, dynamic> toJson() {
     return <String, dynamic>{
       'history_id': historyId,
-      'infra_info_id': infraInfoId,
       'infra_id': infraId,
       'changed_at': changedAt,
       'msg_id': msgId,

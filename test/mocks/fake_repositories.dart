@@ -147,12 +147,11 @@ class FakeObjectRepository extends ObjectRepository {
 
   @override
   Future<DetectedObjectResult?> requestByVehicleInfo({
-    required int vehicleInfoId,
+    required int vehicleId,
     int limit = 50000,
     int offset = 0,
     bool latestOnly = false,
     int? vehicleTimeStampMs,
-    int? vehicleId,
     int? msgSeq,
     int? expectedObjectCount,
   }) async {
@@ -162,12 +161,11 @@ class FakeObjectRepository extends ObjectRepository {
 
   @override
   Future<DetectedObjectResult?> requestByInfraInfo({
-    required int infraInfoId,
+    required int infraId,
     int limit = 200,
     int offset = 0,
     bool latestOnly = false,
     int? infraTimeStampMs,
-    int? infraId,
     int? msgSeq,
     int? expectedObjectCount,
   }) async {
