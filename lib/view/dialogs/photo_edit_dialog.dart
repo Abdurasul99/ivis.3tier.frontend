@@ -5,6 +5,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:get/get.dart';
 import 'package:image_picker/image_picker.dart';
 
+import '../../i18n/app_locale.dart';
 import '../../model/pick_image_model.dart';
 import '../../model/upload_model.dart';
 import '../../model/user_model.dart';
@@ -66,10 +67,10 @@ class _PhotoEditDialogState extends State<PhotoEditDialog> {
           children: [
             Container(
               alignment: Alignment.centerLeft,
-              child: const Text(
-                "사진 변경",
+              child: Text(
+                t("사진 변경"),
                 textAlign: TextAlign.center,
-                style: TextStyle(
+                style: const TextStyle(
                   fontFamily: 'pretendard',
                   fontSize: 18,
                   color: Colors.black,
@@ -90,7 +91,7 @@ class _PhotoEditDialogState extends State<PhotoEditDialog> {
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 4),
               child: GradientButton(
-                buttonText: (_imageUrl.isEmpty && _imageBytes == null) ? "사진 추가" : "사진 변경",
+                buttonText: (_imageUrl.isEmpty && _imageBytes == null) ? t("사진 추가") : t("사진 변경"),
                 onTap: () async {
                   // Cross-platform picker (Web/iOS/Android/Desktop)
                   try {
@@ -112,7 +113,7 @@ class _PhotoEditDialogState extends State<PhotoEditDialog> {
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 4),
               child: GradientButton(
-                buttonText: "사진 삭제",
+                buttonText: t("사진 삭제"),
                 onTap: () {
                   _imageUrl = "";
                   _imageBytes = null;
@@ -126,7 +127,7 @@ class _PhotoEditDialogState extends State<PhotoEditDialog> {
                 const SizedBox(width: 4),
                 Expanded(
                   child: GradientButton(
-                    buttonText: "저장",
+                    buttonText: t("저장"),
                     buttonColor: const Color(0xFF005FB8),
                     onTap: () async {
                       // 새 이미지 bytes가 있으면 S3에 업로드
@@ -140,13 +141,13 @@ class _PhotoEditDialogState extends State<PhotoEditDialog> {
                             await Get.find<UploadController>().reqUploadImage([selImageFile]);
 
                         if (upload.isEmpty) {
-                          Utils.showSnackBar("이미지 업로드에 실패했습니다.", isError: true);
+                          Utils.showSnackBar(t("이미지 업로드에 실패했습니다."), isError: true);
                           return;
                         }
 
                         _imageUrl = upload.first.location ?? "";
                         if (_imageUrl.isEmpty) {
-                          Utils.showSnackBar("이미지 업로드에 실패했습니다.", isError: true);
+                          Utils.showSnackBar(t("이미지 업로드에 실패했습니다."), isError: true);
                           return;
                         }
                       }
@@ -165,7 +166,7 @@ class _PhotoEditDialogState extends State<PhotoEditDialog> {
 
                       Get.back();
                       if (result) {
-                        Utils.showSnackBar("프로필 이미지가 변경되었습니다.");
+                        Utils.showSnackBar(t("프로필 이미지가 변경되었습니다."));
                       }
 
                       if (mounted) setState(() {});
@@ -175,7 +176,7 @@ class _PhotoEditDialogState extends State<PhotoEditDialog> {
                 const SizedBox(width: 16),
                 Expanded(
                   child: GradientButton(
-                    buttonText: "취소",
+                    buttonText: t("취소"),
                     onTap: () {
                       Get.back();
                     },

@@ -72,14 +72,14 @@ class _SignupRegisterPageState extends State<SignupRegisterPage> {
     setState(() => _codeErrorMsg = '');
     final String code = _codeCtrl.text.trim();
     if (code.isEmpty) {
-      setState(() => _codeErrorMsg = t('인증번호를 입력해주세요.'));
+      setState(() => _codeErrorMsg = tKey('인증번호를 입력해주세요.'));
       return;
     }
 
     final RegisterController regCtrl = Get.find<RegisterController>();
     final bool verified = await regCtrl.verifyRegisterCode(email, code);
     if (!verified) {
-      setState(() => _codeErrorMsg = t('인증번호가 유효하지 않습니다.'));
+      setState(() => _codeErrorMsg = tKey('인증번호가 유효하지 않습니다.'));
       return;
     }
 
@@ -145,7 +145,7 @@ class _SignupRegisterPageState extends State<SignupRegisterPage> {
               focusNode: _codeFocusNode,
               hintText: t('인증번호를 입력해 주세요.'),
               prefixIconData: CupertinoIcons.shield,
-              errorText: _codeErrorMsg.isNotEmpty ? _codeErrorMsg : null,
+              errorText: _codeErrorMsg.isNotEmpty ? t(_codeErrorMsg) : null,
             ),
             const SizedBox(height: 32),
             AuthPrimaryButton(text: t('확인'), onTap: _onCheckCode),

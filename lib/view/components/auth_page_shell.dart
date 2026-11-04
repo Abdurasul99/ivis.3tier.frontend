@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../constants/constants.dart';
+import 'app_language_toggle.dart';
 
 /// 로그인·인증 계열 페이지 공통 split-card 레이아웃
 /// Wide (>=720px): 왼쪽 3tier.png / 오른쪽 폼
@@ -103,7 +104,7 @@ class AuthPageShell extends StatelessWidget {
               );
             },
           ),
-
+          const AuthLanguageToggleOverlay(),
         ],
       ),
     );

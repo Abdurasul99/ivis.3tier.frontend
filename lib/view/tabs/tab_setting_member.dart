@@ -38,6 +38,8 @@ class _TabSettingMemberState extends State<TabSettingMember> {
 
   String _roleLabel(String? role) => role == 'admin' ? t('관리자') : t('일반');
 
+  // Maps the displayed role back to the value MemberController.reqChangeRole
+  // expects ('관리자' / '일반'); these are request values, not display text.
   String _roleRequestValue(String value) => value == t('관리자') ? '관리자' : '일반';
 
   @override

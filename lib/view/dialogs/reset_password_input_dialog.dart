@@ -6,6 +6,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import '../../constants/constants.dart';
+import '../../i18n/app_locale.dart';
 import '../../utils/utils.dart';
 import '../components/input_edit_text.dart';
 
@@ -65,9 +66,9 @@ class _ResetPasswordInputDialogState extends State<ResetPasswordInputDialog> {
                 child: Column(
                   children: [
                     const SizedBox(height: 24),
-                    const Text(
-                      "비밀번호 설정",
-                      style: TextStyle(
+                    Text(
+                      t('비밀번호 설정'),
+                      style: const TextStyle(
                         fontFamily: 'pretendard',
                         fontSize: 14,
                         color: kGrayFontColor,
@@ -76,24 +77,24 @@ class _ResetPasswordInputDialogState extends State<ResetPasswordInputDialog> {
                     ),
                     const SizedBox(height: 16),
                     InputEditText(
-                      title: "New Password",
+                      title: t('새 비밀번호'),
                       isRequired: true,
                       isObscureText: true,
                       controller: _passwordController,
                       focusNode: _passwordFocusNode,
-                      hintText: "password",
+                      hintText: t('비밀번호'),
                       onSubmitted: (value) {
                         _confirmFocusNode.requestFocus();
                       },
                     ),
                     const SizedBox(height: 16),
                     InputEditText(
-                      title: "Confirm Password",
+                      title: t('비밀번호 확인'),
                       isRequired: true,
                       isObscureText: true,
                       controller: _confirmController,
                       focusNode: _confirmFocusNode,
-                      hintText: "Confirm password",
+                      hintText: t('비밀번호 확인'),
                       onSubmitted: (value) {
                         _confirmFocusNode.requestFocus();
                       },
@@ -105,19 +106,19 @@ class _ResetPasswordInputDialogState extends State<ResetPasswordInputDialog> {
                         GestureDetector(
                           onTap: () {
                             if (_passwordController.text.isEmpty) {
-                              Utils.showSnackBar("비밀번호를 입력하세요.", isError: true);
+                              Utils.showSnackBar(t('비밀번호를 입력하세요.'), isError: true);
                               _passwordFocusNode.requestFocus();
                               return;
                             }
                             if (_confirmController.text.isEmpty) {
-                              Utils.showSnackBar("확인 비밀번호를 입력하세요.",
+                              Utils.showSnackBar(t('확인 비밀번호를 입력하세요.'),
                                   isError: true);
                               _confirmFocusNode.requestFocus();
                               return;
                             }
                             if (_passwordController.text.trim() !=
                                 _confirmController.text.trim()) {
-                              Utils.showSnackBar("비밀번호가 일치하지 않습니다.",
+                              Utils.showSnackBar(t('비밀번호가 일치하지 않습니다.'),
                                   isError: true);
                               _confirmFocusNode.requestFocus();
                               return;
@@ -145,11 +146,11 @@ class _ResetPasswordInputDialogState extends State<ResetPasswordInputDialog> {
                                   ),
                                 ),
                                 const SizedBox(width: 6),
-                                const Padding(
-                                  padding: EdgeInsets.only(top: 2.0),
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 2.0),
                                   child: Text(
-                                    "확인",
-                                    style: TextStyle(
+                                    t('확인'),
+                                    style: const TextStyle(
                                       fontFamily: 'medium',
                                       fontSize: 16,
                                       fontWeight: FontWeight.w700,
@@ -179,9 +180,9 @@ class _ResetPasswordInputDialogState extends State<ResetPasswordInputDialog> {
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
       child: Row(
         children: [
-          const Text(
-            "🔐 Set New Password",
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+          Text(
+            t('🔐 새 비밀번호 설정'),
+            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
           ),
           const Spacer(),
           GestureDetector(

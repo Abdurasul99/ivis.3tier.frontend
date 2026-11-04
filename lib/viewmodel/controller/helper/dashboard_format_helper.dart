@@ -3,6 +3,8 @@
 
 import 'package:flutter/material.dart';
 
+import '../../../i18n/app_locale.dart';
+
 class ObjectTypeUi {
   final String label;
   final IconData iconData;
@@ -65,45 +67,43 @@ class DashboardFormatHelper {
   static ObjectTypeUi objectTypeUi(int? objectType) {
     final int value = objectType ?? -1;
     if (value == 0) {
-      return const ObjectTypeUi(label: '미확인', iconData: Icons.help_outline);
+      return ObjectTypeUi(label: t('미확인'), iconData: Icons.help_outline);
     }
     if (value == 1) {
-      return const ObjectTypeUi(
-          label: '승용차', iconData: Icons.directions_car_filled);
+      return ObjectTypeUi(label: t('승용차'), iconData: Icons.directions_car_filled);
     }
     if (value == 2) {
-      return const ObjectTypeUi(label: '트럭', iconData: Icons.local_shipping);
+      return ObjectTypeUi(label: t('트럭'), iconData: Icons.local_shipping);
     }
     if (value == 3) {
-      return const ObjectTypeUi(
-          label: '버스', iconData: Icons.directions_bus_filled);
+      return ObjectTypeUi(label: t('버스'), iconData: Icons.directions_bus_filled);
     }
     if (value == 4) {
-      return const ObjectTypeUi(label: '보행자', iconData: Icons.directions_walk);
+      return ObjectTypeUi(label: t('보행자'), iconData: Icons.directions_walk);
     }
     if (value == 5) {
-      return const ObjectTypeUi(label: '이륜차', iconData: Icons.two_wheeler);
+      return ObjectTypeUi(label: t('이륜차'), iconData: Icons.two_wheeler);
     }
-    return const ObjectTypeUi(label: '미확인', iconData: Icons.question_mark);
+    return ObjectTypeUi(label: t('미확인'), iconData: Icons.question_mark);
   }
 
-  // 객체 타입(0~5) → 한국어 이름만
+  // Object type (0-5) name via t(): Korean by default, English in English mode
   static String getObjectTypeNameKorean(int? type) {
     switch (type) {
       case 0:
-        return '미확인';
+        return t('미확인');
       case 1:
-        return '승용차';
+        return t('승용차');
       case 2:
-        return '트럭';
+        return t('트럭');
       case 3:
-        return '버스';
+        return t('버스');
       case 4:
-        return '보행자';
+        return t('보행자');
       case 5:
-        return '이륜차';
+        return t('이륜차');
       default:
-        return '미확인';
+        return t('미확인');
     }
   }
 }

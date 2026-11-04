@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../i18n/app_locale.dart';
+
 String _formatCellValue(dynamic value) {
   if (value == null) return '';
   if (value is num) return value.toString();
@@ -169,9 +171,9 @@ Widget _buildObjectCountPanel(Map<String, dynamic> row) {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
-              const Text(
-                'Detected objects',
-                style: TextStyle(
+              Text(
+                t('감지된 객체'),
+                style: const TextStyle(
                   fontSize: 13,
                   color: Color(0xFF616161),
                 ),
@@ -201,15 +203,15 @@ Widget _buildRowSummaryCard(String entityType, Map<String, dynamic> row) {
   if (entityType == 'infra') {
     // 장치 번호(infra_id / vehicle_id)가 식별자 — 행 id(info id) 컬럼은 삭제됨
     idText = _formatCellValue(row['history_id']);
-    primaryLabel = 'Infra ID';
+    primaryLabel = t('인프라 ID');
     primaryValue = _formatCellValue(row['infra_id']);
   } else if (entityType == 'vehicle') {
     idText = _formatCellValue(row['history_id']);
-    primaryLabel = 'Vehicle ID';
+    primaryLabel = t('차량 ID');
     primaryValue = _formatCellValue(row['vehicle_id']);
   } else {
     idText = _formatCellValue(row['detected_object_id'] ?? row['object_id']);
-    primaryLabel = 'Object ID';
+    primaryLabel = t('객체 ID');
     primaryValue = _formatCellValue(row['object_id']);
   }
 
@@ -229,9 +231,9 @@ Widget _buildRowSummaryCard(String entityType, Map<String, dynamic> row) {
         Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
-            const Text(
-              'Message ID',
-              style: TextStyle(
+            Text(
+              t('메시지 ID'),
+              style: const TextStyle(
                 fontSize: 11,
                 color: Color(0xFF9E9E9E),
               ),
@@ -274,9 +276,9 @@ Widget _buildRowSummaryCard(String entityType, Map<String, dynamic> row) {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
-              const Text(
-                'Timestamp',
-                style: TextStyle(
+              Text(
+                t('타임스탬프'),
+                style: const TextStyle(
                   fontSize: 11,
                   color: Color(0xFF9E9E9E),
                 ),
@@ -365,13 +367,13 @@ Future<void> showDataViewDialog(
   String entityType,
   Map<String, dynamic> row,
 ) async {
-  String titleText = 'Message';
+  String titleText = t('메시지');
   if (entityType == 'vehicle') {
-    titleText = 'Vehicle message';
+    titleText = t('차량 메시지');
   } else if (entityType == 'infra') {
-    titleText = 'Infra message';
+    titleText = t('인프라 메시지');
   } else {
-    titleText = 'Detected object';
+    titleText = l10n('감지 객체', 'Detected Object');
   }
 
   return showDialog<void>(

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/svg.dart';
 
+import 'app_language_toggle.dart';
 
 class EmptyTopBarView extends StatelessWidget {
   const EmptyTopBarView({super.key});
@@ -35,6 +36,7 @@ class EmptyTopBarView extends StatelessWidget {
             ),
           ),
           const Spacer(),
+          const AppLanguageToggle(compact: true),
           const SizedBox(width: 24),
         ],
       ),

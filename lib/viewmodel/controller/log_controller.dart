@@ -1,5 +1,6 @@
 import 'package:get/get.dart';
 
+import '../../i18n/app_locale.dart';
 import '../repository/log_repository.dart';
 
 class LogController extends GetxController {
@@ -17,7 +18,7 @@ class LogController extends GetxController {
       final List<LogFileInfo> files = await _repository.fetchLogFiles();
 
       if (files.isEmpty) {
-        Get.snackbar('알림', '다운로드 가능한 XLS 로그 파일이 없습니다.');
+        Get.snackbar(l10n('알림', 'Notice'), t('다운로드 가능한 XLS 로그 파일이 없습니다.'));
         return;
       }
 
@@ -35,9 +36,9 @@ class LogController extends GetxController {
         sig: latest.downloadSig,
       );
 
-      Get.snackbar('완료', '로그 파일 다운로드를 시작했습니다.');
+      Get.snackbar(t('완료'), t('로그 파일 다운로드를 시작했습니다.'));
     } catch (e) {
-      Get.snackbar('오류', '로그 다운로드 중 문제가 발생했습니다.');
+      Get.snackbar(t('오류'), t('로그 다운로드 중 문제가 발생했습니다.'));
     } finally {
       isDownloading = false;
       update();

@@ -9,6 +9,8 @@ mixin _ActivityCalendarMixin on State<TabActivity> {
 
     final DateTime now = DateTime.now();
     final DateTime todayStart = DateTime(now.year, now.month, now.day);
+    // Month shown in the calendar (the user can page back to earlier months)
+    final DateTime month = c.calendarMonth;
 
     // 이번 달 이벤트가 있는 날 집합
     final int activeDays = c.calendarMonthActiveDaysCount;
@@ -48,7 +50,7 @@ mixin _ActivityCalendarMixin on State<TabActivity> {
             : l10n('날씨 없음', 'No weather');
     final Color weatherAccent = _weatherAccent(weather?.weatherCode);
 
-    final int daysInMonth = DateTime(now.year, now.month + 1, 0).day;
+    final int daysInMonth = DateTime(month.year, month.month + 1, 0).day;
     final double activityRatio = daysInMonth > 0 ? activeDays / daysInMonth : 0;
 
     return Container(
@@ -174,7 +176,9 @@ mixin _ActivityCalendarMixin on State<TabActivity> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: <Widget>[
                         Text(
-                          l10n('이번 달 이벤트', 'Month Events'),
+                          c.isCalendarOnCurrentMonth
+                              ? l10n('이번 달 이벤트', 'Month Events')
+                              : l10n('${month.month}월 이벤트', '${_monthAbbr(month.month)} Events'),
                           style: const TextStyle(
                               fontFamily: 'pretendard', fontSize: 10, color: _muted),
                         ),
@@ -228,7 +232,7 @@ mixin _ActivityCalendarMixin on State<TabActivity> {
             const SizedBox(height: 14),
 
             // ── 미니 캘린더 그리드 ──
-            _buildMiniCalendarGrid(c, now),
+            _buildMiniCalendarGrid(c, month, now),
 
             const SizedBox(height: 14),
             Container(height: 1, color: _border),
@@ -258,7 +262,7 @@ mixin _ActivityCalendarMixin on State<TabActivity> {
                 const Icon(Icons.more_horiz_rounded, size: 14, color: _muted),
                 const SizedBox(width: 5),
                 Text(
-                  isEnglishLocale ? '$totalHidden more events' : '이벤트 $totalHidden건 더 있음',
+                  l10n('이벤트 $totalHidden건 더 있음', '$totalHidden more events'),
                   style: const TextStyle(
                     fontFamily: 'pretendard',
                     fontSize: 11,
@@ -281,17 +285,15 @@ mixin _ActivityCalendarMixin on State<TabActivity> {
               ),
               _lightStatusChip(
                 icon: Icons.notifications_rounded,
-                label: isEnglishLocale
-                    ? '${c.calendarMonthTotalEvents} events'
-                    : '${c.calendarMonthTotalEvents}건',
+                label: l10n('${c.calendarMonthTotalEvents}건',
+                    '${c.calendarMonthTotalEvents} events'),
                 accent: _primary,
               ),
               if (c.selectedWarningCount > 0)
                 _lightStatusChip(
                   icon: Icons.warning_amber_rounded,
-                  label: isEnglishLocale
-                      ? '${c.selectedWarningCount} warn'
-                      : '경고 ${c.selectedWarningCount}',
+                  label: l10n('경고 ${c.selectedWarningCount}',
+                      '${c.selectedWarningCount} warnings'),
                   accent: _warning,
                 ),
             ]),
@@ -316,15 +318,24 @@ mixin _ActivityCalendarMixin on State<TabActivity> {
   }
 
   // ── 미니 달력 그리드 ──────────────────────────────
-  Widget _buildMiniCalendarGrid(ActivityController c, DateTime now) {
-    final int firstWeekday = DateTime(now.year, now.month, 1).weekday; // 1=Mon..7=Sun
-    final int daysInMonth = DateTime(now.year, now.month + 1, 0).day;
-    final String monthHeader = isEnglishLocale
-        ? '${_monthAbbr(now.month).toUpperCase()}  ${now.year}'
-        : '${now.year}년 ${now.month}월';
+  Widget _buildMiniCalendarGrid(ActivityController c, DateTime month, DateTime now) {
+    final int firstWeekday = DateTime(month.year, month.month, 1).weekday; // 1=Mon..7=Sun
+    final int daysInMonth = DateTime(month.year, month.month + 1, 0).day;
+    final String monthHeader = l10n('${month.year}년 ${month.month}월',
+        '${_monthAbbr(month.month).toUpperCase()}  ${month.year}');
     final int activeDays = c.calendarMonthActiveDaysCount;
+    // Highlight "today" only while the current month is on screen
+    final bool showsToday = month.year == now.year && month.month == now.month;
 
-    const List<String> weekLabels = <String>['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+    final List<String> weekLabels = <String>[
+      l10n('월', 'M'),
+      l10n('화', 'T'),
+      l10n('수', 'W'),
+      l10n('목', 'T'),
+      l10n('금', 'F'),
+      l10n('토', 'S'),
+      l10n('일', 'S'),
+    ];
 
     final int leadingBlanks = firstWeekday - 1;
     final int totalCells = leadingBlanks + daysInMonth;
@@ -333,8 +344,14 @@ mixin _ActivityCalendarMixin on State<TabActivity> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        // 월/년 헤더
+        // 월/년 헤더 (‹ › month paging, "Today" jumps back to the current month)
         Row(children: <Widget>[
+          _calendarNavButton(
+            icon: Icons.chevron_left_rounded,
+            tooltip: l10n('이전 달', 'Previous month'),
+            onTap: () => unawaited(c.showPreviousCalendarMonth()),
+          ),
+          const SizedBox(width: 8),
           Text(monthHeader,
               style: const TextStyle(
                 fontFamily: 'gm-medium',
@@ -343,23 +360,57 @@ mixin _ActivityCalendarMixin on State<TabActivity> {
                 color: _text,
                 letterSpacing: -0.3,
               )),
+          const SizedBox(width: 8),
+          _calendarNavButton(
+            icon: Icons.chevron_right_rounded,
+            tooltip: l10n('다음 달', 'Next month'),
+            onTap: c.canShowNextCalendarMonth
+                ? () => unawaited(c.showNextCalendarMonth())
+                : null,
+          ),
           const Spacer(),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-            decoration: BoxDecoration(
-              color: _primarySoft,
+          if (!c.isCalendarOnCurrentMonth) ...<Widget>[
+            InkWell(
               borderRadius: BorderRadius.circular(6),
-            ),
-            child: Text(
-              l10n('$activeDays일', '$activeDays d'),
-              style: const TextStyle(
-                fontFamily: 'pretendard',
-                fontSize: 10,
-                fontWeight: FontWeight.w700,
-                color: _primary,
+              onTap: () => unawaited(c.showCurrentCalendarMonth()),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                child: Text(
+                  l10n('오늘', 'Today'),
+                  style: const TextStyle(
+                    fontFamily: 'pretendard',
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                    color: _primary,
+                  ),
+                ),
               ),
             ),
-          ),
+            const SizedBox(width: 4),
+          ],
+          if (c.isCalendarMonthLoading)
+            const SizedBox(
+              width: 12,
+              height: 12,
+              child: CircularProgressIndicator(strokeWidth: 1.5, color: _primary),
+            )
+          else
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: _primarySoft,
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Text(
+                l10n('$activeDays일', '$activeDays d'),
+                style: const TextStyle(
+                  fontFamily: 'pretendard',
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                  color: _primary,
+                ),
+              ),
+            ),
         ]),
         const SizedBox(height: 12),
         // 요일 헤더 행
@@ -388,9 +439,9 @@ mixin _ActivityCalendarMixin on State<TabActivity> {
             if (dayNum < 1 || dayNum > daysInMonth) {
               return const Expanded(child: SizedBox(height: 28));
             }
-            final DateTime dayDate = DateTime(now.year, now.month, dayNum);
+            final DateTime dayDate = DateTime(month.year, month.month, dayNum);
             final int eventCount = c.calendarEventCountForDate(dayDate);
-            final bool isToday = dayNum == now.day;
+            final bool isToday = showsToday && dayNum == now.day;
             final bool hasEvents = eventCount > 0;
             final bool isSelected = c.isSelectedCalendarDate(dayDate);
             // 셀 스타일 계산
@@ -467,6 +518,32 @@ mixin _ActivityCalendarMixin on State<TabActivity> {
           const SizedBox(height: 2),
         ],
       ],
+    );
+  }
+
+  // ── Calendar month paging button (disabled when onTap is null) ──
+  Widget _calendarNavButton({
+    required IconData icon,
+    required String tooltip,
+    required VoidCallback? onTap,
+  }) {
+    final bool enabled = onTap != null;
+    return Tooltip(
+      message: tooltip,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(8),
+        onTap: onTap,
+        child: Container(
+          width: 26,
+          height: 26,
+          decoration: BoxDecoration(
+            color: enabled ? Colors.white : _surfaceAlt,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: _border),
+          ),
+          child: Icon(icon, size: 16, color: enabled ? _text : _muted.withValues(alpha: 0.45)),
+        ),
+      ),
     );
   }
 
@@ -659,10 +736,10 @@ mixin _ActivityCalendarMixin on State<TabActivity> {
 
   Widget _buildLightEventRow(ActivityEventItem event) {
     final Color accent = _severityColor(event.severity);
-    final DateTime t =
+    final DateTime time =
         DateTime.fromMillisecondsSinceEpoch(event.occurredAtMs, isUtc: true).toLocal();
     final String hhmm =
-        '${t.month}/${t.day} ${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
+        '${time.month}/${time.day} ${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
@@ -686,7 +763,7 @@ mixin _ActivityCalendarMixin on State<TabActivity> {
             child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
-            Text(event.title,
+            Text(t(event.title),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
@@ -792,7 +869,7 @@ mixin _ActivityCalendarMixin on State<TabActivity> {
                 children: <Widget>[
                   Row(children: <Widget>[
                     Expanded(
-                      child: Text(event.title,
+                      child: Text(t(event.title),
                           style: const TextStyle(
                               fontFamily: 'gm-medium',
                               fontSize: 14,
@@ -815,7 +892,7 @@ mixin _ActivityCalendarMixin on State<TabActivity> {
                       ),
                   ]),
                   const SizedBox(height: 4),
-                  Text(event.subtitle.isEmpty ? '-' : event.subtitle,
+                  Text(event.subtitle.isEmpty ? '-' : t(event.subtitle),
                       style: const TextStyle(
                           fontFamily: 'pretendard', fontSize: 12, height: 1.45, color: _muted)),
                   const SizedBox(height: 10),

@@ -684,7 +684,8 @@ mixin _ActivityChartsMixin on State<TabActivity> {
                       final int i = group.x;
                       if (i < 0 || i >= points.length) return null;
                       return BarTooltipItem(
-                        '${points[i].$1}\n${points[i].$2}개',
+                        l10n('${points[i].$1}\n${points[i].$2}개',
+                            '${points[i].$1}\n${points[i].$2} objects'),
                         const TextStyle(
                             color: Colors.white, fontSize: 10, fontFamily: 'pretendard'),
                       );
@@ -808,7 +809,8 @@ mixin _ActivityChartsMixin on State<TabActivity> {
                   final int i = group.x;
                   if (i < 0 || i >= points.length) return null;
                   return BarTooltipItem(
-                    '${points[i].$1}\n${points[i].$2}개',
+                    l10n('${points[i].$1}\n${points[i].$2}개',
+                            '${points[i].$1}\n${points[i].$2} objects'),
                     const TextStyle(
                         color: Colors.white, fontSize: 10, fontFamily: 'pretendard'),
                   );
@@ -908,7 +910,7 @@ mixin _ActivityChartsMixin on State<TabActivity> {
                           children: <Widget>[
                             Text(
                               selectedId != null
-                                  ? l10n('Infra $selectedId 감지 객체', 'Infra $selectedId Objects')
+                                  ? l10n('인프라 $selectedId 감지 객체', 'Infra $selectedId Objects')
                                   : l10n('감지 객체 추이', 'Detected Objects'),
                               style: const TextStyle(
                                 fontFamily: 'pretendard',
@@ -1121,9 +1123,9 @@ mixin _ActivityChartsMixin on State<TabActivity> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
-                    const Text(
-                      '누적 주행 거리',
-                      style: TextStyle(
+                    Text(
+                      t('누적 주행 거리'),
+                      style: const TextStyle(
                         fontFamily: 'pretendard',
                         fontSize: 11,
                         color: _muted,
@@ -1173,7 +1175,7 @@ mixin _ActivityChartsMixin on State<TabActivity> {
                     ),
                   )
                 : !hasDistData
-                    ? SizedBox(height: 80, child: _emptyPanel('이동 거리 이력 없음'))
+                    ? SizedBox(height: 80, child: _emptyPanel(t('이동 거리 이력 없음')))
                     : _buildVehicleChartBarChartV3(
                         points: points,
                         maxY: distMaxY,
@@ -1224,9 +1226,9 @@ mixin _ActivityChartsMixin on State<TabActivity> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
-                    const Text(
-                      '일별 이동 시간',
-                      style: TextStyle(
+                    Text(
+                      t('일별 이동 시간'),
+                      style: const TextStyle(
                         fontFamily: 'pretendard',
                         fontSize: 11,
                         color: _muted,
@@ -1249,9 +1251,9 @@ mixin _ActivityChartsMixin on State<TabActivity> {
                         ),
                         if (hasOpData) ...<Widget>[
                           const SizedBox(width: 4),
-                          const Text(
-                            '총 이동',
-                            style: TextStyle(
+                          Text(
+                            t('총 이동'),
+                            style: const TextStyle(
                               fontFamily: 'pretendard',
                               fontSize: 11,
                               color: _muted,
@@ -1279,7 +1281,7 @@ mixin _ActivityChartsMixin on State<TabActivity> {
           const SizedBox(height: 10),
           Expanded(
             child: !hasOpData
-                ? SizedBox(height: 80, child: _emptyPanel('이동 기록 없음'))
+                ? SizedBox(height: 80, child: _emptyPanel(t('이동 기록 없음')))
                 : _buildVehicleChartBarChartV3(
                     points: opPoints,
                     maxY: opMaxY,
@@ -1565,7 +1567,7 @@ mixin _ActivityChartsMixin on State<TabActivity> {
               c.setSelectedVehicleChartMetric('distance');
             },
             child: _buildVehicleChartMetricButtonV3(
-              title: 'Distance',
+              title: t('거리'),
               selected: c.selectedVehicleChartMetric == 'distance',
             ),
           ),
@@ -1575,7 +1577,7 @@ mixin _ActivityChartsMixin on State<TabActivity> {
               c.setSelectedVehicleChartMetric('time');
             },
             child: _buildVehicleChartMetricButtonV3(
-              title: 'Time',
+              title: t('시간'),
               selected: c.selectedVehicleChartMetric == 'time',
             ),
           ),
@@ -1735,7 +1737,7 @@ mixin _ActivityChartsMixin on State<TabActivity> {
                     if (i < 0 || i >= points.length) return const SizedBox.shrink();
                     final bool isSelected = points[i].$1 == selectedId;
                     return Text(
-                      'Infra ${points[i].$1}',
+                      l10n('인프라 ${points[i].$1}', 'Infra ${points[i].$1}'),
                       style: TextStyle(
                         fontFamily: 'pretendard',
                         fontSize: 10,
@@ -1756,7 +1758,8 @@ mixin _ActivityChartsMixin on State<TabActivity> {
                   final int i = group.x;
                   if (i < 0 || i >= points.length) return null;
                   return BarTooltipItem(
-                    'Infra ${points[i].$1}\n${points[i].$2}개',
+                    l10n('인프라 ${points[i].$1}\n${points[i].$2}개',
+                        'Infra ${points[i].$1}\n${points[i].$2} objects'),
                     const TextStyle(color: Colors.white, fontSize: 11, fontFamily: 'pretendard'),
                   );
                 },
@@ -1859,7 +1862,8 @@ mixin _ActivityChartsMixin on State<TabActivity> {
                   final int i = group.x;
                   if (i < 0 || i >= points.length) return null;
                   return BarTooltipItem(
-                    '${points[i].$1}\n${points[i].$2}개',
+                    l10n('${points[i].$1}\n${points[i].$2}개',
+                            '${points[i].$1}\n${points[i].$2} objects'),
                     const TextStyle(color: Colors.white, fontSize: 11, fontFamily: 'pretendard'),
                   );
                 },

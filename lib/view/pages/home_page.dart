@@ -18,6 +18,7 @@ import '../../viewmodel/controller/locale_controller.dart';
 import '../../viewmodel/controller/time_controller.dart';
 import '../../viewmodel/controller/user_controller.dart';
 import '../../viewmodel/controller/vehicle_controller.dart';
+import '../components/app_language_toggle.dart';
 import 'login_page.dart';
 
 class HomePage extends StatefulWidget {
@@ -59,7 +60,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 
   List<String> get navigationTitles => <String>[
         l10n('대시보드', 'Dashboard'),
-        l10n('장치 관리', 'Device Mgmt'),
+        // Short English form: the side menu is only 88px wide.
+        l10n('장치 관리', 'Device'),
         l10n('활동', 'Activity'),
         l10n('설정', 'Settings'),
       ];
@@ -383,6 +385,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                   );
                 },
               ),
+              const SizedBox(width: 16),
+              const AppLanguageToggle(compact: true),
               const SizedBox(width: 16),
               // 알림 벨 배지
               GetBuilder<ActivityController>(
@@ -866,7 +870,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                                       crossAxisAlignment: CrossAxisAlignment.start,
                                       children: <Widget>[
                                         Text(
-                                          event.title,
+                                          // Server event text (Korean) → t()
+                                          t(event.title),
                                           style: TextStyle(
                                             fontFamily: 'Malgun Gothic',
                                             fontSize: 12.5,
@@ -881,7 +886,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                                         if (event.subtitle.isNotEmpty) ...<Widget>[
                                           const SizedBox(height: 2),
                                           Text(
-                                            event.subtitle,
+                                            t(event.subtitle),
                                             maxLines: 1,
                                             overflow: TextOverflow.ellipsis,
                                             style: const TextStyle(

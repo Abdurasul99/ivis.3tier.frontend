@@ -76,19 +76,19 @@ class _SignUpPageState extends State<SignUpPage> {
 
     bool hasError = false;
     if (idVal.isEmpty) {
-      setState(() => _idErrMsg = t('사용이 불가능한 아이디입니다.'));
+      setState(() => _idErrMsg = tKey('사용이 불가능한 아이디입니다.'));
       hasError = true;
     }
     if (pwVal.isEmpty) {
-      setState(() => _pwErrMsg = t('사용이 불가능한 비밀번호입니다.'));
+      setState(() => _pwErrMsg = tKey('사용이 불가능한 비밀번호입니다.'));
       hasError = true;
     }
     if (pw2Val.isEmpty || pw2Val != pwVal) {
-      setState(() => _pwConfirmErrMsg = t('비밀번호를 확인해주세요.'));
+      setState(() => _pwConfirmErrMsg = tKey('비밀번호를 확인해주세요.'));
       hasError = true;
     }
     if (phoneVal.isEmpty) {
-      setState(() => _phoneErrMsg = t('연락처를 입력해주세요.'));
+      setState(() => _phoneErrMsg = tKey('연락처를 입력해주세요.'));
       hasError = true;
     }
     if (hasError) return;
@@ -141,7 +141,7 @@ class _SignUpPageState extends State<SignUpPage> {
               focusNode: _idFocusNode,
               hintText: t('아이디를 입력하세요.'),
               prefixIconData: CupertinoIcons.person,
-              errorText: _idErrMsg.isNotEmpty ? _idErrMsg : null,
+              errorText: _idErrMsg.isNotEmpty ? t(_idErrMsg) : null,
             ),
             const SizedBox(height: 16),
             AuthFieldLabel(text: t('비밀번호')),
@@ -154,7 +154,7 @@ class _SignUpPageState extends State<SignUpPage> {
               obscureText: !_showPassword,
               suffixIconData: _showPassword ? CupertinoIcons.eye : CupertinoIcons.eye_slash,
               onSuffixTapped: () => setState(() => _showPassword = !_showPassword),
-              errorText: _pwErrMsg.isNotEmpty ? _pwErrMsg : null,
+              errorText: _pwErrMsg.isNotEmpty ? t(_pwErrMsg) : null,
             ),
             const SizedBox(height: 16),
             AuthFieldLabel(text: t('비밀번호 확인')),
@@ -167,7 +167,7 @@ class _SignUpPageState extends State<SignUpPage> {
               obscureText: !_showConfirm,
               suffixIconData: _showConfirm ? CupertinoIcons.eye : CupertinoIcons.eye_slash,
               onSuffixTapped: () => setState(() => _showConfirm = !_showConfirm),
-              errorText: _pwConfirmErrMsg.isNotEmpty ? _pwConfirmErrMsg : null,
+              errorText: _pwConfirmErrMsg.isNotEmpty ? t(_pwConfirmErrMsg) : null,
             ),
             const SizedBox(height: 16),
             AuthFieldLabel(text: t('이름')),
@@ -195,7 +195,7 @@ class _SignUpPageState extends State<SignUpPage> {
               focusNode: _phoneFocusNode,
               hintText: t('연락처를 입력해주세요.'),
               prefixIconData: CupertinoIcons.phone,
-              errorText: _phoneErrMsg.isNotEmpty ? _phoneErrMsg : null,
+              errorText: _phoneErrMsg.isNotEmpty ? t(_phoneErrMsg) : null,
             ),
             const SizedBox(height: 32),
             AuthPrimaryButton(text: t('확인'), onTap: _onTapSignUp),

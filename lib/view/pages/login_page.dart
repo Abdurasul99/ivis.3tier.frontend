@@ -497,7 +497,7 @@ class _LoginFormContent extends StatelessWidget {
               GestureDetector(
                 onTap: () => Get.toNamed(LoginFindIdPage.routeName),
                 child: Text(
-                  l10n('아이디 찾기', 'Find ID'),
+                  t('아이디 찾기'),
                   style: TextStyle(
                     fontSize: 12,
                     color: kBlueFontColor,
@@ -511,7 +511,7 @@ class _LoginFormContent extends StatelessWidget {
               GestureDetector(
                 onTap: () => Get.toNamed(LoginFindPwPage.routeName),
                 child: Text(
-                  l10n('비밀번호 찾기', 'Find password'),
+                  t('비밀번호 찾기'),
                   style: TextStyle(
                     fontSize: 12,
                     color: kBlueFontColor,
@@ -525,7 +525,7 @@ class _LoginFormContent extends StatelessWidget {
               GestureDetector(
                 onTap: () => Get.toNamed(SignupRegisterPage.routeName),
                 child: Text(
-                  l10n('회원가입', 'Sign up'),
+                  t('회원가입'),
                   style: TextStyle(
                     fontSize: 12,
                     color: kBlueFontColor,

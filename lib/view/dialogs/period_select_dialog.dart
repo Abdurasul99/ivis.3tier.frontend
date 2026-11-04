@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:intl/intl.dart';
 
+import '../../i18n/app_locale.dart';
 import '../components/gradient_button.dart';
 
 class PeriodSelectDialog extends StatefulWidget {
@@ -19,6 +20,25 @@ class PeriodSelectDialog extends StatefulWidget {
 }
 
 class _PeriodSelectDialogState extends State<PeriodSelectDialog> {
+  // Language-neutral period keys; labels come from _periodLabel().
+  static const String _periodDay = 'day';
+  static const String _periodWeek = 'week';
+  static const String _periodMonth = 'month';
+  static const String _periodCustom = 'custom';
+
+  String _periodLabel(String period) {
+    switch (period) {
+      case _periodDay:
+        return t('1일');
+      case _periodWeek:
+        return t('1주일');
+      case _periodMonth:
+        return t('1개월');
+      default:
+        return t('직접설정');
+    }
+  }
+
   final GlobalKey _startDateKey = GlobalKey();
   final GlobalKey _endDateKey = GlobalKey();
 
@@ -86,9 +106,9 @@ class _PeriodSelectDialogState extends State<PeriodSelectDialog> {
           children: [
             Container(
               alignment: Alignment.centerLeft,
-              child: const Text(
-                "조회기간",
-                style: TextStyle(
+              child: Text(
+                t("조회기간"),
+                style: const TextStyle(
                   fontFamily: 'pretendard',
                   fontSize: 15,
                   color: Colors.black,
@@ -99,13 +119,13 @@ class _PeriodSelectDialogState extends State<PeriodSelectDialog> {
             const SizedBox(height: 12),
             Row(
               children: [
-                Expanded(child: buildPeriodItem("1일")),
+                Expanded(child: buildPeriodItem(_periodDay)),
                 const SizedBox(width: 8),
-                Expanded(child: buildPeriodItem("1주일")),
+                Expanded(child: buildPeriodItem(_periodWeek)),
                 const SizedBox(width: 8),
-                Expanded(child: buildPeriodItem("1개월")),
+                Expanded(child: buildPeriodItem(_periodMonth)),
                 const SizedBox(width: 8),
-                Expanded(child: buildPeriodItem("직접설정")),
+                Expanded(child: buildPeriodItem(_periodCustom)),
               ],
             ),
             const SizedBox(height: 12),
@@ -115,7 +135,7 @@ class _PeriodSelectDialogState extends State<PeriodSelectDialog> {
                   child: GestureDetector(
                     key: _startDateKey,
                     onTap: () {
-                      if (_selectedPeriodItem != "직접설정") {
+                      if (_selectedPeriodItem != _periodCustom) {
                         return;
                       }
 
@@ -163,7 +183,7 @@ class _PeriodSelectDialogState extends State<PeriodSelectDialog> {
                   child: GestureDetector(
                     key: _endDateKey,
                     onTap: () {
-                      if (_selectedPeriodItem != "직접설정") {
+                      if (_selectedPeriodItem != _periodCustom) {
                         return;
                       }
 
@@ -203,7 +223,7 @@ class _PeriodSelectDialogState extends State<PeriodSelectDialog> {
               children: [
                 Expanded(
                   child: GradientButton(
-                    buttonText: "조회",
+                    buttonText: t("조회"),
                     buttonColor: const Color(0xFF005FB8),
                     onTap: () {
                       Map<String, String> params = {};
@@ -217,7 +237,7 @@ class _PeriodSelectDialogState extends State<PeriodSelectDialog> {
                 const SizedBox(width: 16),
                 Expanded(
                   child: GradientButton(
-                    buttonText: "취소",
+                    buttonText: t("취소"),
                     onTap: () {
                       Get.back();
                     },
@@ -319,15 +339,15 @@ class _PeriodSelectDialogState extends State<PeriodSelectDialog> {
       onTap: () {
         _selectedPeriodItem = period;
 
-        if (_selectedPeriodItem != "직접설정") {
+        if (_selectedPeriodItem != _periodCustom) {
           DateTime now = DateTime.now();
           _endDate = _dateFormat.format(now);
 
-          if (_selectedPeriodItem == "1일") {
+          if (_selectedPeriodItem == _periodDay) {
             _startDate = _dateFormat.format(now.subtract(Duration(days: 1)));
-          } else if (_selectedPeriodItem == "1주일") {
+          } else if (_selectedPeriodItem == _periodWeek) {
             _startDate = _dateFormat.format(now.subtract(Duration(days: 7)));
-          } else if (_selectedPeriodItem == "1개월") {
+          } else if (_selectedPeriodItem == _periodMonth) {
             _startDate = _dateFormat.format(now.subtract(Duration(days: 30)));
           }
 
@@ -351,7 +371,7 @@ class _PeriodSelectDialogState extends State<PeriodSelectDialog> {
         ),
         alignment: Alignment.center,
         child: Text(
-          period,
+          _periodLabel(period),
           style: TextStyle(
             fontFamily: 'pretendard',
             fontSize: 15,

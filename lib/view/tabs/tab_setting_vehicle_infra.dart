@@ -4,6 +4,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
+import '../../i18n/app_locale.dart';
 import '../../utils/utils.dart';
 import '../../viewmodel/controller/activity_controller.dart';
 import '../../viewmodel/controller/dashboard_controller.dart';
@@ -111,10 +112,12 @@ class _TabSettingVehicleInfraState extends State<TabSettingVehicleInfra>
     final String? result = await showDialog<String>(
       context: context,
       builder: (_) => AskDialog(
-        message: '차량 $vehicleId 삭제',
-        addMessage: '차량 $vehicleId 의 모든 데이터(이력 포함)가 영구 삭제됩니다.\n계속하시겠습니까?',
-        leftText: '삭제',
-        rightText: '취소',
+        message: l10n('차량 $vehicleId 삭제', 'Delete Vehicle $vehicleId'),
+        addMessage: l10n(
+            '차량 $vehicleId 의 모든 데이터(이력 포함)가 영구 삭제됩니다.\n계속하시겠습니까?',
+            'All data of Vehicle $vehicleId (including history) will be permanently deleted.\nDo you want to continue?'),
+        leftText: t('삭제'),
+        rightText: t('취소'),
       ),
     );
     if (result != 'LEFT') return;
@@ -122,7 +125,7 @@ class _TabSettingVehicleInfraState extends State<TabSettingVehicleInfra>
     final bool ok =
         await VehicleRepository().requestVehicleManageDelete(vehicleId);
     if (ok) {
-      Utils.showSnackBar('차량 $vehicleId 데이터가 삭제되었습니다.');
+      Utils.showSnackBar(l10n('차량 $vehicleId 데이터가 삭제되었습니다.', 'Vehicle $vehicleId data deleted.'));
       if (Get.isRegistered<DashboardController>()) {
         Get.find<DashboardController>().initialize();
       }
@@ -131,7 +134,7 @@ class _TabSettingVehicleInfraState extends State<TabSettingVehicleInfra>
       }
       await _loadVehicles();
     } else {
-      Utils.showSnackBar('삭제에 실패했습니다.', isError: true);
+      Utils.showSnackBar(t('삭제에 실패했습니다.'), isError: true);
     }
   }
 
@@ -139,10 +142,12 @@ class _TabSettingVehicleInfraState extends State<TabSettingVehicleInfra>
     final String? result = await showDialog<String>(
       context: context,
       builder: (_) => AskDialog(
-        message: '인프라 $infraId 삭제',
-        addMessage: '인프라 $infraId 의 모든 데이터(이력 포함)가 영구 삭제됩니다.\n계속하시겠습니까?',
-        leftText: '삭제',
-        rightText: '취소',
+        message: l10n('인프라 $infraId 삭제', 'Delete Infra $infraId'),
+        addMessage: l10n(
+            '인프라 $infraId 의 모든 데이터(이력 포함)가 영구 삭제됩니다.\n계속하시겠습니까?',
+            'All data of Infra $infraId (including history) will be permanently deleted.\nDo you want to continue?'),
+        leftText: t('삭제'),
+        rightText: t('취소'),
       ),
     );
     if (result != 'LEFT') return;
@@ -150,7 +155,7 @@ class _TabSettingVehicleInfraState extends State<TabSettingVehicleInfra>
     final bool ok =
         await InfraRepository().requestInfraManageDelete(infraId);
     if (ok) {
-      Utils.showSnackBar('인프라 $infraId 데이터가 삭제되었습니다.');
+      Utils.showSnackBar(l10n('인프라 $infraId 데이터가 삭제되었습니다.', 'Infra $infraId data deleted.'));
       if (Get.isRegistered<DashboardController>()) {
         Get.find<DashboardController>().initialize();
       }
@@ -159,7 +164,7 @@ class _TabSettingVehicleInfraState extends State<TabSettingVehicleInfra>
       }
       await _loadInfras();
     } else {
-      Utils.showSnackBar('삭제에 실패했습니다.', isError: true);
+      Utils.showSnackBar(t('삭제에 실패했습니다.'), isError: true);
     }
   }
 
@@ -215,9 +220,9 @@ class _TabSettingVehicleInfraState extends State<TabSettingVehicleInfra>
               unselectedLabelColor   : const Color(0xFF6B7280),
               labelStyle             : const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, fontFamily: 'pretendard'),
               unselectedLabelStyle   : const TextStyle(fontSize: 14, fontWeight: FontWeight.w500, fontFamily: 'pretendard'),
-              tabs: const <Tab>[
-                Tab(text: '차량 관리'),
-                Tab(text: '인프라 관리'),
+              tabs: <Tab>[
+                Tab(text: t('차량 관리')),
+                Tab(text: t('인프라 관리')),
               ],
             ),
           ),
@@ -227,7 +232,7 @@ class _TabSettingVehicleInfraState extends State<TabSettingVehicleInfra>
               controller: _innerTab,
               children: <Widget>[
                 _buildSection(
-                  entityLabel : '차량',
+                  entityLabel : t('차량'),
                   idKey       : 'vehicle_id',
                   deviceType  : 'vehicle',
                   rows        : _vehicles,
@@ -236,7 +241,7 @@ class _TabSettingVehicleInfraState extends State<TabSettingVehicleInfra>
                   onDelete    : _deleteVehicle,
                 ),
                 _buildSection(
-                  entityLabel : '인프라',
+                  entityLabel : t('인프라'),
                   idKey       : 'infra_id',
                   deviceType  : 'infra',
                   rows        : _infras,
@@ -269,7 +274,7 @@ class _TabSettingVehicleInfraState extends State<TabSettingVehicleInfra>
         Row(
           children: <Widget>[
             Text(
-              '$entityLabel 목록',
+              l10n('$entityLabel 목록', '$entityLabel List'),
               style: const TextStyle(
                 fontSize: 16, fontWeight: FontWeight.w700,
                 color: Color(0xFF1A1A2E), fontFamily: 'pretendard',
@@ -279,7 +284,7 @@ class _TabSettingVehicleInfraState extends State<TabSettingVehicleInfra>
             IconButton(
               onPressed: onRefresh,
               icon: const Icon(Icons.refresh_rounded, size: 20, color: Color(0xFF6B7280)),
-              tooltip: '새로고침',
+              tooltip: t('새로고침'),
             ),
           ],
         ),
@@ -292,7 +297,7 @@ class _TabSettingVehicleInfraState extends State<TabSettingVehicleInfra>
               : rows.isEmpty
                   ? Center(
                       child: Text(
-                        '등록된 $entityLabel 이(가) 없습니다.',
+                        l10n('등록된 $entityLabel 이(가) 없습니다.', 'No registered $entityLabel.'),
                         style: const TextStyle(
                             fontSize: 14, color: Color(0xFF9CA3AF), fontFamily: 'pretendard'),
                       ),
@@ -337,10 +342,10 @@ class _TabSettingVehicleInfraState extends State<TabSettingVehicleInfra>
       child: Row(
         children: <Widget>[
           _headerCell('$entityLabel ID', flex: 2),
-          _headerCell('이름',           flex: 3),
-          _headerCell('홈 위치',        flex: 4),
-          _headerCell('마지막 수신',    flex: 4),
-          _headerCell('레코드 수',      flex: 2),
+          _headerCell(t('이름'),         flex: 3),
+          _headerCell(t('홈 위치'),      flex: 4),
+          _headerCell(t('마지막 수신'),  flex: 4),
+          _headerCell(t('레코드 수'),    flex: 2),
           _headerCell('',              flex: 3),
         ],
       ),
@@ -438,7 +443,7 @@ class _TabSettingVehicleInfraState extends State<TabSettingVehicleInfra>
           Expanded(
             flex: 4,
             child: Text(
-              regLocation,
+              t(regLocation),
               style: TextStyle(
                 fontSize: 13,
                 color: regLocation == '-'
@@ -473,7 +478,7 @@ class _TabSettingVehicleInfraState extends State<TabSettingVehicleInfra>
             child: Row(
               children: <Widget>[
                 _actionButton(
-                  label: registry != null ? '편집' : '등록',
+                  label: registry != null ? t('편집') : t('등록'),
                   bg   : registry != null
                       ? const Color(0xFFF0F9FF)
                       : const Color(0xFFEFF6FF),
@@ -487,7 +492,7 @@ class _TabSettingVehicleInfraState extends State<TabSettingVehicleInfra>
                 ),
                 const SizedBox(width: 6),
                 _actionButton(
-                  label: '삭제',
+                  label: t('삭제'),
                   bg   : const Color(0xFFFEF2F2),
                   border: const Color(0xFFFECACA),
                   fg   : const Color(0xFFDC2626),
@@ -559,7 +564,7 @@ class _EditDialogState extends State<_EditDialog> {
   bool _useStationLocation = true;
 
   bool get _isVehicle => widget.deviceType == 'vehicle';
-  String get _entityLabel => _isVehicle ? '차량' : '인프라';
+  String get _entityLabel => _isVehicle ? t('차량') : t('인프라');
 
   String? get _stationValue {
     final String value = _selectedStation?.trim() ?? '';
@@ -678,7 +683,7 @@ class _EditDialogState extends State<_EditDialog> {
     if (!mounted) return;
     setState(() => _geocoding = false);
     if (result == null) {
-      Utils.showSnackBar('주소를 찾을 수 없습니다.', isError: true);
+      Utils.showSnackBar(t('주소를 찾을 수 없습니다.'), isError: true);
       return;
     }
     setState(() {
@@ -710,10 +715,10 @@ class _EditDialogState extends State<_EditDialog> {
     setState(() => _saving = false);
 
     if (row != null) {
-      Utils.showSnackBar('저장되었습니다.');
+      Utils.showSnackBar(t('저장되었습니다.'));
       Navigator.of(context).pop(true);
     } else {
-      Utils.showSnackBar('저장에 실패했습니다.', isError: true);
+      Utils.showSnackBar(t('저장에 실패했습니다.'), isError: true);
     }
   }
 
@@ -721,8 +726,9 @@ class _EditDialogState extends State<_EditDialog> {
 
   @override
   Widget build(BuildContext context) {
-    final String title =
-        '${_isVehicle ? '차량' : '인프라'} ${widget.deviceId} 등록 정보';
+    final String title = _isVehicle
+        ? l10n('차량 ${widget.deviceId} 등록 정보', 'Vehicle ${widget.deviceId} Registration')
+        : l10n('인프라 ${widget.deviceId} 등록 정보', 'Infra ${widget.deviceId} Registration');
 
     return Dialog(
       backgroundColor: Colors.white,
@@ -746,24 +752,25 @@ class _EditDialogState extends State<_EditDialog> {
               const SizedBox(height: 24),
 
               // 이름
-              _label('이름'),
+              _label(t('이름')),
               const SizedBox(height: 6),
-              _field(_nameCtrl, hint: '예) 차량 001'),
+              _field(_nameCtrl, hint: l10n('예) 차량 001', 'e.g. Vehicle 001')),
               const SizedBox(height: 18),
 
               // 홈 위치 (차량: 스테이션 드롭다운 / 인프라: 주소 입력)
               if (_isVehicle) ...<Widget>[
-                _label('홈 스테이션'),
+                _label(t('홈 스테이션')),
                 const SizedBox(height: 6),
                 _stationDropdown(),
               ] else ...<Widget>[
-                _label('고정 주소'),
+                _label(t('고정 주소')),
                 const SizedBox(height: 6),
                 _addressField(),
                 if (_lat != null && _lng != null) ...<Widget>[
                   const SizedBox(height: 6),
                   Text(
-                    '위도 ${_lat!.toStringAsFixed(6)}  경도 ${_lng!.toStringAsFixed(6)}',
+                    l10n('위도 ${_lat!.toStringAsFixed(6)}  경도 ${_lng!.toStringAsFixed(6)}',
+                        'Lat ${_lat!.toStringAsFixed(6)}  Lng ${_lng!.toStringAsFixed(6)}'),
                     style: const TextStyle(
                       fontSize: 12, color: Color(0xFF6B7280), fontFamily: 'pretendard',
                     ),
@@ -773,9 +780,9 @@ class _EditDialogState extends State<_EditDialog> {
               const SizedBox(height: 18),
 
               // 메모
-              _label('메모 (선택)'),
+              _label(t('메모 (선택)')),
               const SizedBox(height: 6),
-              _field(_memoCtrl, hint: '메모를 입력하세요', maxLines: 2),
+              _field(_memoCtrl, hint: t('메모를 입력하세요'), maxLines: 2),
               const SizedBox(height: 28),
 
               // 버튼
@@ -784,9 +791,9 @@ class _EditDialogState extends State<_EditDialog> {
                 children: <Widget>[
                   TextButton(
                     onPressed: _saving ? null : () => Navigator.of(context).pop(false),
-                    child: const Text(
-                      '취소',
-                      style: TextStyle(
+                    child: Text(
+                      t('취소'),
+                      style: const TextStyle(
                         fontSize: 14, color: Color(0xFF6B7280), fontFamily: 'pretendard',
                       ),
                     ),
@@ -808,9 +815,9 @@ class _EditDialogState extends State<_EditDialog> {
                             child: CircularProgressIndicator(
                               strokeWidth: 2, color: Colors.white),
                           )
-                        : const Text(
-                            '저장',
-                            style: TextStyle(
+                        : Text(
+                            t('저장'),
+                            style: const TextStyle(
                               fontSize: 14, fontWeight: FontWeight.w600,
                               fontFamily: 'pretendard',
                             ),
@@ -866,14 +873,14 @@ class _EditDialogState extends State<_EditDialog> {
   Widget _locationModeToggle() => Row(
         children: <Widget>[
           _locationModeButton(
-            label: '스테이션',
+            label: t('스테이션'),
             icon: Icons.train_rounded,
             selected: _useStationLocation,
             onTap: () => _setLocationMode(true),
           ),
           const SizedBox(width: 8),
           _locationModeButton(
-            label: '주소',
+            label: t('주소'),
             icon: Icons.location_on_outlined,
             selected: !_useStationLocation,
             onTap: () => _setLocationMode(false),
@@ -938,7 +945,7 @@ class _EditDialogState extends State<_EditDialog> {
             const SizedBox(width: 6),
             Expanded(
               child: Text(
-                _resolvedLocationAddress ?? '-',
+                _resolvedLocationAddress == null ? '-' : t(_resolvedLocationAddress!),
                 style: const TextStyle(
                   fontSize: 12,
                   color: Color(0xFF334155),
@@ -978,15 +985,15 @@ class _EditDialogState extends State<_EditDialog> {
           underline: const SizedBox.shrink(),
           dropdownColor: Colors.white,
           borderRadius: BorderRadius.circular(12),
-          hint: const Text(
-            '스테이션을 선택하세요',
-            style: TextStyle(fontSize: 14, color: Color(0xFFD1D5DB), fontFamily: 'pretendard'),
+          hint: Text(
+            t('스테이션을 선택하세요'),
+            style: const TextStyle(fontSize: 14, color: Color(0xFFD1D5DB), fontFamily: 'pretendard'),
           ),
           items: _vehicleStations
               .map((s) => DropdownMenuItem<String>(
                     value: s.name,
                     child: Text(
-                      s.name,
+                      t(s.name),
                       style: const TextStyle(fontSize: 14, fontFamily: 'pretendard'),
                     ),
                   ))
@@ -1082,7 +1089,7 @@ class _EditDialogState extends State<_EditDialog> {
             style      : const TextStyle(fontSize: 14, fontFamily: 'pretendard'),
             onSubmitted: (_) => _geocode(),
             decoration : InputDecoration(
-              hintText     : '예) 대구광역시 중구 태평로 141',
+              hintText     : l10n('예) 대구광역시 중구 태평로 141', 'e.g. 141 Taepyeong-ro, Jung-gu, Daegu'),
               hintStyle    : const TextStyle(
                   fontSize: 14, color: Color(0xFFD1D5DB), fontFamily: 'pretendard'),
               contentPadding:
@@ -1121,9 +1128,9 @@ class _EditDialogState extends State<_EditDialog> {
                     child: CircularProgressIndicator(
                         strokeWidth: 2, color: Colors.white),
                   )
-                : const Text(
-                    '주소 검색',
-                    style: TextStyle(
+                : Text(
+                    t('주소 검색'),
+                    style: const TextStyle(
                       fontSize: 13, fontWeight: FontWeight.w600,
                       fontFamily: 'pretendard',
                     ),
@@ -1152,7 +1159,7 @@ class _EditDialogState extends State<_EditDialog> {
             style      : const TextStyle(fontSize: 14, fontFamily: 'pretendard'),
             onSubmitted: (_) => _geocode(),
             decoration : InputDecoration(
-              hintText     : '예) 대구광역시 중구 태평로 141',
+              hintText     : l10n('예) 대구광역시 중구 태평로 141', 'e.g. 141 Taepyeong-ro, Jung-gu, Daegu'),
               hintStyle    : const TextStyle(
                   fontSize: 14, color: Color(0xFFD1D5DB), fontFamily: 'pretendard'),
               contentPadding:
@@ -1191,9 +1198,9 @@ class _EditDialogState extends State<_EditDialog> {
                     child: CircularProgressIndicator(
                         strokeWidth: 2, color: Colors.white),
                   )
-                : const Text(
-                    '검색',
-                    style: TextStyle(
+                : Text(
+                    t('검색'),
+                    style: const TextStyle(
                       fontSize: 13, fontWeight: FontWeight.w600,
                       fontFamily: 'pretendard',
                     ),

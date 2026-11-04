@@ -65,7 +65,7 @@ class _LoginFindIdPageState extends State<LoginFindIdPage> {
     setState(() => _codeErrorMsg = '');
     final String code = _codeController.text.trim();
     if (code.isEmpty) {
-      setState(() => _codeErrorMsg = t('인증번호를 입력해주세요.'));
+      setState(() => _codeErrorMsg = tKey('인증번호를 입력해주세요.'));
       return;
     }
 
@@ -73,7 +73,7 @@ class _LoginFindIdPageState extends State<LoginFindIdPage> {
     final bool verified = await userCtrl.reqFindIdVerifyCode(_emailController.text.trim(), code);
     if (!verified) {
       _codeController.clear();
-      setState(() => _codeErrorMsg = t('인증번호가 일치하지 않습니다.'));
+      setState(() => _codeErrorMsg = tKey('인증번호가 일치하지 않습니다.'));
       _codeFocusNode.requestFocus();
       return;
     }
@@ -139,7 +139,7 @@ class _LoginFindIdPageState extends State<LoginFindIdPage> {
               focusNode: _codeFocusNode,
               hintText: t('인증번호를 입력해 주세요.'),
               prefixIconData: CupertinoIcons.shield,
-              errorText: _codeErrorMsg.isNotEmpty ? _codeErrorMsg : null,
+              errorText: _codeErrorMsg.isNotEmpty ? t(_codeErrorMsg) : null,
             ),
             const SizedBox(height: 32),
             AuthPrimaryButton(text: t('확인'), onTap: _onVerifyCode),

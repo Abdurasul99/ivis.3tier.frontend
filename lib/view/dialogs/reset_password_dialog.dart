@@ -6,6 +6,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import '../../constants/constants.dart';
+import '../../i18n/app_locale.dart';
 import '../../utils/utils.dart';
 import '../components/input_edit_text.dart';
 
@@ -59,9 +60,9 @@ class _ResetPasswordDialogState extends State<ResetPasswordDialog> {
                 child: Column(
                   children: [
                     const SizedBox(height: 24),
-                    const Text(
-                      "Enter your email. If it exists, we will send a 4-digit code.",
-                      style: TextStyle(
+                    Text(
+                      t('메일을 입력하세요. 등록된 메일이면 4자리 코드를 보내드립니다.'),
+                      style: const TextStyle(
                         fontFamily: 'pretendard',
                         fontSize: 14,
                         color: kGrayFontColor,
@@ -72,7 +73,7 @@ class _ResetPasswordDialogState extends State<ResetPasswordDialog> {
                     InputEditText(
                       controller: _emailController,
                       focusNode: _emailFocusNode,
-                      hintText: "Email",
+                      hintText: t('메일'),
                       onChanged: (value) => setState(() {}),
                     ),
                     const SizedBox(height: 24),
@@ -82,7 +83,7 @@ class _ResetPasswordDialogState extends State<ResetPasswordDialog> {
                         GestureDetector(
                           onTap: () {
                             if (_emailController.text.isEmpty) {
-                              Utils.showSnackBar("이메일을 입력하세요", isError: true);
+                              Utils.showSnackBar(t('이메일을 입력하세요'), isError: true);
                               _emailFocusNode.requestFocus();
                               return;
                             }
@@ -104,11 +105,11 @@ class _ResetPasswordDialogState extends State<ResetPasswordDialog> {
                                       size: 18, color: Colors.white),
                                 ),
                                 const SizedBox(width: 6),
-                                const Padding(
-                                  padding: EdgeInsets.only(top: 2.0),
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 2.0),
                                   child: Text(
-                                    "확인",
-                                    style: TextStyle(
+                                    t('확인'),
+                                    style: const TextStyle(
                                       fontFamily: 'medium',
                                       fontSize: 16,
                                       fontWeight: FontWeight.w700,
@@ -138,9 +139,9 @@ class _ResetPasswordDialogState extends State<ResetPasswordDialog> {
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
       child: Row(
         children: [
-          const Text(
-            "🔐 Reset Password",
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+          Text(
+            t('🔐 비밀번호 재설정'),
+            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
           ),
           const Spacer(),
           GestureDetector(

@@ -192,17 +192,16 @@ class _TabDeviceManagementState extends State<TabDeviceManagement> {
   // ── 삭제 ─────────────────────────────────────────────────────────────────────
 
   Future<void> _delete(_DeviceRow row) async {
-    final String label = row.deviceType == 'vehicle' ? t('차량') : t('인프라');
+    // Numbered device name: "Vehicle 3" / "Infra 3" in English
+    final String label =
+        row.deviceType == 'vehicle' ? t('차량') : l10n('인프라', 'Infra');
     final String? result = await showDialog<String>(
       context: context,
       builder: (_) => AskDialog(
         message: l10n('$label ${row.deviceId} 삭제', 'Delete $label ${row.deviceId}'),
-        addMessage: l10n(
-          '레지스트리 정보${row.hasTelemetry ? ' 및 모든 텔레메트리 데이터(이력 포함)' : ''}가 영구 삭제됩니다.\n계속하시겠습니까?',
-          row.hasTelemetry
-              ? 'The registry info and all telemetry history will be permanently deleted.\nDo you want to continue?'
-              : 'The registry info will be permanently deleted.\nDo you want to continue?',
-        ),
+        addMessage: row.hasTelemetry
+            ? t('레지스트리 정보 및 모든 텔레메트리 데이터(이력 포함)가 영구 삭제됩니다.\n계속하시겠습니까?')
+            : t('레지스트리 정보가 영구 삭제됩니다.\n계속하시겠습니까?'),
         leftText: t('삭제'),
         rightText: t('취소'),
       ),
@@ -374,7 +373,7 @@ class _TabDeviceManagementState extends State<TabDeviceManagement> {
                 ),
                 const SizedBox(width: 8),
                 Text(
-                  isEnglishLocale ? '${rows.length} items' : '${rows.length}개',
+                  l10n('${rows.length}개', '${rows.length} items'),
                   style: const TextStyle(
                     fontSize: 12,
                     color: Color(0xFF9CA3AF),
@@ -423,7 +422,7 @@ class _TabDeviceManagementState extends State<TabDeviceManagement> {
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          l10n('등록된 $label 없음', 'No registered $label'),
+                          isVehicle ? t('등록된 차량 없음') : t('등록된 인프라 없음'),
                           style: const TextStyle(
                             fontSize: 13,
                             color: Color(0xFFD1D5DB),
@@ -487,8 +486,11 @@ class _TabDeviceManagementState extends State<TabDeviceManagement> {
         ? row.locationAddress!
         : (row.homeStation?.isNotEmpty == true ? row.homeStation! : '-');
 
-    final String locationDisplay =
-        location.length > 18 ? '${location.substring(0, 18)}…' : location;
+    // Station names are data; show their romanized form via t()
+    final String locationText = t(location);
+    final String locationDisplay = locationText.length > 18
+        ? '${locationText.substring(0, 18)}…'
+        : locationText;
 
     final String lastSeen = row.lastSeen != null
         ? (row.lastSeen!.length >= 16 ? row.lastSeen!.substring(0, 16) : row.lastSeen!)
@@ -633,7 +635,7 @@ class _TabDeviceManagementState extends State<TabDeviceManagement> {
     if (name.isNotEmpty) {
       return name;
     }
-    return isEnglishLocale ? '#${row.deviceId}' : '${row.deviceId}번';
+    return l10n('${row.deviceId}번', '#${row.deviceId}');
   }
 
   String? _deviceSecondaryLabel(_DeviceRow row) {
@@ -641,7 +643,7 @@ class _TabDeviceManagementState extends State<TabDeviceManagement> {
     if (name.isEmpty) {
       return null;
     }
-    return isEnglishLocale ? '#${row.deviceId}' : '${row.deviceId}번';
+    return l10n('${row.deviceId}번', '#${row.deviceId}');
   }
 
   Widget _deviceTableRow(_DeviceRow row, bool isVehicle) {
@@ -653,8 +655,11 @@ class _TabDeviceManagementState extends State<TabDeviceManagement> {
         ? row.locationAddress!
         : (row.homeStation?.isNotEmpty == true ? row.homeStation! : '-');
 
-    final String locationDisplay =
-        location.length > 20 ? '${location.substring(0, 20)}…' : location;
+    // Station names are data; show their romanized form via t()
+    final String locationText = t(location);
+    final String locationDisplay = locationText.length > 20
+        ? '${locationText.substring(0, 20)}…'
+        : locationText;
 
     final String lastSeen = row.lastSeen != null
         ? (row.lastSeen!.length >= 16 ? row.lastSeen!.substring(0, 16) : row.lastSeen!)
@@ -808,7 +813,7 @@ class _TabDeviceManagementState extends State<TabDeviceManagement> {
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: <Widget>[
                   _actionBtn(
-                    label: '편집',
+                    label: t('편집'),
                     icon: Icons.edit_outlined,
                     bg: const Color(0xFFF0F9FF),
                     border: const Color(0xFFBAE6FD),
@@ -817,7 +822,7 @@ class _TabDeviceManagementState extends State<TabDeviceManagement> {
                   ),
                   const SizedBox(width: 6),
                   _actionBtn(
-                    label: '삭제',
+                    label: t('삭제'),
                     icon: Icons.delete_outline_rounded,
                     bg: const Color(0xFFFEF2F2),
                     border: const Color(0xFFFECACA),
@@ -1157,8 +1162,10 @@ class _DeviceFormState extends State<_DeviceForm> {
   @override
   Widget build(BuildContext context) {
     final String label = _isVehicle ? t('차량') : t('인프라');
+    // Numbered device name uses the short form ("Infra 3")
+    final String shortLabel = _isVehicle ? t('차량') : l10n('인프라', 'Infra');
     final String title = _isEdit
-        ? l10n('$label ${widget.existing!.deviceId} 편집', 'Edit $label ${widget.existing!.deviceId}')
+        ? l10n('$label ${widget.existing!.deviceId} 편집', 'Edit $shortLabel ${widget.existing!.deviceId}')
         : l10n('$label 등록', 'Register $label');
 
     return Container(
@@ -1457,7 +1464,7 @@ class _DeviceFormState extends State<_DeviceForm> {
           items: _kStations
               .map((s) => DropdownMenuItem<String>(
                     value: s.name,
-                    child: Text(s.name,
+                    child: Text(t(s.name),
                         style: const TextStyle(fontSize: 13, fontFamily: 'pretendard')),
                   ))
               .toList(),
@@ -1539,9 +1546,9 @@ class _DeviceFormState extends State<_DeviceForm> {
       children: <Widget>[
         _label(t('지도에서 위치 선택')),
         const SizedBox(height: 4),
-        const Text(
-          '지도를 드래그하면 중앙 핀 위치가 실시간으로 업데이트됩니다.',
-          style: TextStyle(
+        Text(
+          t('지도를 드래그하면 중앙 핀 위치가 실시간으로 업데이트됩니다.'),
+          style: const TextStyle(
             fontSize: 11,
             color: Color(0xFF9CA3AF),
             fontFamily: 'pretendard',
@@ -1601,8 +1608,8 @@ class _DeviceFormState extends State<_DeviceForm> {
                   _lat = null;
                   _lng = null;
                 }),
-                child: const Text('핀 제거',
-                    style: TextStyle(
+                child: Text(t('핀 제거'),
+                    style: const TextStyle(
                       fontSize: 11,
                       color: Color(0xFFDC2626),
                       fontFamily: 'pretendard',

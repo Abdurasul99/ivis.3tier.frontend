@@ -68,7 +68,8 @@ class _LoginResetPwPageState extends State<LoginResetPwPage> {
       Get.offAllNamed(LoginResetFinalPage.routeName);
     } else {
       Utils.showSnackBar(
-        l10n('비밀번호 변경 실패: ${response.message}', 'Password change failed: ${response.message}'),
+        l10n('비밀번호 변경 실패: ${serverText(response.message)}',
+            'Password change failed: ${serverText(response.message)}'),
         isError: true,
       );
     }

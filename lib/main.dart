@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart'
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:ivis/i18n/app_locale.dart';
 import 'package:ivis/view/components/custom_scroll_behavior.dart';
 import 'package:ivis/view/pages/home_page.dart';
 import 'package:ivis/view/pages/login_check_id_page.dart';
@@ -57,7 +58,7 @@ Future<void> main() async {
 
   ErrorWidget.builder = (FlutterErrorDetails details) {
     final String message =
-        kDebugMode ? details.exceptionAsString() : 'Unexpected UI error';
+        kDebugMode ? details.exceptionAsString() : t('예기치 않은 UI 오류');
     return Material(
       color: Colors.white,
       child: Center(

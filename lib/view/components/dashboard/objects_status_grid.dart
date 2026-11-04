@@ -7,8 +7,10 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:pluto_grid/pluto_grid.dart';
 
+import '../../../i18n/app_locale.dart';
 import '../../../model/object_model.dart';
 import '../../../viewmodel/controller/dashboard_controller.dart';
+import 'grid_locale_text.dart';
 
 class ObjectsStatusGrid extends StatefulWidget {
   final DashboardController controller;
@@ -24,14 +26,19 @@ class _ObjectsStatusGridState extends State<ObjectsStatusGrid> {
   List<DetectedObject> _syncedItems = <DetectedObject>[];
 
   // ── 타입별 표시 정보 ────────────────────────────────────────────────────────
-  static const List<String> _typeLabels = <String>[
-    '미확인',
-    '승용차',
-    '트럭',
-    '버스',
-    '보행자',
-    '이륜차',
-  ];
+  // Built on access so the labels follow the current locale.
+  static List<String> get _typeLabels => <String>[
+        t('미확인'),
+        t('승용차'),
+        t('트럭'),
+        t('버스'),
+        t('보행자'),
+        t('이륜차'),
+      ];
+
+  // Source kind labels (short English form for the narrow pill column).
+  static String get _vehicleKindLabel => t('차량');
+  static String get _infraKindLabel => l10n('인프라', 'Infra');
   static const List<IconData> _typeIcons = <IconData>[
     Icons.help_outline,
     Icons.directions_car,
@@ -50,8 +57,8 @@ class _ObjectsStatusGridState extends State<ObjectsStatusGrid> {
   ];
 
   Color _sourceKindColor(String label) {
-    if (label == '차량') return const Color(0xFF1565C0);
-    if (label == '인프라') return const Color(0xFF2E7D32);
+    if (label == _vehicleKindLabel) return const Color(0xFF1565C0);
+    if (label == _infraKindLabel) return const Color(0xFF2E7D32);
     return const Color(0xFF757575);
   }
 
@@ -119,7 +126,7 @@ class _ObjectsStatusGridState extends State<ObjectsStatusGrid> {
 
     return <PlutoColumn>[
       col(
-        title: '타입',
+        title: t('타입'),
         field: 'object_type',
         width: 56,
         minWidth: 52,
@@ -129,7 +136,7 @@ class _ObjectsStatusGridState extends State<ObjectsStatusGrid> {
           final bool valid = typeVal >= 0 && typeVal < _typeIcons.length;
           return Center(
             child: Tooltip(
-              message: valid ? _typeLabels[typeVal] : '미확인',
+              message: valid ? _typeLabels[typeVal] : t('미확인'),
               child: Icon(
                 valid ? _typeIcons[typeVal] : Icons.help_outline,
                 size: 18,
@@ -140,7 +147,7 @@ class _ObjectsStatusGridState extends State<ObjectsStatusGrid> {
         },
       ),
       col(
-        title: '분류',
+        title: t('분류'),
         field: 'type_label',
         width: 76,
         align: PlutoColumnTextAlign.left,
@@ -165,17 +172,17 @@ class _ObjectsStatusGridState extends State<ObjectsStatusGrid> {
         },
       ),
       col(
-        title: '객체 ID',
+        title: t('객체 ID'),
         field: 'object_id',
         width: 78,
         renderer: (PlutoColumnRendererContext ctx) => _plainCell(ctx),
       ),
       col(
-        title: '소스',
+        title: t('소스'),
         field: 'source_kind',
         width: 70,
         renderer: (PlutoColumnRendererContext ctx) {
-          final String label = ctx.cell.value?.toString() ?? '미확인';
+          final String label = ctx.cell.value?.toString() ?? t('미확인');
           final Color color = _sourceKindColor(label);
           return Center(
             child: Container(
@@ -200,15 +207,15 @@ class _ObjectsStatusGridState extends State<ObjectsStatusGrid> {
         },
       ),
       col(
-        title: '소유 장치',
+        title: t('소유 장치'),
         field: 'source_entity',
         width: 112,
         align: PlutoColumnTextAlign.left,
         renderer: (PlutoColumnRendererContext ctx) {
           final String value = ctx.cell.value?.toString() ?? '';
-          final Color color = value.startsWith('인프라')
+          final Color color = value.startsWith(_infraKindLabel)
               ? const Color(0xFF2E7D32)
-              : value.startsWith('차량')
+              : value.startsWith(_vehicleKindLabel)
                   ? const Color(0xFF1565C0)
                   : const Color(0xFF757575);
           return _plainCell(
@@ -220,7 +227,7 @@ class _ObjectsStatusGridState extends State<ObjectsStatusGrid> {
         },
       ),
       col(
-        title: '신뢰도',
+        title: t('신뢰도'),
         field: 'score',
         width: 76,
         renderer: (PlutoColumnRendererContext ctx) {
@@ -259,7 +266,7 @@ class _ObjectsStatusGridState extends State<ObjectsStatusGrid> {
             _plainCell(ctx, textAlign: TextAlign.right),
       ),
       col(
-        title: '폭(mm)',
+        title: t('폭(mm)'),
         field: 'width',
         width: 86,
         align: PlutoColumnTextAlign.right,
@@ -267,7 +274,7 @@ class _ObjectsStatusGridState extends State<ObjectsStatusGrid> {
             _plainCell(ctx, textAlign: TextAlign.right),
       ),
       col(
-        title: '높이(mm)',
+        title: t('높이(mm)'),
         field: 'height',
         width: 86,
         align: PlutoColumnTextAlign.right,
@@ -275,7 +282,7 @@ class _ObjectsStatusGridState extends State<ObjectsStatusGrid> {
             _plainCell(ctx, textAlign: TextAlign.right),
       ),
       col(
-        title: '깊이(mm)',
+        title: t('깊이(mm)'),
         field: 'depth',
         width: 86,
         align: PlutoColumnTextAlign.right,
@@ -300,10 +307,10 @@ class _ObjectsStatusGridState extends State<ObjectsStatusGrid> {
       final bool isInfraSource = normalizedSourceKind == 'infra' ||
           (normalizedSourceKind.isEmpty && obj.infraId != null);
       final String sourceKindLabel = isVehicleSource
-          ? '차량'
+          ? _vehicleKindLabel
           : isInfraSource
-              ? '인프라'
-              : '미확인';
+              ? _infraKindLabel
+              : t('미확인');
       final int? sourceEntityId = isVehicleSource
           ? obj.vehicleId
           : (isInfraSource ? obj.infraId : null);
@@ -312,7 +319,7 @@ class _ObjectsStatusGridState extends State<ObjectsStatusGrid> {
           : '';
       return PlutoRow(cells: <String, PlutoCell>{
         'object_type': PlutoCell(value: typeVal.toString()),
-        'type_label': PlutoCell(value: valid ? _typeLabels[typeVal] : '미확인'),
+        'type_label': PlutoCell(value: valid ? _typeLabels[typeVal] : t('미확인')),
         'object_id': PlutoCell(
             value: obj.objectId != null && obj.objectId! > 0
                 ? obj.objectId.toString()
@@ -374,6 +381,10 @@ class _ObjectsStatusGridState extends State<ObjectsStatusGrid> {
               child: Stack(
                 children: <Widget>[
                   PlutoGrid(
+                    // Column titles and cell labels are baked into the grid
+                    // state, so recreate the grid when the language changes.
+                    key: ValueKey<String>(
+                        'objects_status_${isEnglishLocale ? 'en' : 'ko'}'),
                     columns: _buildColumns(),
                     rows: _buildRows(widget.controller.objectsStatusItems),
                     onLoaded: (PlutoGridOnLoadedEvent event) {
@@ -381,6 +392,7 @@ class _ObjectsStatusGridState extends State<ObjectsStatusGrid> {
                       _syncedItems = widget.controller.objectsStatusItems;
                     },
                     configuration: PlutoGridConfiguration(
+                      localeText: dashboardGridLocaleText(),
                       columnSize: const PlutoGridColumnSizeConfig(
                         autoSizeMode: PlutoAutoSizeMode.none,
                       ),
@@ -417,17 +429,17 @@ class _ObjectsStatusGridState extends State<ObjectsStatusGrid> {
                       return Positioned.fill(
                         child: Container(
                           color: Colors.white,
-                          child: const Center(
+                          child: Center(
                             child: Column(
                               mainAxisSize: MainAxisSize.min,
                               children: <Widget>[
-                                Icon(Icons.touch_app_rounded,
+                                const Icon(Icons.touch_app_rounded,
                                     size: 36, color: Color(0xFFBDBDBD)),
-                                SizedBox(height: 10),
+                                const SizedBox(height: 10),
                                 Text(
-                                  '행을 클릭하면 해당 패킷의\n감지 객체가 표시됩니다.',
+                                  t('행을 클릭하면 해당 패킷의\n감지 객체가 표시됩니다.'),
                                   textAlign: TextAlign.center,
-                                  style: TextStyle(
+                                  style: const TextStyle(
                                       fontSize: 12,
                                       color: Color(0xFF9E9E9E)),
                                 ),
@@ -458,9 +470,9 @@ class _ObjectsStatusGridState extends State<ObjectsStatusGrid> {
         children: <Widget>[
           const Icon(Icons.radar_rounded, size: 16, color: Color(0xFF1565C0)),
           const SizedBox(width: 8),
-          const Text(
-            '객체 현황',
-            style: TextStyle(
+          Text(
+            t('객체 현황'),
+            style: const TextStyle(
                 fontSize: 13,
                 fontWeight: FontWeight.w700,
                 color: Color(0xFF1565C0)),
@@ -540,7 +552,7 @@ class _ObjectsStatusGridState extends State<ObjectsStatusGrid> {
           ),
           const SizedBox(width: 6),
           IconButton(
-            tooltip: 'Refresh',
+            tooltip: t('새로고침'),
             onPressed:
                 ctrl.objectsStatusLoading ? null : ctrl.refreshObjectsStatus,
             icon: const Icon(Icons.refresh, size: 16),

@@ -15,6 +15,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 import '../../i18n/app_locale.dart';
 import '../../model/object_model.dart';
 import '../../view/components/dashboard/objects_status_grid.dart';
+import '../../view/components/dashboard/grid_locale_text.dart';
 import '../../view/components/infra_vehicle_map.dart';
 import '../../viewmodel/controller/dashboard_controller.dart';
 import '../../viewmodel/controller/helper/dashboard_format_helper.dart';
@@ -59,6 +60,7 @@ class _TabDashboardState extends State<TabDashboard>
   List<PlutoColumn> _cachedColumns = <PlutoColumn>[];
 
   String _lastCachedFieldsKey = '';
+  String _gridLocaleCode = '';
 
   final LogRepository _logRepository = LogRepository();
   _MapPanelPlacement _mapPanelPlacement = _MapPanelPlacement.right;
@@ -111,6 +113,21 @@ class _TabDashboardState extends State<TabDashboard>
   void _rebuildCachedColumns() {
     _cachedColumns = _buildPlutoColumns(_controller.cachedFields);
     _lastCachedFieldsKey = _controller.cachedFields.join(',');
+    _gridLocaleCode = isEnglishLocale ? 'en' : 'ko';
+  }
+
+  // Column filter hints live on the PlutoColumn objects. On a language switch
+  // they are refreshed in place, so the live grid keeps its filters and sort.
+  void _syncGridLocale() {
+    final String code = isEnglishLocale ? 'en' : 'ko';
+    if (code == _gridLocaleCode) return;
+    _gridLocaleCode = code;
+    _cachedColumns = _buildPlutoColumns(_controller.cachedFields);
+    final PlutoGridStateManager? manager = _gridStateManager;
+    if (manager == null) return;
+    for (final PlutoColumn column in manager.refColumns.originalList) {
+      column.filterHintText = _filterHintFor(column.field);
+    }
   }
 
   void _updateGrid() {
@@ -267,7 +284,7 @@ class _TabDashboardState extends State<TabDashboard>
   Future<void> _openRowDetails(Map<String, dynamic> row) async {
     final bool isInfraEntity =
         _controller.currentEntityType == FmsEntityType.infra;
-    final String titleText = isInfraEntity ? '인프라 이력' : '차량 이력';
+    final String titleText = isInfraEntity ? t('인프라 이력') : t('차량 이력');
     final int expectedCountFromRow =
         _controller.parseIntValue(row['number_of_objects']);
     final bool forceZero = expectedCountFromRow <= 0;
@@ -383,11 +400,11 @@ class _TabDashboardState extends State<TabDashboard>
       return Container(
         color: const Color(0xFFF0FAF8),
         padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
-        child: Row(children: const <Widget>[
-          Icon(Icons.router_rounded, size: 13, color: Color(0xFF00897B)),
-          SizedBox(width: 6),
-          Text('고정 위치',
-              style: TextStyle(
+        child: Row(children: <Widget>[
+          const Icon(Icons.router_rounded, size: 13, color: Color(0xFF00897B)),
+          const SizedBox(width: 6),
+          Text(t('고정 위치'),
+              style: const TextStyle(
                   fontSize: 11,
                   fontWeight: FontWeight.w700,
                   color: Color(0xFF00897B))),
@@ -422,7 +439,10 @@ class _TabDashboardState extends State<TabDashboard>
         ),
         const SizedBox(width: 6),
         Text(
-          isMoving ? '이동 중 ${kphVal.toStringAsFixed(0)} km/h' : '정지',
+          isMoving
+              ? l10n('이동 중 ${kphVal.toStringAsFixed(0)} km/h',
+                  'Moving ${kphVal.toStringAsFixed(0)} km/h')
+              : t('정지'),
           style: TextStyle(
               fontSize: 11,
               fontWeight: FontWeight.w700,
@@ -447,7 +467,7 @@ class _TabDashboardState extends State<TabDashboard>
   Widget _buildRowSummaryCard(Map<String, dynamic> row) {
     final bool isInfra = _controller.currentEntityType == FmsEntityType.infra;
     final String historyIdText = _controller.formatCellValue(row['history_id']);
-    final String primaryLabel = isInfra ? '인프라 ID' : '차량 ID';
+    final String primaryLabel = isInfra ? t('인프라 ID') : t('차량 ID');
     final String primaryValue = isInfra
         ? _controller.formatCellValue(row['infra_id'])
         : _controller.formatCellValue(row['vehicle_id']);
@@ -467,8 +487,8 @@ class _TabDashboardState extends State<TabDashboard>
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           Row(children: <Widget>[
-            const Text('HISTORY',
-                style: TextStyle(
+            Text(t('이력'),
+                style: const TextStyle(
                     fontSize: 10,
                     fontWeight: FontWeight.w700,
                     color: Color(0xFF90CAF9),
@@ -536,21 +556,26 @@ class _TabDashboardState extends State<TabDashboard>
       'kph', 'mps', 'accel_x_mps2', 'accel_y_mps2', 'accel_z_mps2',
       'gyro_x_dps', 'gyro_y_dps', 'gyro_z_dps',
     ];
+    // Group headers are display labels (current locale).
+    final String idGroup = t('식별');
+    final String posGroup = t('위치');
+    final String velGroup = t('속도/IMU');
+    final String otherGroup = t('기타');
     final Map<String, List<String>> grouped = <String, List<String>>{
-      '식별': <String>[],
-      '위치': <String>[],
-      '속도/IMU': <String>[],
-      '기타': <String>[],
+      idGroup: <String>[],
+      posGroup: <String>[],
+      velGroup: <String>[],
+      otherGroup: <String>[],
     };
     for (final String f in columns) {
       if (idFields.contains(f)) {
-        grouped['식별']!.add(f);
+        grouped[idGroup]!.add(f);
       } else if (posFields.contains(f)) {
-        grouped['위치']!.add(f);
+        grouped[posGroup]!.add(f);
       } else if (velFields.contains(f)) {
-        grouped['속도/IMU']!.add(f);
+        grouped[velGroup]!.add(f);
       } else {
-        grouped['기타']!.add(f);
+        grouped[otherGroup]!.add(f);
       }
     }
     return Container(
@@ -633,8 +658,8 @@ class _TabDashboardState extends State<TabDashboard>
           child: Row(children: <Widget>[
             const Icon(Icons.radar_rounded, size: 18, color: Color(0xFF1565C0)),
             const SizedBox(width: 8),
-            const Text('감지 객체',
-                style: TextStyle(
+            Text(t('감지 객체'),
+                style: const TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w700,
                     color: Color(0xFF1565C0))),
@@ -665,20 +690,20 @@ class _TabDashboardState extends State<TabDashboard>
         const SizedBox(height: 10),
         Expanded(
           child: isLoading
-              ? const Center(
-                  child: Text('불러오는 중...',
-                      style: TextStyle(
+              ? Center(
+                  child: Text(t('불러오는 중...'),
+                      style: const TextStyle(
                           fontSize: 12, color: Color(0xFF9E9E9E))))
               : objectItems.isEmpty
-                  ? const Center(
+                  ? Center(
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: <Widget>[
-                          Icon(Icons.search_off_rounded,
+                          const Icon(Icons.search_off_rounded,
                               size: 40, color: Color(0xFFBDBDBD)),
-                          SizedBox(height: 8),
-                          Text('감지된 객체가 없습니다.',
-                              style: TextStyle(
+                          const SizedBox(height: 8),
+                          Text(t('감지된 객체가 없습니다.'),
+                              style: const TextStyle(
                                   fontSize: 13, color: Color(0xFF9E9E9E))),
                         ],
                       ),
@@ -818,9 +843,10 @@ class _TabDashboardState extends State<TabDashboard>
   }
 
   // 차량 프리셋 정의
-  static const Map<String, List<String>> _vehiclePresets =
+  // Preset names are display labels, so the map is built on access (current locale).
+  static Map<String, List<String>> get _vehiclePresets =>
       <String, List<String>>{
-    '기본': <String>[
+    t('기본'): const <String>[
       'history_id',
       'vehicle_id',
       'changed_at_date',
@@ -829,7 +855,7 @@ class _TabDashboardState extends State<TabDashboard>
       'mps',
       'number_of_objects'
     ],
-    '내비게이션': <String>[
+    t('내비게이션'): const <String>[
       'history_id',
       'vehicle_id',
       'changed_at_date',
@@ -842,7 +868,7 @@ class _TabDashboardState extends State<TabDashboard>
       'mps',
       'navsat'
     ],
-    'IMU': <String>[
+    'IMU': const <String>[
       'history_id',
       'vehicle_id',
       'changed_at_date',
@@ -855,7 +881,7 @@ class _TabDashboardState extends State<TabDashboard>
       'gyro_z_dps',
       'heading_deg'
     ],
-    '제어': <String>[
+    t('제어'): const <String>[
       'history_id',
       'vehicle_id',
       'changed_at_date',
@@ -870,8 +896,9 @@ class _TabDashboardState extends State<TabDashboard>
   };
 
   // 인프라 프리셋 정의
-  static const Map<String, List<String>> _infraPresets = <String, List<String>>{
-    '기본': <String>[
+  static Map<String, List<String>> get _infraPresets =>
+      <String, List<String>>{
+    t('기본'): const <String>[
       'history_id',
       'infra_id',
       'changed_at_date',
@@ -922,8 +949,8 @@ class _TabDashboardState extends State<TabDashboard>
                     const Icon(Icons.view_column_rounded,
                         size: 24, color: Color(0xFF1976D2)),
                     const SizedBox(width: 12),
-                    const Text('컬럼 선택',
-                        style: TextStyle(
+                    Text(t('컬럼 선택'),
+                        style: const TextStyle(
                             fontSize: 18,
                             fontWeight: FontWeight.w700,
                             color: Color(0xFF212121))),
@@ -983,8 +1010,8 @@ class _TabDashboardState extends State<TabDashboard>
                             ),
                             label: Text(
                                 tempVisibleFields.length == allFields.length
-                                    ? '전체 해제'
-                                    : '전체 선택'),
+                                    ? t('전체 해제')
+                                    : t('전체 선택')),
                             style: OutlinedButton.styleFrom(
                               foregroundColor: const Color(0xFF1976D2),
                               side: const BorderSide(color: Color(0xFF1976D2)),
@@ -1000,7 +1027,7 @@ class _TabDashboardState extends State<TabDashboard>
                                 tempVisibleFields = <String>{allFields.first}),
                             icon: const Icon(Icons.clear_all,
                                 size: 18, color: Color(0xFF757575)),
-                            label: const Text('최소 선택'),
+                            label: Text(t('최소 선택')),
                             style: OutlinedButton.styleFrom(
                               foregroundColor: const Color(0xFF757575),
                               side: const BorderSide(color: Color(0xFFBDBDBD)),
@@ -1026,8 +1053,8 @@ class _TabDashboardState extends State<TabDashboard>
                           spacing: 8,
                           runSpacing: 6,
                           children: <Widget>[
-                            const Text('프리셋:',
-                                style: TextStyle(
+                            Text(t('프리셋:'),
+                                style: const TextStyle(
                                     fontSize: 12,
                                     fontWeight: FontWeight.w600,
                                     color: Color(0xFF757575))),
@@ -1132,8 +1159,8 @@ class _TabDashboardState extends State<TabDashboard>
                                           color: const Color(0xFFFFF3E0),
                                           borderRadius:
                                               BorderRadius.circular(4)),
-                                      child: const Text('Min',
-                                          style: TextStyle(
+                                      child: Text(t('최소'),
+                                          style: const TextStyle(
                                               fontSize: 11,
                                               fontWeight: FontWeight.w600,
                                               color: Color(0xFFE65100))),
@@ -1165,8 +1192,8 @@ class _TabDashboardState extends State<TabDashboard>
                               shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(8)),
                             ),
-                            child: const Text('취소',
-                                style: TextStyle(
+                            child: Text(t('취소'),
+                                style: const TextStyle(
                                     fontSize: 14, fontWeight: FontWeight.w600)),
                           ),
                           const SizedBox(width: 12),
@@ -1184,8 +1211,8 @@ class _TabDashboardState extends State<TabDashboard>
                                   borderRadius: BorderRadius.circular(8)),
                               elevation: 0,
                             ),
-                            child: const Text('적용',
-                                style: TextStyle(
+                            child: Text(t('적용'),
+                                style: const TextStyle(
                                     fontSize: 14, fontWeight: FontWeight.w600)),
                           ),
                         ],
@@ -1321,8 +1348,12 @@ class _TabDashboardState extends State<TabDashboard>
       if (mounted) {
         final bool cut = exportResult.truncated;
         final String msg = cut
-            ? t('최대 ${exportResult.rowCount}행까지만 내보냈습니다. 기간을 좁히거나 차량을 선택해 주세요.')
-            : 'Export ready: ${exportResult.rowCount} rows, ${exportResult.columnCount} columns.';
+            ? l10n(
+                '최대 ${exportResult.rowCount}행까지만 내보냈습니다. 기간을 좁히거나 차량을 선택해 주세요.',
+                'Only the first ${exportResult.rowCount} rows were exported. Narrow the period or select a vehicle.')
+            : l10n(
+                '내보내기 완료: ${exportResult.rowCount}행, ${exportResult.columnCount}열.',
+                'Export ready: ${exportResult.rowCount} rows, ${exportResult.columnCount} columns.');
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(msg),
@@ -1337,7 +1368,7 @@ class _TabDashboardState extends State<TabDashboard>
       }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Export failed. Please try again.')),
+          SnackBar(content: Text(t('내보내기에 실패했습니다. 다시 시도해 주세요.'))),
         );
       }
     } finally {
@@ -1526,12 +1557,8 @@ class _TabDashboardState extends State<TabDashboard>
   };
 
   // 컬럼별 필터 힌트 텍스트 맵
+  // Date/time formats as-is; numeric values are range examples (see _filterHintFor).
   static const Map<String, String> _filterHints = <String, String>{
-    // ID 컬럼: 정확한 값 검색
-    'history_id': '# 검색',
-    'vehicle_id': '차량 ID',
-    'infra_id': '인프라 ID',
-    'msg_id': 'MSG ID',
     // 날짜·시간 컬럼: 범위 형식
     'changed_at_date': 'YYYY-MM-DD ~ YYYY-MM-DD',
     'changed_at_time': 'HH:MM:SS ~ HH:MM:SS',
@@ -1540,30 +1567,49 @@ class _TabDashboardState extends State<TabDashboard>
     'updated_ts_date': 'YYYY-MM-DD ~ YYYY-MM-DD',
     'updated_ts_time': 'HH:MM:SS ~ HH:MM:SS',
     // 숫자 컬럼: 단일 값 또는 min~max 범위
-    'msg_seq': '예) 1~100',
-    'msg_length': '예) 100~500',
-    'time_stamp_ms': '예) 1700000000~1800000000',
-    'navsat': '예) 0~5',
-    'kph': '예) 30~80',
-    'mps': '예) 8~20',
-    'pos_x_m': '예) 350000~360000',
-    'pos_y_m': '예) 4100000~4200000',
-    'pos_z_m': '예) 0~100',
-    'heading_deg': '예) 0~180',
-    'accel_x_mps2': '예) -5~5',
-    'accel_y_mps2': '예) -5~5',
-    'accel_z_mps2': '예) -5~5',
-    'gyro_x_dps': '예) -10~10',
-    'gyro_y_dps': '예) -10~10',
-    'gyro_z_dps': '예) -10~10',
-    'transmission_gear': '예) 1~6',
-    'signal_light': '예) 0~3',
-    'angle_deg': '예) -30~30',
-    'torque_nm': '예) 0~100',
-    'accel_pct': '예) 0~100',
-    'brake_pct': '예) 0~100',
-    'number_of_objects': '예) 0~10',
+    'msg_seq': '1~100',
+    'msg_length': '100~500',
+    'time_stamp_ms': '1700000000~1800000000',
+    'navsat': '0~5',
+    'kph': '30~80',
+    'mps': '8~20',
+    'pos_x_m': '350000~360000',
+    'pos_y_m': '4100000~4200000',
+    'pos_z_m': '0~100',
+    'heading_deg': '0~180',
+    'accel_x_mps2': '-5~5',
+    'accel_y_mps2': '-5~5',
+    'accel_z_mps2': '-5~5',
+    'gyro_x_dps': '-10~10',
+    'gyro_y_dps': '-10~10',
+    'gyro_z_dps': '-10~10',
+    'transmission_gear': '1~6',
+    'signal_light': '0~3',
+    'angle_deg': '-30~30',
+    'torque_nm': '0~100',
+    'accel_pct': '0~100',
+    'brake_pct': '0~100',
+    'number_of_objects': '0~10',
   };
+
+  // Filter hint for a column in the current locale (null = default hint).
+  String? _filterHintFor(String field) {
+    switch (field) {
+      // ID 컬럼: 정확한 값 검색
+      case 'history_id':
+        return t('# 검색');
+      case 'vehicle_id':
+        return t('차량 ID');
+      case 'infra_id':
+        return t('인프라 ID');
+      case 'msg_id':
+        return 'MSG ID';
+    }
+    final String? hint = _filterHints[field];
+    if (hint == null || _dateColumns.contains(field)) return hint;
+    // 숫자 컬럼: 단일 값 또는 min~max 범위 예시
+    return l10n('예) $hint', 'e.g. $hint');
+  }
 
   List<PlutoColumn> _buildPlutoColumns(List<String> fields) {
     return fields.map((String field) {
@@ -1615,7 +1661,7 @@ class _TabDashboardState extends State<TabDashboard>
         minWidth: _columnWidths[field] ?? 120,
         titleTextAlign: PlutoColumnTextAlign.center,
         textAlign: PlutoColumnTextAlign.center,
-        filterHintText: _filterHints[field],
+        filterHintText: _filterHintFor(field),
         renderer: (PlutoColumnRendererContext context) {
           final String value = context.cell.value?.toString() ?? '';
           return Container(
@@ -1707,12 +1753,7 @@ class _TabDashboardState extends State<TabDashboard>
             // 전체 컬럼 폭이 화면보다 넓으면 가로 스크롤이 생긴다.
             autoSizeMode: PlutoAutoSizeMode.none,
           ),
-          localeText: const PlutoGridLocaleText(
-            filterContains: '검색',
-            filterEquals: '일치',
-            filterStartsWith: '시작',
-            filterEndsWith: '끝',
-          ),
+          localeText: dashboardGridLocaleText(),
           columnFilter: const PlutoGridColumnFilterConfig(
             filters: FilterHelper.defaultFilters,
             debounceMilliseconds: 300,
@@ -2288,7 +2329,7 @@ class _TabDashboardState extends State<TabDashboard>
             ),
             const SizedBox(width: 5),
             Text(
-              mapShown ? '지도 닫기' : '지도 열기',
+              mapShown ? t('지도 닫기') : t('지도 열기'),
               style: TextStyle(
                 fontSize: 12,
                 fontFamily: 'pretendard',
@@ -2313,10 +2354,10 @@ class _TabDashboardState extends State<TabDashboard>
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
           // 엔티티 선택
-          _buildEntityChip(FmsEntityType.vehicle, '차량',
+          _buildEntityChip(FmsEntityType.vehicle, t('차량'),
               icon: Icons.directions_car_rounded),
           const SizedBox(width: 2),
-          _buildEntityChip(FmsEntityType.infra, '인프라',
+          _buildEntityChip(FmsEntityType.infra, t('인프라'),
               icon: Icons.cell_tower_rounded),
           // 구분선
           Container(
@@ -2431,7 +2472,7 @@ class _TabDashboardState extends State<TabDashboard>
             ),
             const SizedBox(width: 5),
             Text(
-              '지도',
+              t('지도'),
               style: TextStyle(
                 fontSize: 13,
                 fontFamily: 'pretendard',
@@ -2460,11 +2501,11 @@ class _TabDashboardState extends State<TabDashboard>
   String _placementLabel(_MapPanelPlacement placement) {
     switch (placement) {
       case _MapPanelPlacement.left:
-        return '왼쪽';
+        return t('왼쪽');
       case _MapPanelPlacement.right:
-        return '오른쪽';
+        return t('오른쪽');
       case _MapPanelPlacement.bottom:
-        return '아래';
+        return t('아래');
     }
   }
 
@@ -2507,7 +2548,7 @@ class _TabDashboardState extends State<TabDashboard>
               child: Container(
                 color: Colors.white,
                 width: double.infinity,
-                child: const Text('지도 오른쪽'),
+                child: Text(t('지도 오른쪽')),
               ),
             ),
             PopupMenuItem<_MapPanelPlacement>(
@@ -2515,7 +2556,7 @@ class _TabDashboardState extends State<TabDashboard>
               child: Container(
                 color: Colors.white,
                 width: double.infinity,
-                child: const Text('지도 아래'),
+                child: Text(t('지도 아래')),
               ),
             ),
             PopupMenuItem<_MapPanelPlacement>(
@@ -2523,7 +2564,7 @@ class _TabDashboardState extends State<TabDashboard>
               child: Container(
                 color: Colors.white,
                 width: double.infinity,
-                child: const Text('지도 왼쪽'),
+                child: Text(t('지도 왼쪽')),
               ),
             ),
           ];
@@ -2585,9 +2626,9 @@ class _TabDashboardState extends State<TabDashboard>
             const Icon(Icons.view_column_rounded,
                 size: 18, color: Color(0xFF1976D2)),
             const SizedBox(width: 8),
-            const Text(
-              'Columns',
-              style: TextStyle(
+            Text(
+              t('컬럼'),
+              style: const TextStyle(
                 fontSize: 13,
                 fontWeight: FontWeight.w500,
                 color: Color(0xFF424242),
@@ -2860,8 +2901,8 @@ class _TabDashboardState extends State<TabDashboard>
                   color: Color(0xFF212121),
                   fontWeight: FontWeight.w600),
               items: <DropdownMenuItem<String>>[
-                const DropdownMenuItem<String>(
-                    value: 'ALL', child: Text('ALL')),
+                DropdownMenuItem<String>(
+                    value: 'ALL', child: Text(t('전체'))),
                 ...vehicleIds.map((String id) =>
                     DropdownMenuItem<String>(value: id, child: Text(id))),
               ],
@@ -2901,8 +2942,8 @@ class _TabDashboardState extends State<TabDashboard>
                   color: Color(0xFF212121),
                   fontWeight: FontWeight.w600),
               items: <DropdownMenuItem<String>>[
-                const DropdownMenuItem<String>(
-                    value: 'ALL', child: Text('ALL')),
+                DropdownMenuItem<String>(
+                    value: 'ALL', child: Text(t('전체'))),
                 ...sortedIds.map((String id) =>
                     DropdownMenuItem<String>(value: id, child: Text(id))),
               ],
@@ -3136,7 +3177,9 @@ class _TabDashboardState extends State<TabDashboard>
             // 객체 현황 패널 토글
             Tooltip(
               message:
-                  _controller.isObjectsStatusOpen ? '객체 현황 닫기' : '객체 현황 표시',
+                  _controller.isObjectsStatusOpen
+                      ? t('객체 현황 닫기')
+                      : t('객체 현황 표시'),
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 200),
                 decoration: BoxDecoration(
@@ -3209,6 +3252,8 @@ class _TabDashboardState extends State<TabDashboard>
             _rebuildCachedColumns();
             _gridReady = false;
             _gridStateManager = null;
+          } else {
+            _syncGridLocale();
           }
 
           return Container(

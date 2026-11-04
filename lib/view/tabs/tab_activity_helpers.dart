@@ -459,7 +459,7 @@ List<_DistPeriodPoint> _aggregateDist(List<DailyDistancePoint> daily, String per
     } else {
       // 월
       sortKey = '${dt.year}${dt.month.toString().padLeft(2, '0')}';
-      label = isEnglishLocale ? '${_monthAbbr(dt.month)} ${dt.year}' : '${dt.month}월';
+      label = l10n('${dt.month}월', '${_monthAbbr(dt.month)} ${dt.year}');
     }
 
     kmMap[sortKey] = (kmMap[sortKey] ?? 0) + d.distanceM / 1000;
@@ -493,32 +493,26 @@ bool _isSameLocalDay(DateTime value, DateTime dayStart) {
 }
 
 String _calendarMonthLabel(DateTime date) {
-  if (isEnglishLocale) {
-    return _monthAbbr(date.month).toUpperCase();
-  }
-  return '${date.month}월';
+  return l10n('${date.month}월', _monthAbbr(date.month).toUpperCase());
 }
 
 String _calendarWeekdayLabel(DateTime date) {
-  const List<String> weekdaysKo = <String>[
-    '월요일',
-    '화요일',
-    '수요일',
-    '목요일',
-    '금요일',
-    '토요일',
-    '일요일',
-  ];
-  const List<String> weekdaysEn = <String>[
-    'Monday',
-    'Tuesday',
-    'Wednesday',
-    'Thursday',
-    'Friday',
-    'Saturday',
-    'Sunday',
-  ];
-  return isEnglishLocale ? weekdaysEn[date.weekday - 1] : weekdaysKo[date.weekday - 1];
+  switch (date.weekday) {
+    case DateTime.monday:
+      return l10n('월요일', 'Monday');
+    case DateTime.tuesday:
+      return l10n('화요일', 'Tuesday');
+    case DateTime.wednesday:
+      return l10n('수요일', 'Wednesday');
+    case DateTime.thursday:
+      return l10n('목요일', 'Thursday');
+    case DateTime.friday:
+      return l10n('금요일', 'Friday');
+    case DateTime.saturday:
+      return l10n('토요일', 'Saturday');
+    default:
+      return l10n('일요일', 'Sunday');
+  }
 }
 
 String _weatherTemperatureLabel(double? value) {
@@ -648,10 +642,10 @@ IconData _weatherIcon(int? weatherCode) {
 String _calendarEventDetail(ActivityEventItem event) {
   final List<String> parts = <String>[];
   if (event.subtitle.trim().isNotEmpty) {
-    parts.add(event.subtitle.trim());
+    parts.add(t(event.subtitle.trim()));
   }
   if (event.stationName != null && event.stationName!.trim().isNotEmpty) {
-    parts.add(event.stationName!.trim());
+    parts.add(t(event.stationName!.trim()));
   }
   if (event.speedKph != null) {
     parts.add('${event.speedKph!.toStringAsFixed(0)} km/h');
@@ -780,15 +774,15 @@ String _relativeLabel(int ms) {
   final Duration diff = DateTime.now().difference(time);
   if (diff.inSeconds < 10) return l10n('방금 전', 'Just now');
   if (diff.inSeconds < 60) {
-    return isEnglishLocale ? '${diff.inSeconds}s ago' : '${diff.inSeconds}초 전';
+    return l10n('${diff.inSeconds}초 전', '${diff.inSeconds}s ago');
   }
   if (diff.inMinutes < 60) {
-    return isEnglishLocale ? '${diff.inMinutes}m ago' : '${diff.inMinutes}분 전';
+    return l10n('${diff.inMinutes}분 전', '${diff.inMinutes}m ago');
   }
   if (diff.inHours < 24) {
-    return isEnglishLocale ? '${diff.inHours}h ago' : '${diff.inHours}시간 전';
+    return l10n('${diff.inHours}시간 전', '${diff.inHours}h ago');
   }
-  return isEnglishLocale ? '${diff.inDays}d ago' : '${diff.inDays}일 전';
+  return l10n('${diff.inDays}일 전', '${diff.inDays}d ago');
 }
 
 String _deviceTypeLabel(String deviceType) {
@@ -806,9 +800,9 @@ String _activeDaysLabel(int activeDays) {
   if (activeDays <= 0) {
     return l10n('이동 거리 이력이 없습니다.', 'No distance history');
   }
-  return isEnglishLocale ? '$activeDays active days' : '$activeDays일 이동';
+  return l10n('$activeDays일 이동', '$activeDays active days');
 }
 
 String _eventTooltipLabel(String dateKst, int total) {
-  return isEnglishLocale ? '$dateKst\nTotal $total' : '$dateKst\n총 $total건';
+  return l10n('$dateKst\n총 $total건', '$dateKst\nTotal $total');
 }

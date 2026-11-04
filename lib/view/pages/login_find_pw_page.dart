@@ -58,7 +58,8 @@ class _LoginFindPwPageState extends State<LoginFindPwPage> {
       Utils.showSnackBar(t('인증메일을 보냈습니다. 메일을 확인해주세요.'));
     } else {
       Utils.showSnackBar(
-        l10n('메일 전송 실패: ${response.message}', 'Failed to send email: ${response.message}'),
+        l10n('메일 전송 실패: ${serverText(response.message)}',
+            'Failed to send email: ${serverText(response.message)}'),
         isError: true,
       );
     }
@@ -75,14 +76,14 @@ class _LoginFindPwPageState extends State<LoginFindPwPage> {
     setState(() => _codeErrorMsg = '');
     final String code = _codeCtrl.text.trim();
     if (code.isEmpty) {
-      setState(() => _codeErrorMsg = t('인증번호를 입력하세요.'));
+      setState(() => _codeErrorMsg = tKey('인증번호를 입력하세요.'));
       return;
     }
 
     final PasswordController passwordCtrl = Get.find<PasswordController>();
     final dynamic verifyRes = await passwordCtrl.reqPasswordVerifyCode(email, code);
     if (verifyRes == null) {
-      setState(() => _codeErrorMsg = t('서버 오류가 발생했습니다.'));
+      setState(() => _codeErrorMsg = tKey('서버 오류가 발생했습니다.'));
       return;
     }
 
@@ -90,7 +91,7 @@ class _LoginFindPwPageState extends State<LoginFindPwPage> {
       Utils.showSnackBar(t('인증되었습니다! 비밀번호를 재설정하세요.'));
       Get.offAllNamed(LoginResetPwPage.routeName);
     } else {
-      setState(() => _codeErrorMsg = t('인증번호가 올바르지 않습니다.'));
+      setState(() => _codeErrorMsg = tKey('인증번호가 올바르지 않습니다.'));
     }
   }
 
@@ -146,7 +147,7 @@ class _LoginFindPwPageState extends State<LoginFindPwPage> {
               focusNode: _codeFocusNode,
               hintText: t('인증번호를 입력해 주세요.'),
               prefixIconData: CupertinoIcons.shield,
-              errorText: _codeErrorMsg.isNotEmpty ? _codeErrorMsg : null,
+              errorText: _codeErrorMsg.isNotEmpty ? t(_codeErrorMsg) : null,
             ),
             const SizedBox(height: 32),
             AuthPrimaryButton(text: t('확인'), onTap: _onVerifyCode),

@@ -81,7 +81,7 @@ class NotiDialog extends StatelessWidget {
             SizedBox(
               width: 157,
               child: GradientButton(
-                buttonText: isEnglishLocale ? 'OK' : '확인',
+                buttonText: l10n('확인', 'OK'),
                 buttonColor: const Color(0xFF005FB8),
                 onTap: () {
                   Get.back();

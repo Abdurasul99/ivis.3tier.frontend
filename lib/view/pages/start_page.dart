@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
 import '../../viewmodel/controller/user_controller.dart';
+import '../components/app_language_toggle.dart';
 import 'login_page.dart';
 
 class StartPage extends StatefulWidget {
@@ -36,11 +37,16 @@ class _StartPageState extends State<StartPage> {
   @override
   Widget build(BuildContext context) {
     return const Scaffold(
-      body: Center(
-        child: CupertinoActivityIndicator(
-          radius: 20,
-          color: Colors.grey,
-        ),
+      body: Stack(
+        children: <Widget>[
+          Center(
+            child: CupertinoActivityIndicator(
+              radius: 20,
+              color: Colors.grey,
+            ),
+          ),
+          AuthLanguageToggleOverlay(),
+        ],
       ),
     );
   }

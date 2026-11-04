@@ -4,6 +4,7 @@ import 'package:flutter_svg/svg.dart';
 import 'package:get/get.dart';
 
 import '../../constants/constants.dart';
+import '../../i18n/app_locale.dart';
 import 'gradient_button.dart';
 
 class InputEditDropDownMultiSelect extends StatefulWidget {
@@ -228,7 +229,7 @@ class _InputEditDropDownMultiSelectState extends State<InputEditDropDownMultiSel
                             const SizedBox(width: 10),
                             Expanded(
                               child: Text(
-                                'Select All',
+                                t('전체 선택'),
                                 style: TextStyle(
                                   fontFamily: 'pretendard',
                                   fontWeight: FontWeight.w400,
@@ -290,7 +291,7 @@ class _InputEditDropDownMultiSelectState extends State<InputEditDropDownMultiSel
                         children: [
                           Expanded(
                             child: GradientButton(
-                              buttonText: 'Apply',
+                              buttonText: t('적용'),
                               buttonColor: const Color(0xFF005FB8),
                               onTap: _applySelection,
                             ),
@@ -298,7 +299,7 @@ class _InputEditDropDownMultiSelectState extends State<InputEditDropDownMultiSel
                           const SizedBox(width: 16),
                           Expanded(
                             child: GradientButton(
-                              buttonText: 'Cancel',
+                              buttonText: t('취소'),
                               onTap: _cancelSelection,
                             ),
                           ),

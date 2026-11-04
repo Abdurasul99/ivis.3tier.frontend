@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
+import '../../i18n/app_locale.dart';
 import '../../viewmodel/controller/locale_controller.dart';
 
+// Korean / English switch. Language names are shown in their own language,
+// so the labels are intentionally not translated.
 class AppLanguageToggle extends StatelessWidget {
   final bool compact;
 
@@ -16,32 +19,51 @@ class AppLanguageToggle extends StatelessWidget {
     return GetBuilder<LocaleController>(
       init: Get.find<LocaleController>(),
       builder: (LocaleController controller) {
-        return Container(
-          padding: const EdgeInsets.all(3),
-          decoration: BoxDecoration(
-            color: const Color(0xFFF3F4F6),
-            borderRadius: BorderRadius.circular(999),
-            border: Border.all(color: const Color(0xFFE5E7EB)),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              _LanguageChip(
-                label: '한국어',
-                selected: controller.isKorean,
-                compact: compact,
-                onTap: () => controller.setLocale(LocaleController.korean),
-              ),
-              _LanguageChip(
-                label: 'English',
-                selected: controller.isEnglish,
-                compact: compact,
-                onTap: () => controller.setLocale(LocaleController.english),
-              ),
-            ],
+        return Semantics(
+          container: true,
+          label: l10n('언어', 'Language'),
+          child: Container(
+            padding: const EdgeInsets.all(3),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF3F4F6),
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(color: const Color(0xFFE5E7EB)),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                _LanguageChip(
+                  label: '한국어',
+                  selected: controller.isKorean,
+                  compact: compact,
+                  onTap: () => controller.setLocale(LocaleController.korean),
+                ),
+                _LanguageChip(
+                  label: 'English',
+                  selected: controller.isEnglish,
+                  compact: compact,
+                  onTap: () => controller.setLocale(LocaleController.english),
+                ),
+              ],
+            ),
           ),
         );
       },
+    );
+  }
+}
+
+// Language toggle pinned to the top-right corner of pre-login pages; lines up
+// with the toggle inside the login page top bar (60px bar, 24px side inset).
+class AuthLanguageToggleOverlay extends StatelessWidget {
+  const AuthLanguageToggleOverlay({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return const Positioned(
+      top: 14,
+      right: 24,
+      child: SafeArea(child: AppLanguageToggle(compact: true)),
     );
   }
 }

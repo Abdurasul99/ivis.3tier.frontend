@@ -10,6 +10,7 @@ import 'package:get/get.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:http/http.dart' as http;
 import '../../constants/constants.dart';
+import '../../i18n/app_locale.dart';
 import '../../model/infra_model.dart';
 import '../../model/object_model.dart';
 import '../../model/vehicle_model.dart';
@@ -67,25 +68,32 @@ class KiapiWaypointData {
   final double lon;
   final String name;
   final String shortLabel;
+  // Romanized short label for pins and chips in English mode.
+  final String shortLabelEn;
   const KiapiWaypointData({
     required this.lat,
     required this.lon,
     required this.name,
     required this.shortLabel,
+    required this.shortLabelEn,
   });
+
+  // Display text only — name/shortLabel remain the Korean data values.
+  String get displayName => t(name);
+  String get displayShortLabel => l10n(shortLabel, shortLabelEn);
 }
 
 const List<KiapiWaypointData> kiapiRoadWaypoints = <KiapiWaypointData>[
   KiapiWaypointData(
-      lat: 35.875931, lon: 128.596053, name: '대구역', shortLabel: '대구역'),
+      lat: 35.875931, lon: 128.596053, name: '대구역', shortLabel: '대구역', shortLabelEn: 'Daegu'),
   KiapiWaypointData(
-      lat: 35.877992, lon: 128.627778, name: '동대구역', shortLabel: '동대구'),
+      lat: 35.877992, lon: 128.627778, name: '동대구역', shortLabel: '동대구', shortLabelEn: 'Dongdaegu'),
   KiapiWaypointData(
-      lat: 35.854300, lon: 128.616000, name: '수성구', shortLabel: '수성구'),
+      lat: 35.854300, lon: 128.616000, name: '수성구', shortLabel: '수성구', shortLabelEn: 'Suseong'),
   KiapiWaypointData(
-      lat: 35.859167, lon: 128.626111, name: '범어역', shortLabel: '범어역'),
+      lat: 35.859167, lon: 128.626111, name: '범어역', shortLabel: '범어역', shortLabelEn: 'Beomeo'),
   KiapiWaypointData(
-      lat: 35.876110, lon: 128.605000, name: '칠성시장', shortLabel: '칠성'),
+      lat: 35.876110, lon: 128.605000, name: '칠성시장', shortLabel: '칠성', shortLabelEn: 'Chilseong'),
 ];
 
 const double kiapiCenterLat = 35.868810;
@@ -229,37 +237,38 @@ Color getObjectTypeColor(int t) {
   }
 }
 
-String getObjectTypeName(int t) {
-  switch (t) {
+String getObjectTypeName(int type) {
+  switch (type) {
     case 1:
-      return '승용차';
+      return t('승용차');
     case 2:
-      return '트럭';
+      return t('트럭');
     case 3:
-      return '버스';
+      return t('버스');
     case 4:
-      return '보행자';
+      return t('보행자');
     case 5:
-      return '이륜차';
+      return t('이륜차');
     default:
-      return '미확인';
+      return t('미확인');
   }
 }
 
-String getObjectTypeNameKorean(int t) {
-  switch (t) {
+// Localized via t() (Korean by default).
+String getObjectTypeNameKorean(int type) {
+  switch (type) {
     case 1:
-      return '승용차';
+      return t('승용차');
     case 2:
-      return '트럭';
+      return t('트럭');
     case 3:
-      return '버스';
+      return t('버스');
     case 4:
-      return '보행자';
+      return t('보행자');
     case 5:
-      return '이륜차';
+      return t('이륜차');
     default:
-      return '미확인';
+      return t('미확인');
   }
 }
 
@@ -297,20 +306,20 @@ double getObjectTypeHue(int t) {
   }
 }
 
-String getObjectTypeShortLabel(int t) {
-  switch (t) {
+String getObjectTypeShortLabel(int type) {
+  switch (type) {
     case 1:
-      return '승용차';
+      return t('승용차');
     case 2:
-      return '트럭';
+      return t('트럭');
     case 3:
-      return '버스';
+      return t('버스');
     case 4:
-      return '보행자';
+      return t('보행자');
     case 5:
-      return '이륜차';
+      return t('이륜차');
     default:
-      return '미확인';
+      return t('미확인');
   }
 }
 
@@ -397,6 +406,10 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
   BitmapDescriptor? _infraOfflineSelectedIcon;
   List<BitmapDescriptor> _stationIcons = <BitmapDescriptor>[];
   List<BitmapDescriptor> _stationSelectedIcons = <BitmapDescriptor>[];
+  // Station pin sizes of the current icons (repainted on a language switch)
+  int _stationPinPx = 42;
+  int _stationPinSelectedPx = 44;
+  String _stationLabelLocale = '';
 
   Map<int, BitmapDescriptor> _objectIcons = <int, BitmapDescriptor>{};
   int _objectIconSizePx = 52;
@@ -649,7 +662,7 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
     if (name.isNotEmpty && name != '-') {
       return name;
     }
-    return '차량 $vehicleId';
+    return l10n('차량 $vehicleId', 'Vehicle $vehicleId');
   }
 
   String _vehicleLocationLabel(int vehicleId) {
@@ -658,9 +671,10 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
         regEntry?['home_station']?.toString().trim() ??
         '';
     if (location.isNotEmpty && location != '-') {
-      return location;
+      // Station names are data; t() shows the romanized form
+      return t(location);
     }
-    return '위치 정보 없음';
+    return t('위치 정보 없음');
   }
 
   Set<int> _allKnownVehicleIds() {
@@ -2210,7 +2224,7 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
     if (name.isNotEmpty && name != '-') {
       return name;
     }
-    return '인프라 $infraId';
+    return l10n('인프라 $infraId', 'Infra $infraId');
   }
 
   // ignore: unused_element
@@ -2220,9 +2234,9 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
         regEntry?['home_station']?.toString().trim() ??
         '';
     if (location.isNotEmpty && location != '-') {
-      return location;
+      return t(location);
     }
-    return '위치 미등록';
+    return t('위치 미등록');
   }
 
   Set<int> _allKnownInfraIds() {
@@ -2245,9 +2259,10 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
         regEntry?['home_station']?.toString().trim() ??
         '';
     if (location.isNotEmpty && location != '-') {
-      return location;
+      // Station names are data; t() shows the romanized form
+      return t(location);
     }
-    return '위치 정보 없음';
+    return t('위치 정보 없음');
   }
 
   LatLng _convertRawToLatLng(double rawX, double rawY) {
@@ -4007,18 +4022,31 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
 
     // 스테이션 레이블 텍스트
     final double fs = innerR * (label.length <= 2 ? 0.7 : 0.52);
-    final TextPainter tp = TextPainter(
-      text: TextSpan(
-        text: label,
-        style: TextStyle(
-          color: labelColor,
-          fontSize: max(8, fs),
-          fontWeight: FontWeight.w800,
-        ),
-      ),
-      textDirection: TextDirection.ltr,
-      textAlign: TextAlign.center,
-    )..layout(maxWidth: innerR * 2);
+    TextPainter labelPainter(double fontSize) => TextPainter(
+          text: TextSpan(
+            text: label,
+            style: TextStyle(
+              color: labelColor,
+              fontSize: fontSize,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          textDirection: TextDirection.ltr,
+          textAlign: TextAlign.center,
+        );
+    TextPainter tp = labelPainter(max(8, fs))..layout(maxWidth: innerR * 2);
+    if (isEnglishLocale) {
+      // Romanized names are longer than the Korean ones: shrink them to a
+      // single line that fits the pin head instead of wrapping.
+      final double fitWidth = innerR * 2.3;
+      final TextPainter oneLine = labelPainter(max(8, fs))..layout();
+      if (oneLine.width > fitWidth) {
+        final double fitted = max(5.0, max(8, fs) * fitWidth / oneLine.width);
+        tp = labelPainter(fitted)..layout(maxWidth: fitWidth);
+      } else {
+        tp = oneLine;
+      }
+    }
     tp.paint(c, Offset(cx - tp.width / 2, headCy - tp.height / 2));
   }
 
@@ -4867,7 +4895,7 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
       final List<BitmapDescriptor> newStationSelectedIcons =
           <BitmapDescriptor>[];
       for (int i = 0; i < kiapiRoadWaypoints.length; i++) {
-        final String lbl = kiapiRoadWaypoints[i].shortLabel;
+        final String lbl = kiapiRoadWaypoints[i].displayShortLabel;
         final int pinH = (stPx * 160 / 128).round();
         final int pinSH = (stsPx * 160 / 128).round();
         newStationIcons.add(await _canvasMarkerWH(
@@ -4897,6 +4925,8 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
         _infraBlinkIcon = newInfraBlinkIcon;
         _stationIcons = newStationIcons;
         _stationSelectedIcons = newStationSelectedIcons;
+        _stationPinPx = stPx;
+        _stationPinSelectedPx = stsPx;
         _staticMarkersBuilt = false;
       });
 
@@ -4993,7 +5023,7 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
       _stationSelectedIcons = <BitmapDescriptor>[];
 
       for (int i = 0; i < kiapiRoadWaypoints.length; i++) {
-        final String lbl = kiapiRoadWaypoints[i].shortLabel;
+        final String lbl = kiapiRoadWaypoints[i].displayShortLabel;
         _stationIcons.add(await _canvasMarkerWH(
           widthPx: 42,
           heightPx: (42 * 160 / 128).round(),
@@ -5056,8 +5086,62 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
     }
   }
 
+  // Station pins have their label painted into the bitmap, and marker info
+  // windows are built with translated text. After a language switch, repaint
+  // the pins and rebuild the markers once (the first build only records the
+  // locale; _createCustomMarkers paints the initial pins).
+  void _refreshMapLabelsOnLocaleChange() {
+    final String code = isEnglishLocale ? 'en' : 'ko';
+    if (code == _stationLabelLocale) return;
+    final bool firstBuild = _stationLabelLocale.isEmpty;
+    _stationLabelLocale = code;
+    if (firstBuild) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_disposed || !mounted) return;
+      unawaited(_repaintStationPins());
+    });
+  }
+
+  Future<void> _repaintStationPins() async {
+    final List<BitmapDescriptor> icons = <BitmapDescriptor>[];
+    final List<BitmapDescriptor> selectedIcons = <BitmapDescriptor>[];
+    try {
+      for (int i = 0; i < kiapiRoadWaypoints.length; i++) {
+        final String lbl = kiapiRoadWaypoints[i].displayShortLabel;
+        icons.add(await _canvasMarkerWH(
+          widthPx: _stationPinPx,
+          heightPx: (_stationPinPx * 160 / 128).round(),
+          painter: (Canvas c, double w, double h) =>
+              _paintStationPin(c, w, h, lbl, false),
+        ));
+        selectedIcons.add(await _canvasMarkerWH(
+          widthPx: _stationPinSelectedPx,
+          heightPx: (_stationPinSelectedPx * 160 / 128).round(),
+          painter: (Canvas c, double w, double h) =>
+              _paintStationPin(c, w, h, lbl, true),
+        ));
+      }
+    } catch (e) {
+      if (kDebugMode) debugPrint('[MAP] Station pin repaint failed: $e');
+      return;
+    }
+    if (_disposed || !mounted) return;
+    setState(() {
+      _stationIcons = icons;
+      _stationSelectedIcons = selectedIcons;
+      _staticMarkersBuilt = false;
+    });
+    _rebuildStaticMarkers();
+    if (_entityType == MapEntityType.vehicle) {
+      _forceRebuildMarkers();
+    } else {
+      _buildInfraMarkers();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    _refreshMapLabelsOnLocaleChange();
     return Stack(
       children: <Widget>[
         _buildContent(context),
@@ -5293,9 +5377,9 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
                                       ),
                                     ),
                                     const SizedBox(width: 8),
-                                    const Text(
-                                      'Receiving data...',
-                                      style: TextStyle(
+                                    Text(
+                                      t('데이터 수신 중...'),
+                                      style: const TextStyle(
                                         fontSize: 12,
                                         fontWeight: FontWeight.w700,
                                         color: Color(0xFF616161),
@@ -5397,7 +5481,7 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
 
     return Semantics(
       button: true,
-      label: collapsed ? '패널 펼치기' : '패널 숨기기',
+      label: collapsed ? t('패널 펼치기') : t('패널 숨기기'),
       child: MouseRegion(
         cursor: SystemMouseCursors.click,
         child: Material(
@@ -5448,7 +5532,7 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
                                 const ValueKey<String>('side-panel-hide-label'),
                             padding: const EdgeInsets.only(left: 4),
                             child: Text(
-                              '숨기기',
+                              t('숨기기'),
                               style: const TextStyle(
                                 fontSize: 12,
                                 fontWeight: FontWeight.w700,
@@ -5491,7 +5575,7 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 12),
                   child: Text(
-                    _entityType == MapEntityType.vehicle ? '차량' : '인프라',
+                    _entityType == MapEntityType.vehicle ? t('차량') : t('인프라'),
                     style: const TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.w700,
@@ -5601,11 +5685,11 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
     final List<int> sorted = _allKnownVehicleIds().toList()..sort();
 
     if (sorted.isEmpty) {
-      return const Center(
+      return Center(
         child: Padding(
-          padding: EdgeInsets.all(14),
-          child: Text('No vehicles',
-              style: TextStyle(fontSize: 12, color: Color(0xFF9E9E9E))),
+          padding: const EdgeInsets.all(14),
+          child: Text(t('차량 없음'),
+              style: const TextStyle(fontSize: 12, color: Color(0xFF9E9E9E))),
         ),
       );
     }
@@ -5623,14 +5707,14 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
         String speed = '';
         int objCount = 0;
         if (_tracked.containsKey(vid)) {
-          final VehicleTrackingData t = _tracked[vid]!;
-          final double kph = t.vehicleInfo?.velocityKph ?? 0.0;
+          final VehicleTrackingData tracking = _tracked[vid]!;
+          final double kph = tracking.vehicleInfo?.velocityKph ?? 0.0;
           speed = live
-              ? ((kph < 1.0) ? '정지' : '${kph.toStringAsFixed(0)} kph')
-              : '오프라인';
-          objCount = live ? t.objects.length : 0;
+              ? ((kph < 1.0) ? t('정지') : '${kph.toStringAsFixed(0)} kph')
+              : t('오프라인');
+          objCount = live ? tracking.objects.length : 0;
         } else {
-          speed = '오프라인';
+          speed = t('오프라인');
         }
 
         return InkWell(
@@ -5688,7 +5772,7 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
                       // ignore: dead_code
                       if (false)
                         Text(
-                          '차량 $vid',
+                          l10n('차량 $vid', 'Vehicle $vid'),
                           style: TextStyle(
                             fontSize: 13,
                             fontWeight: sel ? FontWeight.w700 : FontWeight.w500,
@@ -5699,7 +5783,8 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
                         ),
                       if (speed.isNotEmpty)
                         Text(
-                          '차량 $vid | $speed | 객체 $objCount',
+                          l10n('차량 $vid | $speed | 객체 $objCount',
+                              'Vehicle $vid | $speed | Objects $objCount'),
                           style: const TextStyle(
                               fontSize: 10, color: Color(0xFF9E9E9E)),
                         ),
@@ -5728,12 +5813,12 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
     final List<int> infraIds = _allKnownInfraIds().toList()..sort();
 
     if (infraIds.isEmpty) {
-      return const Center(
+      return Center(
         child: Padding(
-          padding: EdgeInsets.all(14),
+          padding: const EdgeInsets.all(14),
           child: Text(
-            '등록된 인프라가 없습니다',
-            style: TextStyle(fontSize: 12, color: Color(0xFF9E9E9E)),
+            t('등록된 인프라가 없습니다'),
+            style: const TextStyle(fontSize: 12, color: Color(0xFF9E9E9E)),
           ),
         ),
       );
@@ -5752,6 +5837,7 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
             selected ? _infraObjects.length : (snapshot?.objectCount ?? 0);
         final LatLng targetPosition =
             snapshot?.position ?? _resolveInfraPosition(infraId);
+        final String liveLabel = live ? t('온라인') : t('오프라인');
 
         return InkWell(
           onTap: () {
@@ -5816,7 +5902,8 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
                         ),
                       ),
                       Text(
-                        '인프라 $infraId | ${live ? "온라인" : "오프라인"} | 객체 $objectCount개',
+                        l10n('인프라 $infraId | $liveLabel | 객체 $objectCount개',
+                            'Infra $infraId | $liveLabel | Objects $objectCount'),
                         style: const TextStyle(
                           fontSize: 10,
                           color: Color(0xFF9E9E9E),
@@ -5966,12 +6053,14 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
     }
 
     if (duration.inHours > 0) {
-      return '${duration.inHours}시간 ${duration.inMinutes.remainder(60)}분';
+      return l10n('${duration.inHours}시간 ${duration.inMinutes.remainder(60)}분',
+          '${duration.inHours}h ${duration.inMinutes.remainder(60)}m');
     }
     if (duration.inMinutes > 0) {
-      return '${duration.inMinutes}분 ${duration.inSeconds.remainder(60)}초';
+      return l10n('${duration.inMinutes}분 ${duration.inSeconds.remainder(60)}초',
+          '${duration.inMinutes}m ${duration.inSeconds.remainder(60)}s');
     }
-    return '${max(1, duration.inSeconds)}초';
+    return l10n('${max(1, duration.inSeconds)}초', '${max(1, duration.inSeconds)}s');
   }
 
   String _formatTimeSinceMs(int? epochMs) {
@@ -5982,12 +6071,12 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
     final int diffMs = max(0, DateTime.now().millisecondsSinceEpoch - epochMs);
     final Duration diff = Duration(milliseconds: diffMs);
     if (diff.inHours > 0) {
-      return '${diff.inHours}시간 전';
+      return l10n('${diff.inHours}시간 전', '${diff.inHours}h ago');
     }
     if (diff.inMinutes > 0) {
-      return '${diff.inMinutes}분 전';
+      return l10n('${diff.inMinutes}분 전', '${diff.inMinutes}m ago');
     }
-    return '${max(1, diff.inSeconds)}초 전';
+    return l10n('${max(1, diff.inSeconds)}초 전', '${max(1, diff.inSeconds)}s ago');
   }
 
   String _formatHeadingLabel(double headingDegrees) {
@@ -6008,7 +6097,7 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
 
   String _vehicleTypeLabel(Vehicle? vehicle) {
     final String type = vehicle?.vehicleType?.trim() ?? '';
-    return type.isEmpty ? 'Vehicle' : type;
+    return type.isEmpty ? t('차량') : type;
   }
 
   String _vehicleModelLabel(Vehicle? vehicle) {
@@ -6362,15 +6451,15 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
     final int sessionSeenCount =
         session?.uniqueObjectCount ?? currentObjectCount;
 
-    const List<String> headingDirections = <String>[
-      '북',
-      '북동',
-      '동',
-      '남동',
-      '남',
-      '남서',
-      '서',
-      '북서',
+    final List<String> headingDirections = <String>[
+      t('북'),
+      t('북동'),
+      t('동'),
+      t('남동'),
+      t('남'),
+      t('남서'),
+      t('서'),
+      t('북서'),
     ];
     final int headingIndex =
         ((heading + 22.5) ~/ 45) % headingDirections.length;
@@ -6378,10 +6467,10 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
         '${heading.round()}° ${headingDirections[headingIndex]}';
 
     final String stateLabel = !live
-        ? '오프라인'
+        ? t('오프라인')
         : moving
-            ? '이동 중'
-            : '대기 중';
+            ? t('이동 중')
+            : t('대기 중');
     final Color stateColor = !live
         ? const Color(0xFFE53935)
         : moving
@@ -6390,9 +6479,10 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
     final String subtitle = _vehicleModelLabel(vehicle);
     final String lastTelemetry =
         _formatTimeSinceMs(tracking?.vehicleInfo?.timeStampMs);
+    // Route labels are data (station names / addresses); t() only for display
     final String routeSummaryLabel = routeFromLabel == routeCurrentLabel
-        ? routeCurrentLabel
-        : '$routeFromLabel → $routeCurrentLabel';
+        ? t(routeCurrentLabel)
+        : '${t(routeFromLabel)} → ${t(routeCurrentLabel)}';
 
     final List<Widget> objectTypeChips = <Widget>[
       for (final MapEntry<int, int> entry in typeCounts.entries)
@@ -6431,9 +6521,9 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: <Widget>[
-                          const Text(
-                            '실시간 추적',
-                            style: TextStyle(
+                          Text(
+                            t('실시간 추적'),
+                            style: const TextStyle(
                               fontSize: 12,
                               fontWeight: FontWeight.w800,
                               color: Color(0xFF6E7C8F),
@@ -6464,7 +6554,7 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
                       ),
                     ),
                     IconButton(
-                      tooltip: '추적 닫기',
+                      tooltip: t('추적 닫기'),
                       onPressed: _clearSelectedVehicle,
                       icon: const Icon(
                         Icons.close_rounded,
@@ -6512,7 +6602,7 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        '마지막 패킷 $lastTelemetry',
+                        l10n('마지막 패킷 $lastTelemetry', 'Last packet $lastTelemetry'),
                         textAlign: TextAlign.right,
                         style: const TextStyle(
                           fontSize: 11,
@@ -6533,7 +6623,7 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
                       height: metricHeight,
                       child: _buildTrackingMetricCard(
                         icon: Icons.speed_rounded,
-                        label: '속도',
+                        label: t('속도'),
                         value:
                             live ? '${speedKph.toStringAsFixed(0)} kph' : '--',
                         accent: const Color(0xFF1565C0),
@@ -6544,7 +6634,7 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
                       height: metricHeight,
                       child: _buildTrackingMetricCard(
                         icon: Icons.schedule_rounded,
-                        label: '다음 ETA',
+                        label: t('다음 ETA'),
                         value: _formatDurationCompact(eta),
                         accent: const Color(0xFF2E7D32),
                       ),
@@ -6554,7 +6644,7 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
                       height: metricHeight,
                       child: _buildTrackingMetricCard(
                         icon: Icons.search_rounded,
-                        label: '실시간 객체',
+                        label: t('실시간 객체'),
                         value: '$currentObjectCount',
                         accent: const Color(0xFFEF6C00),
                       ),
@@ -6564,7 +6654,7 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
                       height: metricHeight,
                       child: _buildTrackingMetricCard(
                         icon: Icons.analytics_outlined,
-                        label: '세션 누적',
+                        label: t('세션 누적'),
                         value: '$sessionSeenCount',
                         accent: const Color(0xFF6A1B9A),
                       ),
@@ -6580,18 +6670,18 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: <Widget>[
                         _buildTrackingSection(
-                          title: '실시간 위치',
+                          title: t('실시간 위치'),
                           icon: Icons.location_on_rounded,
                           children: <Widget>[
                             _buildTrackingStageRow(
-                              label: '출발',
-                              value: routeFromLabel,
+                              label: t('출발'),
+                              value: t(routeFromLabel),
                               accent: const Color(0xFF2E7D32),
                               showConnector: true,
                             ),
                             _buildTrackingStageRow(
-                              label: '현재',
-                              value: routeCurrentLabel,
+                              label: t('현재'),
+                              value: t(routeCurrentLabel),
                               accent: const Color(0xFF1976D2),
                               showConnector: false,
                             ),
@@ -6599,13 +6689,13 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
                             Row(
                               children: <Widget>[
                                 _buildTrackingInfoPill(
-                                  label: '예상 경로',
+                                  label: t('예상 경로'),
                                   value: routeSummaryLabel,
                                   accent: const Color(0xFF1565C0),
                                 ),
                                 const SizedBox(width: 8),
                                 _buildTrackingInfoPill(
-                                  label: '남은 거리',
+                                  label: t('남은 거리'),
                                   value:
                                       _formatDistanceCompact(remainingMeters),
                                   accent: const Color(0xFF2E7D32),
@@ -6616,13 +6706,13 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
                             Row(
                               children: <Widget>[
                                 _buildTrackingInfoPill(
-                                  label: '예상 시간',
+                                  label: t('예상 시간'),
                                   value: _formatDurationCompact(eta),
                                   accent: const Color(0xFFEF6C00),
                                 ),
                                 const SizedBox(width: 8),
                                 _buildTrackingInfoPill(
-                                  label: '방향',
+                                  label: t('방향'),
                                   value: headingLabel,
                                   accent: const Color(0xFF6A1B9A),
                                 ),
@@ -6632,7 +6722,7 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
                         ),
                         SizedBox(height: gap),
                         _buildTrackingSection(
-                          title: '감지된 객체',
+                          title: t('감지된 객체'),
                           icon: Icons.search_rounded,
                           children: <Widget>[
                             if (objectTypeChips.isNotEmpty)
@@ -6642,9 +6732,9 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
                                 children: objectTypeChips,
                               )
                             else
-                              const Text(
-                                '최근 패킷에 감지된 객체가 없습니다.',
-                                style: TextStyle(
+                              Text(
+                                t('최근 패킷에 감지된 객체가 없습니다.'),
+                                style: const TextStyle(
                                   fontSize: 11,
                                   fontWeight: FontWeight.w600,
                                   color: Color(0xFF7B8794),
@@ -6700,7 +6790,7 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
                   borderRadius: BorderRadius.circular(999),
                 ),
                 child: Text(
-                  wp.shortLabel,
+                  wp.displayShortLabel,
                   style: TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.w900,
@@ -6761,7 +6851,7 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
     final List<Widget> stationChips = <Widget>[
       for (int i = 0; i < kiapiRoadWaypoints.length; i++)
         Tooltip(
-          message: kiapiRoadWaypoints[i].name,
+          message: kiapiRoadWaypoints[i].displayName,
           child: buildStationChip(i),
         ),
     ];
@@ -6862,7 +6952,7 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
                 if (!compact) ...<Widget>[
                   const SizedBox(width: 5),
                   Text(
-                    on ? '팔로우 ON' : '팔로우 OFF',
+                    on ? t('팔로우 ON') : t('팔로우 OFF'),
                     style: const TextStyle(
                       fontSize: 12,
                       fontFamily: 'pretendard',
@@ -6910,7 +7000,7 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
                 if (!compact) ...<Widget>[
                   const SizedBox(width: 5),
                   Text(
-                    _showDetectedObjects ? '객체 ON' : '객체 OFF',
+                    _showDetectedObjects ? t('객체 ON') : t('객체 OFF'),
                     style: const TextStyle(
                       fontSize: 12,
                       fontFamily: 'pretendard',
@@ -6954,9 +7044,9 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
                   const Icon(Icons.map_outlined, size: 14, color: Colors.white),
                   if (!compact) ...<Widget>[
                     const SizedBox(width: 5),
-                    const Text(
-                      '지도 닫기',
-                      style: TextStyle(
+                    Text(
+                      t('지도 닫기'),
+                      style: const TextStyle(
                         fontSize: 12,
                         fontFamily: 'pretendard',
                         fontWeight: FontWeight.w500,
@@ -7000,8 +7090,8 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
                   color: Colors.red, shape: BoxShape.circle),
             ),
             const SizedBox(width: 4),
-            const Text('오프라인',
-                style: TextStyle(
+            Text(t('오프라인'),
+                style: const TextStyle(
                     fontSize: 10,
                     fontWeight: FontWeight.w800,
                     color: Colors.red)),
@@ -7020,7 +7110,7 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
           ],
           const Icon(Icons.visibility, size: 12, color: Color(0xFFFF9800)),
           const SizedBox(width: 4),
-          Text('객체 $totalObj',
+          Text(l10n('객체 $totalObj', 'Objects $totalObj'),
               style: const TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w800,

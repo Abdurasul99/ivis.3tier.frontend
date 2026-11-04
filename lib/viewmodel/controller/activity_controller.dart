@@ -94,6 +94,8 @@ class ActivityController extends GetxController {
   bool isDeviceChartLoading = false;
   List<ActivityChartDay> calendarMonthDays = <ActivityChartDay>[];
   bool isCalendarMonthLoading = false;
+  // First day of the month shown in the activity calendar; the ‹ › arrows move it.
+  DateTime calendarMonth = ActivityFormatHelper.currentMonthStartKst();
   DateTime? selectedCalendarDate;
   List<ActivityEventItem> selectedCalendarDayEvents = <ActivityEventItem>[];
   int selectedCalendarDayTotal = 0;
@@ -130,6 +132,8 @@ class ActivityController extends GetxController {
   String? _weatherCacheKey;
   DateTime? _weatherFetchedAt;
   int _distanceChartRequestId = 0;
+  // Bumped on every calendar month request so a slow response for another month is dropped.
+  int _calendarMonthRequestId = 0;
   // 마지막 디바이스 분석 갱신 시각 (오프라인 디바이스 갱신 간격 제어)
   DateTime? _lastDeviceAnalyticsAt;
   // 오프라인 디바이스는 10분에 한 번만 갱신
@@ -285,7 +289,8 @@ class ActivityController extends GetxController {
     if (token.isEmpty || deviceType == null || deviceId == null) return;
 
     final String selectionKey = '$deviceType:$deviceId';
-    final ({int fromMs, int toMs}) calendarWindow = _currentMonthKstWindow();
+    final ({int fromMs, int toMs}) calendarWindow = _monthKstWindow(calendarMonth);
+    final int calendarRequestId = ++_calendarMonthRequestId;
     final int distanceChartDays = _distanceChartDaysForPeriod(selectedDeviceDistanceChartPeriod);
     final int distanceChartRequestId = ++_distanceChartRequestId;
     if (!silent) {
@@ -367,7 +372,9 @@ class ActivityController extends GetxController {
         unawaited(_loadInfraDailyObjectCounts(deviceId, chartDays_, silent: silent));
         unawaited(loadInfraTotalByInfra(days: chartDays_, silent: silent));
       }
-      calendarMonthDays = results[4] as List<ActivityChartDay>;
+      if (calendarRequestId == _calendarMonthRequestId) {
+        calendarMonthDays = results[4] as List<ActivityChartDay>;
+      }
 
       unawaited(refreshSelectedDeviceWeather(force: true));
     } finally {
@@ -377,7 +384,9 @@ class ActivityController extends GetxController {
         isDeviceDistanceChartLoading = false;
       }
       isDeviceSummaryLoading = false;
-      isCalendarMonthLoading = false;
+      if (calendarRequestId == _calendarMonthRequestId) {
+        isCalendarMonthLoading = false;
+      }
       update();
     }
   }
@@ -388,6 +397,7 @@ class ActivityController extends GetxController {
     deviceFeedEvents = <ActivityEventItem>[];
     deviceChartDays = <ActivityChartDay>[];
     calendarMonthDays = <ActivityChartDay>[];
+    calendarMonth = ActivityFormatHelper.currentMonthStartKst();
     selectedVehicleInfo = null;
     selectedInfraInfo = null;
     vehicleDailyOperationStats = <Map<String, dynamic>>[];
@@ -398,6 +408,8 @@ class ActivityController extends GetxController {
     selectedDeviceDistanceChartStats = null;
     isDeviceDistanceChartLoading = false;
     _distanceChartRequestId++;
+    _calendarMonthRequestId++;
+    isCalendarMonthLoading = false;
     selectedCalendarDate = null;
     selectedCalendarDayEvents = <ActivityEventItem>[];
     selectedCalendarDayTotal = 0;
@@ -418,6 +430,7 @@ class ActivityController extends GetxController {
     deviceFeedEvents = <ActivityEventItem>[];
     deviceChartDays = <ActivityChartDay>[];
     calendarMonthDays = <ActivityChartDay>[];
+    calendarMonth = ActivityFormatHelper.currentMonthStartKst();
     selectedVehicleInfo = null;
     selectedInfraInfo = null;
     vehicleDailyOperationStats = <Map<String, dynamic>>[];
@@ -428,6 +441,8 @@ class ActivityController extends GetxController {
     selectedDeviceDistanceChartStats = null;
     isDeviceDistanceChartLoading = false;
     _distanceChartRequestId++;
+    _calendarMonthRequestId++;
+    isCalendarMonthLoading = false;
     selectedCalendarDate = null;
     selectedCalendarDayEvents = <ActivityEventItem>[];
     selectedCalendarDayTotal = 0;
@@ -464,12 +479,15 @@ class ActivityController extends GetxController {
       deviceFeedEvents = <ActivityEventItem>[];
       deviceChartDays = <ActivityChartDay>[];
       calendarMonthDays = <ActivityChartDay>[];
+      calendarMonth = ActivityFormatHelper.currentMonthStartKst();
       selectedVehicleInfo = null;
       selectedInfraInfo = null;
       selectedDeviceDistanceStats = null;
       selectedDeviceDistanceChartStats = null;
       isDeviceDistanceChartLoading = false;
       _distanceChartRequestId++;
+      _calendarMonthRequestId++;
+      isCalendarMonthLoading = false;
       selectedCalendarDate = null;
       selectedCalendarDayEvents = <ActivityEventItem>[];
       selectedCalendarDayTotal = 0;
@@ -607,7 +625,8 @@ class ActivityController extends GetxController {
     if (liveLocation != null && liveLocation.isNotEmpty) return liveLocation;
     // 2순위: device_registry 등록 주소 (고정값)
     final String location = _registryLocationLabel(selectedDeviceType, selectedDeviceId);
-    return location.isEmpty ? l10n('등록된 위치 없음', 'No registered location') : location;
+    // Registered station names are data; t() shows their romanized form
+    return location.isEmpty ? t('등록된 위치 없음') : t(location);
   }
 
   double? get selectedLatitude {
@@ -1105,6 +1124,63 @@ class ActivityController extends GetxController {
     update();
   }
 
+  bool get isCalendarOnCurrentMonth {
+    final DateTime current = ActivityFormatHelper.currentMonthStartKst();
+    return calendarMonth.year == current.year && calendarMonth.month == current.month;
+  }
+
+  // Future months have no data, so the next arrow stops at the current month.
+  bool get canShowNextCalendarMonth =>
+      calendarMonth.isBefore(ActivityFormatHelper.currentMonthStartKst());
+
+  Future<void> showPreviousCalendarMonth() =>
+      _showCalendarMonth(DateTime(calendarMonth.year, calendarMonth.month - 1));
+
+  Future<void> showNextCalendarMonth() async {
+    if (!canShowNextCalendarMonth) return;
+    await _showCalendarMonth(DateTime(calendarMonth.year, calendarMonth.month + 1));
+  }
+
+  Future<void> showCurrentCalendarMonth() =>
+      _showCalendarMonth(ActivityFormatHelper.currentMonthStartKst());
+
+  // Switches the calendar to [month] and reloads only that month's daily event counts.
+  Future<void> _showCalendarMonth(DateTime month) async {
+    final DateTime target = DateTime(month.year, month.month);
+    if (target == calendarMonth) return;
+    calendarMonth = target;
+    calendarMonthDays = <ActivityChartDay>[];
+    final int requestId = ++_calendarMonthRequestId;
+
+    final String token = Get.find<UserController>().accessToken ?? '';
+    final String? deviceType = selectedDeviceType;
+    final int? deviceId = selectedDeviceId;
+    if (token.isEmpty || deviceType == null || deviceId == null) {
+      update();
+      return;
+    }
+
+    isCalendarMonthLoading = true;
+    update();
+    try {
+      final ({int fromMs, int toMs}) window = _monthKstWindow(target);
+      final List<ActivityChartDay> days = await _repo.requestChartData(
+        deviceType: deviceType,
+        deviceId: deviceId,
+        fromMs: window.fromMs,
+        toMs: window.toMs,
+      );
+      if (requestId == _calendarMonthRequestId) {
+        calendarMonthDays = days;
+      }
+    } finally {
+      if (requestId == _calendarMonthRequestId) {
+        isCalendarMonthLoading = false;
+        update();
+      }
+    }
+  }
+
   void setFeedSeverity(int severity) {
     if (feedMinSeverity == severity) return;
     feedMinSeverity = severity;
@@ -1230,8 +1306,8 @@ class ActivityController extends GetxController {
   String _relativeTimeFromMs(int ms) =>
       ActivityFormatHelper.relativeTimeFromMs(ms);
 
-  ({int fromMs, int toMs}) _currentMonthKstWindow() =>
-      ActivityFormatHelper.currentMonthKstWindow();
+  ({int fromMs, int toMs}) _monthKstWindow(DateTime month) =>
+      ActivityFormatHelper.monthKstWindow(month);
 
   ({int fromMs, int toMs}) _kstDayWindow(DateTime date) =>
       ActivityFormatHelper.kstDayWindow(date);

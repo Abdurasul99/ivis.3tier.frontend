@@ -39,19 +39,15 @@ class ActivityFormatHelper {
 
     if (diff.inSeconds < 10) return l10n('방금 전', 'Just now');
     if (diff.inSeconds < 60) {
-      return isEnglishLocale
-          ? '${diff.inSeconds}s ago'
-          : '${diff.inSeconds}초 전';
+      return l10n('${diff.inSeconds}초 전', '${diff.inSeconds}s ago');
     }
     if (diff.inMinutes < 60) {
-      return isEnglishLocale
-          ? '${diff.inMinutes}m ago'
-          : '${diff.inMinutes}분 전';
+      return l10n('${diff.inMinutes}분 전', '${diff.inMinutes}m ago');
     }
     if (diff.inHours < 24) {
-      return isEnglishLocale ? '${diff.inHours}h ago' : '${diff.inHours}시간 전';
+      return l10n('${diff.inHours}시간 전', '${diff.inHours}h ago');
     }
-    return isEnglishLocale ? '${diff.inDays}d ago' : '${diff.inDays}일 전';
+    return l10n('${diff.inDays}일 전', '${diff.inDays}d ago');
   }
 
   // KST 자정의 epoch ms (UTC 자정 - KST 오프셋)
@@ -75,10 +71,18 @@ class ActivityFormatHelper {
   }
 
   // 이번 달 KST 시작/끝 epoch ms
-  static ({int fromMs, int toMs}) currentMonthKstWindow() {
+  static ({int fromMs, int toMs}) currentMonthKstWindow() => monthKstWindow(nowKst());
+
+  // First day of the current KST month (year/month only).
+  static DateTime currentMonthStartKst() {
     final DateTime now = nowKst();
-    final DateTime start = DateTime(now.year, now.month, 1);
-    final DateTime nextMonth = DateTime(now.year, now.month + 1, 1);
+    return DateTime(now.year, now.month);
+  }
+
+  // KST start/end epoch ms of the month that contains [month].
+  static ({int fromMs, int toMs}) monthKstWindow(DateTime month) {
+    final DateTime start = DateTime(month.year, month.month, 1);
+    final DateTime nextMonth = DateTime(month.year, month.month + 1, 1);
     return (
       fromMs: kstMidnightEpochMs(start),
       toMs: kstMidnightEpochMs(nextMonth) - 1,

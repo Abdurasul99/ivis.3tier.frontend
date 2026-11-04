@@ -93,9 +93,9 @@ class _TabActivityState extends State<TabActivity>
   }
 
   Widget _buildHeaderDeck(ActivityController c) {
-    final String fleetLabel = isEnglishLocale
-        ? '${c.vehicleCatalog.length} vehicles · ${c.infraCatalog.length} infra · ${c.feedTotal} events'
-        : '차량 ${c.vehicleCatalog.length}대 · 인프라 ${c.infraCatalog.length}식 · 이벤트 ${c.feedTotal}건';
+    final String fleetLabel = l10n(
+        '차량 ${c.vehicleCatalog.length}대 · 인프라 ${c.infraCatalog.length}식 · 이벤트 ${c.feedTotal}건',
+        '${c.vehicleCatalog.length} vehicles · ${c.infraCatalog.length} infra · ${c.feedTotal} events');
     return Container(
       height: 56,
       padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -459,7 +459,7 @@ class _TabActivityState extends State<TabActivity>
                         icon: item.deviceType == 'vehicle'
                             ? Icons.route_rounded
                             : Icons.place_rounded,
-                        label: item.location,
+                        label: t(item.location),
                         accent: accent,
                         dark: true,
                       ),
@@ -647,7 +647,7 @@ class _TabActivityState extends State<TabActivity>
                 children: <Widget>[
                   _signalBadge(
                     icon: Icons.motion_photos_auto_rounded,
-                    label: l10n('Ready for selection', 'Ready for selection'),
+                    label: t('선택 대기 중'),
                     accent: _primary,
                   ),
                   const SizedBox(height: 20),
@@ -680,7 +680,7 @@ class _TabActivityState extends State<TabActivity>
                   ),
                   const SizedBox(height: 20),
                   Text(
-                    l10n('Select a unit from the rail', 'Select a unit from the rail'),
+                    t('왼쪽 목록에서 장치를 선택하세요'),
                     style: const TextStyle(
                       fontFamily: 'gm-medium',
                       fontSize: 30,
@@ -693,10 +693,7 @@ class _TabActivityState extends State<TabActivity>
                   ConstrainedBox(
                     constraints: const BoxConstraints(maxWidth: 620),
                     child: Text(
-                      l10n(
-                        'Pick any vehicle or infrastructure node to open live health, motion pattern, weather context, and a readable event timeline in one operational screen.',
-                        'Pick any vehicle or infrastructure node to open live health, motion pattern, weather context, and a readable event timeline in one operational screen.',
-                      ),
+                      t('차량 또는 인프라 노드를 선택하면 실시간 상태, 이동 패턴, 날씨 정보, 이벤트 타임라인을 한 화면에서 확인할 수 있습니다.'),
                       style: const TextStyle(
                         fontFamily: 'pretendard',
                         fontSize: 13,
@@ -712,17 +709,20 @@ class _TabActivityState extends State<TabActivity>
                     children: <Widget>[
                       _signalBadge(
                         icon: Icons.directions_car_filled_rounded,
-                        label: '${c.vehicleCatalog.length} vehicles',
+                        label: l10n('차량 ${c.vehicleCatalog.length}대',
+                            '${c.vehicleCatalog.length} vehicles'),
                         accent: _primary,
                       ),
                       _signalBadge(
                         icon: Icons.cell_tower_rounded,
-                        label: '${c.infraCatalog.length} infra nodes',
+                        label: l10n('인프라 노드 ${c.infraCatalog.length}개',
+                            '${c.infraCatalog.length} infra nodes'),
                         accent: _infra,
                       ),
                       _signalBadge(
                         icon: Icons.notifications_active_rounded,
-                        label: '${c.unreadCount} unread',
+                        label: l10n('읽지 않음 ${c.unreadCount}건',
+                            '${c.unreadCount} unread'),
                         accent: c.unreadCount > 0 ? _warning : _success,
                       ),
                     ],
@@ -739,7 +739,7 @@ class _TabActivityState extends State<TabActivity>
               children: <Widget>[
                 Expanded(
                   child: _statDeckCard(
-                    label: l10n('Fleet inventory', 'Fleet inventory'),
+                    label: t('전체 장치'),
                     value: '${c.vehicleCatalog.length + c.infraCatalog.length}',
                     accent: _primary,
                     icon: Icons.widgets_rounded,
@@ -748,7 +748,7 @@ class _TabActivityState extends State<TabActivity>
                 const SizedBox(width: 14),
                 Expanded(
                   child: _statDeckCard(
-                    label: l10n('Global feed', 'Global feed'),
+                    label: t('전체 이벤트'),
                     value: '${c.feedTotal}',
                     accent: _warning,
                     icon: Icons.auto_graph_rounded,
@@ -787,7 +787,7 @@ class _TabActivityState extends State<TabActivity>
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: <Widget>[
                             Text(
-                              l10n('What this deck shows', 'What this deck shows'),
+                              t('이 화면에서 볼 수 있는 정보'),
                               style: const TextStyle(
                                 fontFamily: 'gm-medium',
                                 fontSize: 17,
@@ -797,8 +797,7 @@ class _TabActivityState extends State<TabActivity>
                             ),
                             const SizedBox(height: 4),
                             Text(
-                              l10n('Operational context, not just raw feed lines',
-                                  'Operational context, not just raw feed lines'),
+                              t('단순 로그가 아닌 운영 상황 중심 정보'),
                               style: const TextStyle(
                                 fontFamily: 'pretendard',
                                 fontSize: 12,
@@ -813,26 +812,20 @@ class _TabActivityState extends State<TabActivity>
                   const SizedBox(height: 18),
                   _deckNarrativePoint(
                     accent: _primary,
-                    title: l10n('Live status profile', 'Live status profile'),
-                    body: l10n(
-                        'Connection state, last activity, object count, coordinates, and live motion summary.',
-                        'Connection state, last activity, object count, coordinates, and live motion summary.'),
+                    title: t('실시간 상태 프로필'),
+                    body: t('연결 상태, 최근 활동, 객체 수, 좌표, 실시간 이동 요약을 보여줍니다.'),
                   ),
                   const SizedBox(height: 14),
                   _deckNarrativePoint(
                     accent: _warning,
-                    title: l10n('Readable timeline', 'Readable timeline'),
-                    body: l10n(
-                        'Warnings and event types are grouped into cards that are easier to scan than raw backend logs.',
-                        'Warnings and event types are grouped into cards that are easier to scan than raw backend logs.'),
+                    title: t('읽기 쉬운 타임라인'),
+                    body: t('경고와 이벤트 유형을 카드로 묶어 원시 백엔드 로그보다 한눈에 파악하기 쉽습니다.'),
                   ),
                   const SizedBox(height: 14),
                   _deckNarrativePoint(
                     accent: _infra,
-                    title: l10n('Behavior trend', 'Behavior trend'),
-                    body: l10n(
-                        'Distance history or event activity chart stays visible next to weather and monthly context.',
-                        'Distance history or event activity chart stays visible next to weather and monthly context.'),
+                    title: t('활동 추이'),
+                    body: t('이동 거리 이력 또는 이벤트 활동 차트를 날씨 및 월간 정보와 함께 보여줍니다.'),
                   ),
                 ],
               ),
@@ -1041,13 +1034,13 @@ class _TabActivityState extends State<TabActivity>
 
     final List<Widget> cards = <Widget>[
       _statDeckCard(
-        label: isVehicle ? '주행 거리' : '이벤트',
+        label: isVehicle ? t('주행 거리') : t('이벤트'),
         value: isVehicle ? _formatKm(totalKm) : '${c.selectedEventCount}',
         accent: isVehicle ? _primary : _infra,
         icon: isVehicle ? Icons.route_rounded : Icons.analytics_rounded,
       ),
       _statDeckCard(
-        label: isVehicle ? '이동 시간' : '감지 객체',
+        label: isVehicle ? t('이동 시간') : t('감지 객체'),
         value: isVehicle
             ? (totalMovingSec > 0
                 ? _formatDurationCompact(totalMovingSec)
@@ -1057,17 +1050,17 @@ class _TabActivityState extends State<TabActivity>
         icon: isVehicle ? Icons.schedule_rounded : Icons.hub_rounded,
       ),
       _statDeckCard(
-        label: isVehicle ? '현재 속도' : '연결 상태',
+        label: isVehicle ? t('현재 속도') : t('연결 상태'),
         value: isVehicle
             ? (speed != null ? '${speed.toStringAsFixed(0)} km/h' : '--')
-            : (c.selectedIsOnline ? '온라인' : '오프라인'),
+            : (c.selectedIsOnline ? t('온라인') : t('오프라인')),
         accent: c.selectedIsOnline ? _success : _danger,
         icon: isVehicle
             ? Icons.speed_rounded
             : (c.selectedIsOnline ? Icons.wifi_tethering_rounded : Icons.portable_wifi_off_rounded),
       ),
       _statDeckCard(
-        label: '경고',
+        label: l10n('경고', 'Warnings'),
         value: '${c.selectedWarningCount}',
         accent: _warning,
         icon: Icons.warning_amber_rounded,
