@@ -69,6 +69,8 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   Future<void> _requestLogin() async {
+    // Re-entry guard: Enter and the button share this path.
+    if (_loggingIn) return;
     if (_idTextEditingController.text.isEmpty) {
       Utils.showSnackBar(
         l10n('아이디를 입력하세요', 'Enter your ID'),
@@ -88,48 +90,58 @@ class _LoginPageState extends State<LoginPage> {
 
     setState(() => _loggingIn = true);
 
-    final UserController userController = Get.find<UserController>();
-    final bool isLoginSuccessful = await userController.reqLoginById(
-      _idTextEditingController.text.trim(),
-      _passwordTextEditingController.text.trim(),
-    );
-
-    if (!mounted) return;
-    setState(() => _loggingIn = false);
-
-    if (!isLoginSuccessful) {
-      Utils.showSnackBar(
-        l10n('잘못된 아이디 또는 비밀번호입니다', 'Invalid ID or password'),
-        isError: true,
+    // _loggingIn stays set until the whole flow (incl. post-login loads) ends.
+    try {
+      final String loginId = _idTextEditingController.text.trim();
+      final UserController userController = Get.find<UserController>();
+      final bool isLoginSuccessful = await userController.reqLoginById(
+        loginId,
+        _passwordTextEditingController.text.trim(),
       );
-      return;
+
+      if (!mounted) return;
+
+      if (!isLoginSuccessful) {
+        // No backend code = the server could not be reached (network / timeout / 5xx).
+        final String message = switch (userController.lastLoginErrorCode) {
+          null => l10n('서버에 연결할 수 없습니다. 잠시 후 다시 시도해주세요.',
+              'Cannot reach the server. Please try again later.'),
+          '8002' => l10n('존재하지 않는 아이디입니다', 'This ID does not exist'),
+          '8003' => l10n('비밀번호가 올바르지 않습니다', 'The password is incorrect'),
+          _ => l10n('잘못된 아이디 또는 비밀번호입니다', 'Invalid ID or password'),
+        };
+        Utils.showSnackBar(message, isError: true);
+        return;
+      }
+
+      final String? loginUserEmail = userController.loginUser?.email?.trim();
+      final String? loginUserId = userController.loginUser?.userId?.trim();
+      final String clientId =
+          (loginUserEmail != null && loginUserEmail.isNotEmpty)
+              ? loginUserEmail
+              : (loginUserId != null && loginUserId.isNotEmpty
+                  ? loginUserId
+                  : 'fms-web');
+
+      final MqttController mqttController = Get.find<MqttController>();
+      mqttController.connect(clientId);
+
+      final VehicleController vehicleController = Get.find<VehicleController>();
+      await vehicleController.reqLoadVehicles();
+
+      final InfraController infraController = Get.find<InfraController>();
+      await infraController.reqLoadInfraIdentifiers();
+
+      userController.reqSaveRememberMe(_checkRememberMe);
+      if (_checkRememberMe) {
+        userController.reqSaveLoginEmail(loginId);
+      }
+
+      if (!mounted) return;
+      Get.offNamed(HomePage.routeName);
+    } finally {
+      if (mounted) setState(() => _loggingIn = false);
     }
-
-    final String? loginUserEmail = userController.loginUser?.email?.trim();
-    final String? loginUserId = userController.loginUser?.userId?.trim();
-    final String clientId =
-        (loginUserEmail != null && loginUserEmail.isNotEmpty)
-            ? loginUserEmail
-            : (loginUserId != null && loginUserId.isNotEmpty
-                ? loginUserId
-                : 'fms-web');
-
-    final MqttController mqttController = Get.find<MqttController>();
-    mqttController.connect(clientId);
-
-    final VehicleController vehicleController = Get.find<VehicleController>();
-    await vehicleController.reqLoadVehicles();
-
-    final InfraController infraController = Get.find<InfraController>();
-    await infraController.reqLoadInfraIdentifiers();
-
-    userController.reqSaveRememberMe(_checkRememberMe);
-    if (_checkRememberMe) {
-      userController.reqSaveLoginEmail(_idTextEditingController.text.trim());
-    }
-
-    if (!mounted) return;
-    Get.offNamed(HomePage.routeName);
   }
 
   @override

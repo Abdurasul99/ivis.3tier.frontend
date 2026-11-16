@@ -19,6 +19,7 @@ class LiveStatusController extends GetxController {
   final Map<int, InfraInfo> infraLiveCache = <int, InfraInfo>{};
 
   Timer? _timer;
+  bool _refreshing = false;
 
   @override
   void onInit() {
@@ -35,6 +36,17 @@ class LiveStatusController extends GetxController {
   }
 
   Future<void> _refresh() async {
+    // Skip this tick while the previous refresh is still running.
+    if (_refreshing) return;
+    _refreshing = true;
+    try {
+      await _refreshOnce();
+    } finally {
+      _refreshing = false;
+    }
+  }
+
+  Future<void> _refreshOnce() async {
     // ★ 2026-06-11: 100대 × 개별 /latest 요청(110 병렬) → HTTP/1.1 브라우저
     //   동시연결 6개 제한으로 pending 누적(ERR_INSUFFICIENT_RESOURCES) 발생.
     //   배치 엔드포인트(/status, limit 1000)로 전체를 한 번에 받아 2개 요청으로 축소.

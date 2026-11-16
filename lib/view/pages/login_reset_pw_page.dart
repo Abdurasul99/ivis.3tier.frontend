@@ -27,10 +27,6 @@ class _LoginResetPwPageState extends State<LoginResetPwPage> {
   bool _showPassword = false;
   bool _showConfirm = false;
 
-  final RegExp _regexPassword = RegExp(
-    r'^(?=.*[0-9])(?=.*[a-zA-Z])(?=.*[^a-zA-Z0-9]).{8,16}$',
-  );
-
   @override
   void dispose() {
     _pwController.dispose();
@@ -40,6 +36,7 @@ class _LoginResetPwPageState extends State<LoginResetPwPage> {
     super.dispose();
   }
 
+  // Policy check: isValidPasswordPolicy (shared with signup / change dialog).
   Future<void> _onTapConfirm() async {
     final String pw1 = _pwController.text.trim();
     final String pw2 = _pwConfirmController.text.trim();
@@ -52,7 +49,7 @@ class _LoginResetPwPageState extends State<LoginResetPwPage> {
       Utils.showSnackBar(t('비밀번호가 서로 일치하지 않습니다.'), isError: true);
       return;
     }
-    if (!_regexPassword.hasMatch(pw1)) {
+    if (!isValidPasswordPolicy(pw1)) {
       Utils.showSnackBar(t('비밀번호는 영문, 숫자, 특수문자를 포함해 8~16자로 입력해주세요.'), isError: true);
       return;
     }

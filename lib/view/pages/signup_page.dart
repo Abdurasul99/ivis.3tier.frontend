@@ -4,6 +4,7 @@ import 'package:get/get.dart';
 import '../../i18n/app_locale.dart';
 import '../../utils/utils.dart';
 import '../../viewmodel/controller/locale_controller.dart';
+import '../../viewmodel/controller/password_controller.dart';
 import '../../viewmodel/controller/user_controller.dart';
 import '../components/auth_page_shell.dart';
 import 'login_page.dart';
@@ -40,16 +41,27 @@ class _SignUpPageState extends State<SignUpPage> {
   String _pwConfirmErrMsg = '';
   String _phoneErrMsg = '';
 
+  // In-flight guard; nothing is rendered from it.
+  bool _submitting = false;
+
+  // Read-only fields carried over from the previous step.
+  final TextEditingController _nameCtrl = TextEditingController();
+  final TextEditingController _emailCtrl = TextEditingController();
+
   @override
   void initState() {
     super.initState();
     final Map<dynamic, dynamic> args = Get.arguments ?? <String, dynamic>{};
     nameFromPrev = args['name']?.toString() ?? '';
     emailFromPrev = args['email']?.toString() ?? '';
+    _nameCtrl.text = nameFromPrev;
+    _emailCtrl.text = emailFromPrev;
   }
 
   @override
   void dispose() {
+    _nameCtrl.dispose();
+    _emailCtrl.dispose();
     _idCtrl.dispose();
     _passwordCtrl.dispose();
     _confirmCtrl.dispose();
@@ -61,7 +73,15 @@ class _SignUpPageState extends State<SignUpPage> {
     super.dispose();
   }
 
+  // Basic phone format: optional +, digits with spaces/hyphens, 9-15 digits.
+  bool _isValidPhone(String phone) {
+    if (!RegExp(r'^\+?[0-9][0-9 \-]*$').hasMatch(phone)) return false;
+    final int digits = phone.replaceAll(RegExp(r'[^0-9]'), '').length;
+    return digits >= 9 && digits <= 15;
+  }
+
   Future<void> _onTapSignUp() async {
+    if (_submitting) return;
     setState(() {
       _idErrMsg = '';
       _pwErrMsg = '';
@@ -76,11 +96,15 @@ class _SignUpPageState extends State<SignUpPage> {
 
     bool hasError = false;
     if (idVal.isEmpty) {
-      setState(() => _idErrMsg = tKey('사용이 불가능한 아이디입니다.'));
+      setState(() => _idErrMsg = tKey('아이디를 입력하세요.'));
       hasError = true;
     }
     if (pwVal.isEmpty) {
-      setState(() => _pwErrMsg = tKey('사용이 불가능한 비밀번호입니다.'));
+      setState(() => _pwErrMsg = tKey('비밀번호를 입력하세요.'));
+      hasError = true;
+    } else if (!isValidPasswordPolicy(pwVal)) {
+      // Same policy as the reset page.
+      setState(() => _pwErrMsg = tKey('비밀번호는 영문, 숫자, 특수문자를 포함해 8~16자로 입력해주세요.'));
       hasError = true;
     }
     if (pw2Val.isEmpty || pw2Val != pwVal) {
@@ -90,17 +114,26 @@ class _SignUpPageState extends State<SignUpPage> {
     if (phoneVal.isEmpty) {
       setState(() => _phoneErrMsg = tKey('연락처를 입력해주세요.'));
       hasError = true;
+    } else if (!_isValidPhone(phoneVal)) {
+      setState(() => _phoneErrMsg = tKey('연락처 형식이 올바르지 않습니다.'));
+      hasError = true;
     }
     if (hasError) return;
 
     final UserController userCtrl = Get.find<UserController>();
-    final bool success = await userCtrl.reqSignUpByIdAndEmail(
-      idVal,
-      emailFromPrev,
-      nameFromPrev,
-      phoneVal,
-      pwVal,
-    );
+    _submitting = true;
+    final bool success;
+    try {
+      success = await userCtrl.reqSignUpByIdAndEmail(
+        idVal,
+        emailFromPrev,
+        nameFromPrev,
+        phoneVal,
+        pwVal,
+      );
+    } finally {
+      _submitting = false;
+    }
     if (!success) {
       Utils.showSnackBar(t('회원가입 실패: ID/EMAIL 중복이거나 서버 오류'), isError: true);
       return;
@@ -173,7 +206,7 @@ class _SignUpPageState extends State<SignUpPage> {
             AuthFieldLabel(text: t('이름')),
             const SizedBox(height: 8),
             AuthTextField(
-              controller: TextEditingController(text: nameFromPrev),
+              controller: _nameCtrl,
               hintText: t('이름'),
               prefixIconData: CupertinoIcons.person_alt,
               readOnly: true,
@@ -182,7 +215,7 @@ class _SignUpPageState extends State<SignUpPage> {
             AuthFieldLabel(text: t('메일')),
             const SizedBox(height: 8),
             AuthTextField(
-              controller: TextEditingController(text: emailFromPrev),
+              controller: _emailCtrl,
               hintText: t('메일'),
               prefixIconData: CupertinoIcons.mail,
               readOnly: true,

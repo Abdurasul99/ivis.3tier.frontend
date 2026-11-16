@@ -13,6 +13,17 @@ class UserController extends GetxController {
   String foundUserId = '';
   String foundJoinDate = '';
 
+  /// Backend code/message of the last failed reqLoginById (8002 unknown user, 8003 wrong
+  /// password ...); null after a success or when the server could not be reached.
+  String? lastLoginErrorCode;
+  String? lastLoginErrorMessage;
+
+  /// True when the last reqLoginByToken failed because the server could not be reached
+  /// (timeout / network / 5xx). The stored tokens are kept in that case.
+  bool lastSessionCheckUnreachable = false;
+
+  Future<TokenCheckStatus>? _refreshInFlight;
+
   /// 테스트 전용 — 로그인 유저 직접 주입
   @visibleForTesting
   set loginUserForTest(LoginUser? user) => _loginUser = user;
@@ -69,6 +80,9 @@ class UserController extends GetxController {
     };
 
     final loginResult = await UserRepository().requestLoginById(params);
+    final bool loginOk = loginResult != null && loginResult.code == "0000";
+    lastLoginErrorCode = loginOk ? null : loginResult?.code;
+    lastLoginErrorMessage = loginOk ? null : loginResult?.message;
     if (loginResult != null && loginResult.code == "0000") {
       _loginUser = loginResult.loginUser;
       _accessToken = loginResult.loginUser?.accessToken ?? "";
@@ -86,23 +100,44 @@ class UserController extends GetxController {
   /// 리프레시 토큰으로 액세스 토큰을 갱신한다.
   /// 성공 시 새 토큰을 저장하고 true 반환. 실패 시 false.
   Future<bool> refreshAccessToken() async {
-    final storedRefresh = await LocalRepository().getRefreshToken();
-    if (storedRefresh.isEmpty) return false;
+    return (await refreshAccessTokenStatus()) == TokenCheckStatus.ok;
+  }
 
-    final newAccessToken = await UserRepository().requestRefreshAccessToken(storedRefresh);
-    if (newAccessToken == null || newAccessToken.isEmpty) return false;
+  /// Same as [refreshAccessToken] but says why it failed. Concurrent callers share one request.
+  Future<TokenCheckStatus> refreshAccessTokenStatus() {
+    return _refreshInFlight ??= _refreshAccessTokenOnce().whenComplete(() {
+      _refreshInFlight = null;
+    });
+  }
+
+  Future<TokenCheckStatus> _refreshAccessTokenOnce() async {
+    final storedRefresh = await LocalRepository().getRefreshToken();
+    if (storedRefresh.isEmpty) return TokenCheckStatus.rejected;
+
+    final TokenRefreshOutcome outcome =
+        await UserRepository().requestRefreshAccessTokenChecked(storedRefresh);
+    final String? newAccessToken = outcome.accessToken;
+    if (outcome.status != TokenCheckStatus.ok || newAccessToken == null) {
+      return outcome.status == TokenCheckStatus.ok ? TokenCheckStatus.unreachable : outcome.status;
+    }
 
     _accessToken = newAccessToken;
     await LocalRepository().saveAccessToken(newAccessToken);
     update();
-    return true;
+    return TokenCheckStatus.ok;
   }
 
   /// 앱 시작/새로고침 시 저장된 토큰으로 자동 로그인을 시도한다.
   /// 1단계: 액세스 토큰으로 signInByToken 시도
   /// 2단계: 실패 시 리프레시 토큰으로 새 액세스 토큰 발급 후 재시도
   /// 3단계: 모두 실패 시 false 반환 → 로그인 페이지로
+  ///
+  /// The stored tokens are cleared only when the server refused them. When the server could not
+  /// be reached (timeout / network / 5xx) they are kept, [lastSessionCheckUnreachable] is set and
+  /// a later reload can succeed.
   Future<bool> reqLoginByToken() async {
+    lastSessionCheckUnreachable = false;
+
     final storedToken = await LocalRepository().getAccessToken();
     if (storedToken.isEmpty) return false;
 
@@ -111,44 +146,54 @@ class UserController extends GetxController {
     update();
 
     // 1단계: 액세스 토큰으로 직접 로그인 시도
-    final loginResult = await UserRepository().requestLoginByToken(storedToken);
-    if (loginResult != null && loginResult.code == "0000") {
-      _loginUser = loginResult.loginUser;
-      _accessToken = loginResult.loginUser?.accessToken ?? storedToken;
-      final refreshToken = loginResult.loginUser?.refreshToken ?? "";
-      await LocalRepository().saveAccessToken(_accessToken!);
-      if (refreshToken.isNotEmpty) {
-        await LocalRepository().saveRefreshToken(refreshToken);
-      }
-      update();
+    final TokenLoginOutcome first = await UserRepository().requestLoginByTokenChecked(storedToken);
+    if (first.status == TokenCheckStatus.ok) {
+      await _applyTokenLogin(first.result!, storedToken);
       return true;
+    }
+    if (first.status == TokenCheckStatus.unreachable) {
+      lastSessionCheckUnreachable = true;
+      return false;
     }
 
     // 2단계: 액세스 토큰 만료 → 리프레시 토큰으로 새 액세스 토큰 발급
-    final refreshed = await refreshAccessToken();
-    if (!refreshed) {
+    final TokenCheckStatus refreshed = await refreshAccessTokenStatus();
+    if (refreshed == TokenCheckStatus.unreachable) {
+      lastSessionCheckUnreachable = true;
+      return false;
+    }
+    if (refreshed == TokenCheckStatus.rejected) {
       // 리프레시 토큰도 만료됨 → 완전 로그아웃
       await logout();
       return false;
     }
 
     // 3단계: 새 액세스 토큰으로 재시도
-    final retryResult = await UserRepository().requestLoginByToken(_accessToken!);
-    if (retryResult != null && retryResult.code == "0000") {
-      _loginUser = retryResult.loginUser;
-      _accessToken = retryResult.loginUser?.accessToken ?? _accessToken;
-      final refreshToken = retryResult.loginUser?.refreshToken ?? "";
-      await LocalRepository().saveAccessToken(_accessToken!);
-      if (refreshToken.isNotEmpty) {
-        await LocalRepository().saveRefreshToken(refreshToken);
-      }
-      update();
+    final String newToken = _accessToken!;
+    final TokenLoginOutcome retry = await UserRepository().requestLoginByTokenChecked(newToken);
+    if (retry.status == TokenCheckStatus.ok) {
+      await _applyTokenLogin(retry.result!, newToken);
       return true;
+    }
+    if (retry.status == TokenCheckStatus.unreachable) {
+      lastSessionCheckUnreachable = true;
+      return false;
     }
 
     // 모두 실패 → 로그아웃
     await logout();
     return false;
+  }
+
+  Future<void> _applyTokenLogin(LoginResult result, String fallbackToken) async {
+    _loginUser = result.loginUser;
+    _accessToken = result.loginUser?.accessToken ?? fallbackToken;
+    final refreshToken = result.loginUser?.refreshToken ?? "";
+    await LocalRepository().saveAccessToken(_accessToken!);
+    if (refreshToken.isNotEmpty) {
+      await LocalRepository().saveRefreshToken(refreshToken);
+    }
+    update();
   }
 
   Future<String> reqChangePassword(Map<String, dynamic> params) async {

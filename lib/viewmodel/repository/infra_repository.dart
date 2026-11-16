@@ -38,7 +38,7 @@ class InfraRepository extends BaseRepository {
           final List<int> ids = <int>[];
           for (final dynamic element in body) {
             final int? value = parseIntInternal(element);
-            if (value != null && value > 0) {
+            if (value != null && value >= 0) {
               ids.add(value);
             }
           }
@@ -52,7 +52,7 @@ class InfraRepository extends BaseRepository {
             final List<int> ids = <int>[];
             for (final dynamic element in items) {
               final int? value = parseIntInternal(element);
-              if (value != null && value > 0) {
+              if (value != null && value >= 0) {
                 ids.add(value);
               }
             }

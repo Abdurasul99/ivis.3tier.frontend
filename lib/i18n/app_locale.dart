@@ -96,6 +96,18 @@ const Map<String, String> _englishText = <String, String>{
   '비밀번호를 확인해주세요.': 'Please confirm your password.',
   '회원가입 실패: ID/EMAIL 중복이거나 서버 오류': 'Sign up failed: duplicate ID/email or server error.',
   '회원가입 성공!': 'Sign up completed.',
+  '연락처 형식이 올바르지 않습니다.': 'The phone number format is invalid.',
+  '메일 형식이 올바르지 않습니다.': 'The email format is invalid.',
+  '등록되지 않은 메일입니다.': 'This email is not registered.',
+  '아이디와 메일이 일치하지 않습니다.': 'The ID does not match this email.',
+  '인증번호가 만료되었습니다.': 'The verification code has expired.',
+  '이 메일로 발급된 인증번호가 없습니다.': 'No verification code was requested for this email.',
+  '변경에 실패했습니다.': 'Failed to update.',
+  '승인에 실패했습니다.': 'Failed to approve.',
+  '거절에 실패했습니다.': 'Failed to reject.',
+  '위도와 경도를 모두 입력하세요.': 'Enter both latitude and longitude.',
+  '위도와 경도는 숫자로 입력하세요.': 'Latitude and longitude must be numbers.',
+  '위도는 -90~90, 경도는 -180~180 범위여야 합니다.': 'Latitude must be within -90 to 90 and longitude within -180 to 180.',
 
   // ── Password reset dialogs ─────────────────────────────────────────────────
   '비밀번호 설정': 'Set Password',

@@ -4,6 +4,7 @@ import 'package:get/get.dart';
 import '../../i18n/app_locale.dart';
 import '../../utils/utils.dart';
 import '../../viewmodel/controller/locale_controller.dart';
+import '../../viewmodel/controller/password_controller.dart';
 import '../../viewmodel/controller/user_controller.dart';
 import '../components/gradient_button.dart';
 import '../components/input_edit_text.dart';
@@ -24,6 +25,9 @@ class _PasswordChangeDialogState extends State<PasswordChangeDialog> {
   final FocusNode _passwordFocusNode = FocusNode();
   final FocusNode _newPasswordFocusNode = FocusNode();
   final FocusNode _rePasswordFocusNode = FocusNode();
+
+  // In-flight guard; nothing is rendered from it.
+  bool _submitting = false;
 
   @override
   void initState() {
@@ -161,12 +165,17 @@ class _PasswordChangeDialogState extends State<PasswordChangeDialog> {
                       buttonText: t('확인'),
                       buttonColor: const Color(0xFF005FB8),
                       onTap: () async {
-                        if (_passwordController.text.isEmpty) {
+                        if (_submitting) return;
+                        // Trimmed like login / signup / reset.
+                        final String currentPw = _passwordController.text.trim();
+                        final String newPw = _newPasswordController.text.trim();
+                        final String rePw = _rePasswordController.text.trim();
+                        if (currentPw.isEmpty) {
                           Utils.showSnackBar(t('비밀번호를 입력하세요.'), isError: true);
                           _passwordFocusNode.requestFocus();
                           return;
                         }
-                        if (_newPasswordController.text.isEmpty) {
+                        if (newPw.isEmpty) {
                           Utils.showSnackBar(
                             l10n('변경할 비밀번호를 입력하세요.', 'Enter the new password.'),
                             isError: true,
@@ -174,7 +183,7 @@ class _PasswordChangeDialogState extends State<PasswordChangeDialog> {
                           _newPasswordFocusNode.requestFocus();
                           return;
                         }
-                        if (_rePasswordController.text.isEmpty) {
+                        if (rePw.isEmpty) {
                           Utils.showSnackBar(
                             l10n('변경할 비밀번호를 다시 입력하세요.', 'Enter the new password again.'),
                             isError: true,
@@ -182,7 +191,7 @@ class _PasswordChangeDialogState extends State<PasswordChangeDialog> {
                           _rePasswordFocusNode.requestFocus();
                           return;
                         }
-                        if (_newPasswordController.text != _rePasswordController.text) {
+                        if (newPw != rePw) {
                           Utils.showSnackBar(
                             l10n('변경할 비밀번호가 일치하지 않습니다.', 'The new passwords do not match.'),
                             isError: true,
@@ -190,17 +199,40 @@ class _PasswordChangeDialogState extends State<PasswordChangeDialog> {
                           _rePasswordFocusNode.requestFocus();
                           return;
                         }
+                        // Same policy as the reset page.
+                        if (!isValidPasswordPolicy(newPw)) {
+                          Utils.showSnackBar(
+                            t('비밀번호는 영문, 숫자, 특수문자를 포함해 8~16자로 입력해주세요.'),
+                            isError: true,
+                          );
+                          _newPasswordFocusNode.requestFocus();
+                          return;
+                        }
 
+                        final UserController userController = Get.find<UserController>();
                         final Map<String, dynamic> params = <String, dynamic>{
-                          'email': Get.find<UserController>().loginUser!.email,
-                          'password': _passwordController.text,
-                          'newpassword': _newPasswordController.text,
+                          'email': userController.loginUser?.email,
+                          'password': currentPw,
+                          'newpassword': newPw,
                         };
 
-                        final String result = await Get.find<UserController>().reqChangePassword(params);
-                        if (result != 'changed password') {
+                        _submitting = true;
+                        final String result;
+                        try {
+                          result = await userController.reqChangePassword(params);
+                        } finally {
+                          _submitting = false;
+                        }
+                        if (result == 'wrong password') {
                           Utils.showSnackBar(
                             l10n('비밀번호가 맞지 않습니다', 'Current password is incorrect.'),
+                            isError: true,
+                          );
+                          return;
+                        }
+                        if (result != 'changed password') {
+                          Utils.showSnackBar(
+                            l10n('비밀번호 변경에 실패했습니다.', 'Failed to change the password.'),
                             isError: true,
                           );
                           return;

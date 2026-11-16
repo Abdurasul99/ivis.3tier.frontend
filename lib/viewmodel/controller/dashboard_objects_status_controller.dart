@@ -34,6 +34,19 @@ class DashboardObjectsStatusController extends GetxController {
   // 클릭으로 선택된 행
   Map<String, dynamic>? _selectedPageRow;
 
+  // Serial of the row fetch in flight. It counts as running only while it
+  // equals _objectsStatusRequestSerial.
+  int? _rowFetchSerial;
+
+  bool _isSameHistoryRow(Map<String, dynamic>? a, Map<String, dynamic> b) {
+    if (a == null) return false;
+    if (identical(a, b)) return true;
+    final dynamic idA = a['history_id'];
+    final dynamic idB = b['history_id'];
+    // Rows without an id cannot be told apart: treat them as different.
+    return idA != null && idB != null && '$idA' == '$idB';
+  }
+
   int get objectsStatusTotalPages {
     final int safe = objectsStatusTotalCount < 0 ? 0 : objectsStatusTotalCount;
     final int pages =
@@ -70,6 +83,10 @@ class DashboardObjectsStatusController extends GetxController {
       _notify();
     } else {
       _objectsStatusRequestSerial += 1;
+      // Closing ends LIVE mode too: the flag must not stay on with no timer,
+      // or the reopened panel would claim LIVE while nothing polls.
+      _stopLiveTimer();
+      isObjectsLiveMode = false;
       _notify();
     }
   }
@@ -151,16 +168,12 @@ class DashboardObjectsStatusController extends GetxController {
       return;
     }
     if (_selectedPageRow != null) {
-      final int selectedId =
-          DashboardFormatHelper.parseIntValue(_selectedPageRow!['history_id']);
-      for (final Map<String, dynamic> row in currentRows) {
-        if (DashboardFormatHelper.parseIntValue(row['history_id']) ==
-            selectedId) {
-          unawaited(showObjectsStatusFromRow(row));
-          return;
-        }
-      }
-      _selectedPageRow = null;
+      // A history row is immutable, so its objects cannot change between
+      // table refreshes. Keep the list, the running fetch and the selection
+      // as they are - also when the row has scrolled off the current page.
+      // Reloading here used to blank the panel and restart the multi-request
+      // fallback fetch on every auto-refresh tick.
+      return;
     }
     // 선택된 행 없음 → 패널 비우기 (이미 열려있어도 내용만 비움)
     objectsStatusItems = <DetectedObject>[];
@@ -200,7 +213,16 @@ class DashboardObjectsStatusController extends GetxController {
   // number_of_objects > 0 인데 embed 된 데이터가 없으면 REST로 실제 감지 객체를 조회한다.
   // serial 증가로 진행 중인 이전 비동기 결과가 이후 클릭/닫힘을 덮어쓰지 못하게 차단.
   Future<void> showObjectsStatusFromRow(Map<String, dynamic> row) async {
+    // Same row while its fetch is still running: restarting would only
+    // cancel the retry chain and begin it again.
+    if (isObjectsStatusOpen &&
+        !isObjectsLiveMode &&
+        _rowFetchSerial == _objectsStatusRequestSerial &&
+        _isSameHistoryRow(_selectedPageRow, row)) {
+      return;
+    }
     isObjectsLiveMode = false; // 행 클릭 시 LIVE 모드 해제
+    _stopLiveTimer();
     _selectedPageRow = row;
     final int requestSerial = ++_objectsStatusRequestSerial;
 
@@ -230,12 +252,15 @@ class DashboardObjectsStatusController extends GetxController {
     _notify();
 
     if (immediateResult.isEmpty && expectedCount > 0) {
+      // Any later serial bump (other row, close, LIVE) ends this marker too.
+      _rowFetchSerial = requestSerial;
       final List<DetectedObject> fetched = await loadObjectsForRowWithFallback(
         row: row,
         fallbackObjectItems: embeddedObjects,
       );
       // 이후 다른 행 클릭/패널 닫힘으로 이 요청이 이미 무효화됐으면 무시
       if (requestSerial != _objectsStatusRequestSerial) return;
+      _rowFetchSerial = null;
       objectsStatusItems = fetched;
       objectsStatusTotalCount = fetched.length;
       objectsStatusLoading = false;

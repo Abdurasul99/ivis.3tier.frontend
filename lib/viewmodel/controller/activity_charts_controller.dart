@@ -11,9 +11,18 @@ import 'helper/activity_format_helper.dart';
 import 'user_controller.dart';
 
 class ActivityChartsController extends GetxController {
-  ActivityChartsController();
+  // Repository is injectable so tests can replace HTTP with a fake.
+  ActivityChartsController({ActivityRepository? repository})
+      : _repo = repository ?? ActivityRepository();
 
-  final ActivityRepository _repo = ActivityRepository();
+  final ActivityRepository _repo;
+
+  // Sequence numbers: only the newest request may write its result.
+  int _chartsRequestId = 0;
+  int _usageRequestId = 0;
+  // Selection of the request in flight; a different one must not be skipped.
+  int? _chartsLoadingDays;
+  String? _usageLoadingPeriod;
 
   // ── 전역 이벤트 차트 ────────────────────────────────────────────────────
   List<ActivityChartDay> chartDays = <ActivityChartDay>[];
@@ -41,9 +50,14 @@ class ActivityChartsController extends GetxController {
 
   Future<void> refreshCharts({bool silent = false}) async {
     final String token = Get.find<UserController>().accessToken ?? '';
-    if (token.isEmpty || isChartLoading) return;
+    if (token.isEmpty) return;
+    final int days = chartDays_;
+    // Skip only a duplicate of the load in flight; a changed period must load.
+    if (isChartLoading && _chartsLoadingDays == days) return;
 
+    final int requestId = ++_chartsRequestId;
     if (!silent) {
+      _chartsLoadingDays = days;
       isChartLoading = true;
       isDistanceLoading = true;
       _notify();
@@ -51,16 +65,21 @@ class ActivityChartsController extends GetxController {
 
     try {
       final List<dynamic> results = await Future.wait(<Future<dynamic>>[
-        _repo.requestChartData(days: chartDays_),
-        _repo.requestDistanceStats(days: chartDays_),
+        _repo.requestChartData(days: days),
+        _repo.requestDistanceStats(days: days),
       ]);
 
+      if (requestId != _chartsRequestId) return;
       chartDays = results[0] as List<ActivityChartDay>;
       distanceStats = results[1] as DistanceStatsResult;
     } finally {
-      isChartLoading = false;
-      isDistanceLoading = false;
-      _notify();
+      // A superseded load must not hide the spinner of the newer one.
+      if (requestId == _chartsRequestId) {
+        isChartLoading = false;
+        isDistanceLoading = false;
+        _chartsLoadingDays = null;
+        _notify();
+      }
     }
   }
 
@@ -74,15 +93,25 @@ class ActivityChartsController extends GetxController {
 
   Future<void> refreshUsageStats() async {
     final String token = Get.find<UserController>().accessToken ?? '';
-    if (token.isEmpty || isUsageLoading) return;
+    if (token.isEmpty) return;
+    final String period = usagePeriod;
+    // Skip only a duplicate of the load in flight; a changed period must load.
+    if (isUsageLoading && _usageLoadingPeriod == period) return;
 
+    final int requestId = ++_usageRequestId;
+    _usageLoadingPeriod = period;
     isUsageLoading = true;
     _notify();
     try {
-      usageStats = await _repo.requestUsageStats(period: usagePeriod);
+      final UsageStatsResult result = await _repo.requestUsageStats(period: period);
+      if (requestId != _usageRequestId) return;
+      usageStats = result;
     } finally {
-      isUsageLoading = false;
-      _notify();
+      if (requestId == _usageRequestId) {
+        isUsageLoading = false;
+        _usageLoadingPeriod = null;
+        _notify();
+      }
     }
   }
 

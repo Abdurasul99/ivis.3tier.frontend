@@ -331,6 +331,14 @@ List<_VehicleMetricChartPointV3> _aggregateVehicleChartPointsV3(
       .toList();
 }
 
+// Counts may arrive as int, double or string (bigint sums); never cast directly.
+int _intOrZero(dynamic value) {
+  if (value is int) return value;
+  if (value is num) return value.isFinite ? value.toInt() : 0;
+  if (value == null) return 0;
+  return num.tryParse(value.toString().trim())?.toInt() ?? 0;
+}
+
 // 인프라 일별 감지 객체 데이터를 기간별로 집계
 // raw: [{ 'date_kst': 'YYYY-MM-DD', 'total_objects': int }, ...]
 // 반환: [(axisLabel, count), ...]
@@ -345,7 +353,7 @@ List<(String, int)> _aggregateInfraObjectPoints(
   if (normalized == 'daily') {
     return raw.map((Map<String, dynamic> row) {
       final String date = row['date_kst'] as String? ?? '';
-      final int count = (row['total_objects'] as num?)?.toInt() ?? 0;
+      final int count = _intOrZero(row['total_objects']);
       return (_mmdd(date), count);
     }).toList();
   }
@@ -356,7 +364,7 @@ List<(String, int)> _aggregateInfraObjectPoints(
   for (final Map<String, dynamic> row in raw) {
     final String date = row['date_kst'] as String? ?? '';
     if (date.length < 10) continue;
-    final int count = (row['total_objects'] as num?)?.toInt() ?? 0;
+    final int count = _intOrZero(row['total_objects']);
 
     late final String key;
     late final String label;

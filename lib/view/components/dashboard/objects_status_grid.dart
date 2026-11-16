@@ -320,10 +320,9 @@ class _ObjectsStatusGridState extends State<ObjectsStatusGrid> {
       return PlutoRow(cells: <String, PlutoCell>{
         'object_type': PlutoCell(value: typeVal.toString()),
         'type_label': PlutoCell(value: valid ? _typeLabels[typeVal] : t('미확인')),
+        // Object id 0 is a valid id: only a missing one is left blank.
         'object_id': PlutoCell(
-            value: obj.objectId != null && obj.objectId! > 0
-                ? obj.objectId.toString()
-                : ''),
+            value: obj.objectId != null ? obj.objectId.toString() : ''),
         'source_kind': PlutoCell(value: sourceKindLabel),
         'source_entity': PlutoCell(value: sourceEntityLabel),
         'score': PlutoCell(

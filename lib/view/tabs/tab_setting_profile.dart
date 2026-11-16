@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/svg.dart';
 import 'package:get/get.dart';
-import 'package:ivis/view/components/layout.dart';
 import 'package:ivis/view/dialogs/photo_edit_dialog.dart';
 
 import '../../i18n/app_locale.dart';
@@ -43,16 +42,14 @@ class _TabSettingProfileState extends State<TabSettingProfile> {
 
   @override
   Widget build(BuildContext context) {
-    if (context.isMobile()) {
-      return const TabSettingProfile();
-    }
-
     return GetBuilder<LocaleController>(
       init: Get.find<LocaleController>(),
-      builder: (_) => Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          SizedBox(
+      // Fixed-width form: scrolls horizontally when the pane is narrower.
+      builder: (_) => Align(
+        alignment: Alignment.topLeft,
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: SizedBox(
             width: 546,
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 60),
@@ -209,8 +206,7 @@ class _TabSettingProfileState extends State<TabSettingProfile> {
               ),
             ),
           ),
-          const Expanded(child: SizedBox.shrink()),
-        ],
+        ),
       ),
     );
   }

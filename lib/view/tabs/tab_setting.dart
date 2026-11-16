@@ -7,6 +7,7 @@ import 'package:ivis/view/tabs/tab_setting_member.dart';
 import 'package:ivis/view/tabs/tab_setting_profile.dart';
 
 import '../../viewmodel/controller/locale_controller.dart';
+import '../../viewmodel/controller/user_controller.dart';
 
 class TabSetting extends StatefulWidget {
   const TabSetting({super.key});
@@ -46,7 +47,26 @@ class _TabSettingState extends State<TabSetting> with TickerProviderStateMixin {
   Widget build(BuildContext context) {
     return GetBuilder<LocaleController>(
       init: Get.find<LocaleController>(),
-      builder: (_) => Row(
+      builder: (_) => GetBuilder<UserController>(
+        init: Get.find<UserController>(),
+        builder: (UserController userController) =>
+            _buildContent(userController.isAdminUser()),
+      ),
+    );
+  }
+
+  Widget _buildContent(bool isAdmin) {
+    // Member management is admin-only: no menu entry, no tab content.
+    final int menuCount = isAdmin ? _menuTitles.length : 1;
+    if (!isAdmin && _selectedIndex != 0) {
+      _selectedIndex = 0;
+      // Controller notifies listeners, so move it after this frame.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _tabController.index = 0;
+      });
+    }
+
+    return Row(
         children: <Widget>[
           AnimatedContainer(
             duration: const Duration(milliseconds: 220),
@@ -57,7 +77,7 @@ class _TabSettingState extends State<TabSetting> with TickerProviderStateMixin {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
                 const SizedBox(height: 16),
-                ...List<Widget>.generate(_menuTitles.length, (int index) {
+                ...List<Widget>.generate(menuCount, (int index) {
                   return _buildMenuItem(
                     iconName: _menuIcons[index],
                     title: _menuTitles[index],
@@ -80,15 +100,14 @@ class _TabSettingState extends State<TabSetting> with TickerProviderStateMixin {
               child: TabBarView(
                 controller: _tabController,
                 physics: const NeverScrollableScrollPhysics(),
-                children: const <Widget>[
-                  TabSettingProfile(),
-                  TabSettingMember(),
+                children: <Widget>[
+                  const TabSettingProfile(),
+                  if (isAdmin) const TabSettingMember() else const SizedBox.shrink(),
                 ],
               ),
             ),
           ),
         ],
-      ),
     );
   }
 

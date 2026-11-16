@@ -292,32 +292,6 @@ class _ClusterAccum {
   final List<OverlayVehicle> vehicles = <OverlayVehicle>[];
 }
 
-/// 디버그 배너 — overlay 가 살아있고 어떤 카메라 상태인지 표시
-class _DebugBanner extends StatelessWidget {
-  final String message;
-  const _DebugBanner({required this.message});
-  @override
-  Widget build(BuildContext context) {
-    return IgnorePointer(
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        decoration: BoxDecoration(
-          color: const Color(0xCC008800),
-          borderRadius: BorderRadius.circular(4),
-        ),
-        child: Text(
-          message,
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 11,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 /// Kakao Mobility 스타일 클러스터 버블
 /// 작을 때: 파랑, 중간: 주황, 많을 때: 빨강
 class _ClusterBubble extends StatelessWidget {
@@ -526,46 +500,4 @@ class _DebugVehiclePainter extends CustomPainter {
   @override
   bool shouldRepaint(_DebugVehiclePainter old) =>
       old.online != online || old.selected != selected;
-}
-
-class _FallbackVehicleShape extends StatelessWidget {
-  final double size;
-  final bool online;
-  const _FallbackVehicleShape({required this.size, required this.online});
-
-  @override
-  Widget build(BuildContext context) {
-    return CustomPaint(
-      size: Size(size, size),
-      painter: _FallbackPainter(online: online),
-    );
-  }
-}
-
-class _FallbackPainter extends CustomPainter {
-  final bool online;
-  _FallbackPainter({required this.online});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final cx = size.width / 2;
-    final cy = size.height / 2;
-    final r = size.shortestSide * 0.35;
-
-    canvas.drawCircle(
-      Offset(cx, cy),
-      r,
-      Paint()
-        ..color = online ? const Color(0xFF156082) : const Color(0xFF5A7A9A),
-    );
-    final tri = Path()
-      ..moveTo(cx, cy - r * 1.3)
-      ..lineTo(cx - r * 0.5, cy - r * 0.4)
-      ..lineTo(cx + r * 0.5, cy - r * 0.4)
-      ..close();
-    canvas.drawPath(tri, Paint()..color = const Color(0xFFE97132));
-  }
-
-  @override
-  bool shouldRepaint(_FallbackPainter old) => old.online != online;
 }

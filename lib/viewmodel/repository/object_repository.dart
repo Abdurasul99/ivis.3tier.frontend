@@ -8,8 +8,6 @@ import 'base_repository.dart';
 class ObjectRepository extends BaseRepository {
   final String _byVehicleInfoPath = '/api/detectedObjects/byVehicleInfo';
   final String _byInfraInfoPath = '/api/detectedObjects/byInfraInfo';
-  final String _byVehicleHistoryPath = '/api/detectedObjects/byVehicleHistory';
-  final String _byInfraHistoryPath = '/api/detectedObjects/byInfraHistory';
   final String _historyPath = '/api/detectedObjects/history';
 
   // 차량 번호(vehicle_id, 0~255 / 0 도 유효)로 탐지 객체 조회
@@ -44,13 +42,7 @@ class ObjectRepository extends BaseRepository {
         payload['expected_object_count'] = expectedObjectCount;
       }
 
-      final http.Response response = await http
-          .post(
-            url,
-            headers: getHeader(),
-            body: jsonEncode(payload),
-          )
-          .timeout(requestTimeout);
+      final http.Response response = await safePost(url, body: jsonEncode(payload));
 
       if (response.statusCode != 200) {
         debugPrint(
@@ -118,13 +110,7 @@ class ObjectRepository extends BaseRepository {
         payload['expected_object_count'] = expectedObjectCount;
       }
 
-      final http.Response response = await http
-          .post(
-            url,
-            headers: getHeader(),
-            body: jsonEncode(payload),
-          )
-          .timeout(requestTimeout);
+      final http.Response response = await safePost(url, body: jsonEncode(payload));
 
       if (response.statusCode != 200) {
         debugPrint(
@@ -160,118 +146,6 @@ class ObjectRepository extends BaseRepository {
     }
   }
 
-  Future<DetectedObjectHistoryResult?> requestByVehicleHistory({
-    required int vehicleHistoryId,
-    int limit = 200,
-    int offset = 0,
-  }) async {
-    final Uri url = buildApiUri(_byVehicleHistoryPath);
-
-    try {
-      final http.Response response = await http
-          .post(
-            url,
-            headers: getHeader(),
-            body: jsonEncode(<String, dynamic>{
-              'vehicle_history_id': vehicleHistoryId,
-              'limit': limit,
-              'offset': offset,
-            }),
-          )
-          .timeout(requestTimeout);
-
-      if (response.statusCode != 200) {
-        debugPrint(
-            '[Error] requestByVehicleHistory() statusCode ${response.statusCode}');
-        return null;
-      }
-
-      return handleResponse(response, (jsonResponse) {
-        final dynamic body = jsonResponse['body'];
-
-        if (body is Map) {
-          return DetectedObjectHistoryResult.fromJson(
-              Map<String, dynamic>.from(body));
-        }
-
-        if (body is List) {
-          final List<DetectedObjectHistory> items = <DetectedObjectHistory>[];
-          for (final dynamic element in body) {
-            if (element is Map) {
-              try {
-                items.add(DetectedObjectHistory.fromJson(
-                    Map<String, dynamic>.from(element)));
-              } catch (_) {}
-            }
-          }
-          return DetectedObjectHistoryResult(
-              totalCount: items.length, items: items);
-        }
-
-        return DetectedObjectHistoryResult();
-      });
-    } catch (exception) {
-      debugPrint('[Exception] requestByVehicleHistory $exception');
-      return null;
-    }
-  }
-
-  Future<DetectedObjectHistoryResult?> requestByInfraHistory({
-    required int infraHistoryId,
-    int limit = 200,
-    int offset = 0,
-  }) async {
-    final Uri url = buildApiUri(_byInfraHistoryPath);
-
-    try {
-      final http.Response response = await http
-          .post(
-            url,
-            headers: getHeader(),
-            body: jsonEncode(<String, dynamic>{
-              'infra_history_id': infraHistoryId,
-              'limit': limit,
-              'offset': offset,
-            }),
-          )
-          .timeout(requestTimeout);
-
-      if (response.statusCode != 200) {
-        debugPrint(
-            '[Error] requestByInfraHistory() statusCode ${response.statusCode}');
-        return null;
-      }
-
-      return handleResponse(response, (jsonResponse) {
-        final dynamic body = jsonResponse['body'];
-
-        if (body is Map) {
-          return DetectedObjectHistoryResult.fromJson(
-              Map<String, dynamic>.from(body));
-        }
-
-        if (body is List) {
-          final List<DetectedObjectHistory> items = <DetectedObjectHistory>[];
-          for (final dynamic element in body) {
-            if (element is Map) {
-              try {
-                items.add(DetectedObjectHistory.fromJson(
-                    Map<String, dynamic>.from(element)));
-              } catch (_) {}
-            }
-          }
-          return DetectedObjectHistoryResult(
-              totalCount: items.length, items: items);
-        }
-
-        return DetectedObjectHistoryResult();
-      });
-    } catch (exception) {
-      debugPrint('[Exception] requestByInfraHistory $exception');
-      return null;
-    }
-  }
-
   Future<List<DetectedObject>> requestHistory({
     String? from,
     String? to,
@@ -299,13 +173,7 @@ class ObjectRepository extends BaseRepository {
     }
 
     try {
-      final http.Response response = await http
-          .post(
-            url,
-            headers: getHeader(),
-            body: jsonEncode(payload),
-          )
-          .timeout(requestTimeout);
+      final http.Response response = await safePost(url, body: jsonEncode(payload));
 
       if (response.statusCode != 200) {
         debugPrint(
@@ -358,13 +226,7 @@ class ObjectRepository extends BaseRepository {
     };
 
     try {
-      final http.Response response = await http
-          .post(
-            url,
-            headers: getHeader(),
-            body: jsonEncode(payload),
-          )
-          .timeout(requestTimeout);
+      final http.Response response = await safePost(url, body: jsonEncode(payload));
 
       if (response.statusCode != 200) {
         debugPrint(

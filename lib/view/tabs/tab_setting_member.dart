@@ -1,7 +1,6 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-import 'package:ivis/view/components/layout.dart';
 
 import '../../constants/constants.dart';
 import '../../i18n/app_locale.dart';
@@ -9,6 +8,7 @@ import '../../model/user_model.dart';
 import '../../utils/utils.dart';
 import '../../viewmodel/controller/locale_controller.dart';
 import '../../viewmodel/controller/member_controller.dart';
+import '../../viewmodel/controller/user_controller.dart';
 import '../components/gradient_button.dart';
 import '../components/input_edit_dropdown_member.dart';
 import '../dialogs/ask_dialog.dart';
@@ -23,6 +23,12 @@ class TabSettingMember extends StatefulWidget {
 class _TabSettingMemberState extends State<TabSettingMember> {
   final ScrollController _scrollController = ScrollController();
   final List<int> _cellWidths = <int>[14, 14, 14, 28, 15, 15, 28];
+
+  // Narrowest width at which the action cell still fits both buttons.
+  static const double _minTableWidth = 1200;
+
+  // In-flight guard for approve / reject / delete / role change.
+  bool _actionInFlight = false;
 
   List<String> get _cellTitles => <String>[
         t('이름'),
@@ -56,13 +62,24 @@ class _TabSettingMemberState extends State<TabSettingMember> {
 
   @override
   Widget build(BuildContext context) {
-    if (context.isMobile()) {
-      return const TabSettingMember();
-    }
-
     return GetBuilder<LocaleController>(
       init: Get.find<LocaleController>(),
-      builder: (_) => Padding(
+      // Fixed-proportion table: scrolls horizontally when the pane is narrow.
+      builder: (_) => LayoutBuilder(
+        builder: (BuildContext context, BoxConstraints constraints) {
+          final Widget table = _buildTable();
+          if (constraints.maxWidth >= _minTableWidth) return table;
+          return SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: SizedBox(width: _minTableWidth, child: table),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildTable() {
+    return Padding(
         padding: const EdgeInsets.symmetric(horizontal: 60, vertical: 34),
         child: GetBuilder<MemberController>(
           init: Get.find<MemberController>(),
@@ -129,8 +146,18 @@ class _TabSettingMemberState extends State<TabSettingMember> {
             );
           },
         ),
-      ),
     );
+  }
+
+  // Runs one member action at a time (double clicks are ignored).
+  Future<void> _runAction(Future<void> Function() action) async {
+    if (_actionInFlight) return;
+    _actionInFlight = true;
+    try {
+      await action();
+    } finally {
+      _actionInFlight = false;
+    }
   }
 
   Widget _sectionTitle(String label) {
@@ -243,6 +270,18 @@ class _TabSettingMemberState extends State<TabSettingMember> {
   Widget _buildMemberItem(Member member, bool isApproved) {
     final String selectedRole = _roleLabel(member.role);
 
+    // Actions are admin-only; an admin cannot demote or delete their own row.
+    final UserController userController = Get.find<UserController>();
+    final bool isAdmin = userController.isAdminUser();
+    final int? myId = userController.loginUser?.id;
+    final bool isSelf = myId != null && member.id == myId;
+    final bool canManage = isAdmin && !isSelf && member.id != null;
+
+    final String createdTs = member.createdTs ?? '';
+    final String createdDate = createdTs.isEmpty
+        ? '-'
+        : (createdTs.length > 10 ? createdTs.substring(0, 10) : createdTs);
+
     return Container(
       height: 48,
       margin: const EdgeInsets.symmetric(vertical: 5),
@@ -290,7 +329,7 @@ class _TabSettingMemberState extends State<TabSettingMember> {
           Flexible(
             flex: _cellWidths[2],
             child: Center(
-              child: isApproved
+              child: isApproved && canManage
                   ? InputEditDropDownMember(
                       items: _roles,
                       hintText: '',
@@ -300,14 +339,19 @@ class _TabSettingMemberState extends State<TabSettingMember> {
                           return;
                         }
 
-                        final bool result = await Get.find<MemberController>().reqChangeRole(
-                          member.id ?? -1,
-                          _roleRequestValue(value),
-                        );
+                        await _runAction(() async {
+                          final bool result = await Get.find<MemberController>().reqChangeRole(
+                            member.id ?? -1,
+                            _roleRequestValue(value),
+                          );
 
-                        if (result) {
-                          Utils.showSnackBar(t('변경되었습니다.'));
-                        }
+                          if (result) {
+                            Utils.showSnackBar(t('변경되었습니다.'));
+                          } else {
+                            // E.g. HTTP 403 for a non-admin.
+                            Utils.showSnackBar(t('변경에 실패했습니다.'), isError: true);
+                          }
+                        });
 
                         if (mounted) {
                           setState(() {});
@@ -357,7 +401,7 @@ class _TabSettingMemberState extends State<TabSettingMember> {
             flex: _cellWidths[5],
             child: Center(
               child: Text(
-                member.createdTs?.substring(0, 10) ?? '-',
+                createdDate,
                 style: const TextStyle(
                   fontFamily: 'pretendard',
                   fontSize: 15,
@@ -370,7 +414,9 @@ class _TabSettingMemberState extends State<TabSettingMember> {
           Flexible(
             flex: _cellWidths[6],
             child: Center(
-              child: Row(
+              child: !canManage
+                  ? const SizedBox.shrink()
+                  : Row(
                 mainAxisSize: MainAxisSize.min,
                 children: <Widget>[
                   isApproved
@@ -380,15 +426,17 @@ class _TabSettingMemberState extends State<TabSettingMember> {
                           child: GradientButton(
                             buttonText: t('승인'),
                             buttonColor: const Color(0xFF005FB8),
-                            onTap: () async {
+                            onTap: () => _runAction(() async {
                               final bool isSuccess =
                                   await Get.find<MemberController>().reqApproveMember(member.id!);
 
                               if (isSuccess) {
                                 Utils.showSnackBar(t('승인되었습니다.'));
                                 await Get.find<MemberController>().reqLoadMembers();
+                              } else {
+                                Utils.showSnackBar(t('승인에 실패했습니다.'), isError: true);
                               }
-                            },
+                            }),
                           ),
                         ),
                   const SizedBox(width: 20),
@@ -396,7 +444,7 @@ class _TabSettingMemberState extends State<TabSettingMember> {
                     width: 102,
                     child: GradientButton(
                       buttonText: isApproved ? t('삭제') : t('거절'),
-                      onTap: () async {
+                      onTap: () => _runAction(() async {
                         bool isSuccess = false;
                         if (isApproved) {
                           final String? result = await showDialog<String>(
@@ -416,7 +464,11 @@ class _TabSettingMemberState extends State<TabSettingMember> {
                           if (result != 'LEFT') return;
 
                           isSuccess = await Get.find<MemberController>().reqDeleteMember(member.id!);
-                          Utils.showSnackBar(t('삭제되었습니다.'));
+                          if (isSuccess) {
+                            Utils.showSnackBar(t('삭제되었습니다.'));
+                          } else {
+                            Utils.showSnackBar(t('삭제에 실패했습니다.'), isError: true);
+                          }
                         } else {
                           final String? result = await showDialog<String>(
                             context: Get.context!,
@@ -435,13 +487,17 @@ class _TabSettingMemberState extends State<TabSettingMember> {
                           if (result != 'LEFT') return;
 
                           isSuccess = await Get.find<MemberController>().reqRejectMember(member.id!);
-                          Utils.showSnackBar(t('거절되었습니다.'));
+                          if (isSuccess) {
+                            Utils.showSnackBar(t('거절되었습니다.'));
+                          } else {
+                            Utils.showSnackBar(t('거절에 실패했습니다.'), isError: true);
+                          }
                         }
 
                         if (isSuccess) {
                           await Get.find<MemberController>().reqLoadMembers();
                         }
-                      },
+                      }),
                     ),
                   ),
                 ],

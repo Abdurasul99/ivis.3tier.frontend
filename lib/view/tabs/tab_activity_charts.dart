@@ -439,7 +439,7 @@ mixin _ActivityChartsMixin on State<TabActivity> {
   Widget _buildVehicleObjectsPanel(ActivityController c) {
     final List<Map<String, dynamic>> raw = c.vehicleDailyObjectCounts;
     final int totalObjects = raw.fold<int>(
-        0, (int s, Map<String, dynamic> r) => s + ((r['total_objects'] as num?)?.toInt() ?? 0));
+        0, (int s, Map<String, dynamic> r) => s + (_intOrZero(r['total_objects'])));
     final bool hasData = raw.isNotEmpty && totalObjects > 0;
 
     return Container(
@@ -928,7 +928,7 @@ mixin _ActivityChartsMixin on State<TabActivity> {
                                   c.infraDailyObjectCounts.fold<int>(
                                     0,
                                     (int s, Map<String, dynamic> r) =>
-                                        s + ((r['total_objects'] as num?)?.toInt() ?? 0),
+                                        s + (_intOrZero(r['total_objects'])),
                                   ).toString(),
                                   style: const TextStyle(
                                     fontFamily: 'pretendard',
@@ -1670,8 +1670,8 @@ mixin _ActivityChartsMixin on State<TabActivity> {
 
     // infra_id별 total_objects 목록
     final List<(int, int)> points = raw.map((Map<String, dynamic> row) {
-      final int id = (row['infra_id'] as num?)?.toInt() ?? 0;
-      final int total = (row['total_objects'] as num?)?.toInt() ?? 0;
+      final int id = _intOrZero(row['infra_id']);
+      final int total = _intOrZero(row['total_objects']);
       return (id, total);
     }).toList();
 
@@ -1779,7 +1779,7 @@ mixin _ActivityChartsMixin on State<TabActivity> {
     final List<String> labels = c.kstDateLabels(c.chartDays_);
     final Map<String, int> byDate = <String, int>{
       for (final Map<String, dynamic> row in raw)
-        (row['date_kst'] as String? ?? ''): (row['total_objects'] as int? ?? 0),
+        (row['date_kst'] as String? ?? ''): _intOrZero(row['total_objects']),
     };
 
     // (label, count) 쌍 목록

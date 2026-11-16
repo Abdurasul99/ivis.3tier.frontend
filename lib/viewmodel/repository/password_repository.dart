@@ -11,104 +11,62 @@ class PasswordRepository extends BaseRepository {
   final String resetPath = "/api/password/reset";
   final String verifyPath = "/api/password/verify";
   final String completePath = "/api/password/complete";
-  final String resetByIdEmailPath = "/api/password/resetByIdAndEmail";
-  final String verifyByIdEmailPath = "/api/password/verifyByIdAndEmail";
-  Future<CommonResponse?> requestResetPassword(String email) async {
-    final Uri url = buildApiUri(resetPath);
+
+  /// Parses the JSON envelope {code, message, ...} of a 200 or 4xx response.
+  /// Returns null for other statuses and for bodies that are not an envelope.
+  @visibleForTesting
+  static CommonResponse? parseEnvelope(http.Response response) {
+    final int status = response.statusCode;
+    if (status != 200 && (status < 400 || status >= 500)) return null;
     try {
-      final response = await http.post(
-        url,
-        headers: {"Content-Type": "application/json"},
-        body: jsonEncode({"email": email}),
-      ).timeout(requestTimeout);
-      if (response.statusCode == 200) {
-        return CommonResponse.fromJson(jsonDecode(response.body));
-      }
-      debugPrint("requestResetPassword error: ${response.statusCode}");
-      return null;
-    } catch (err) {
-      debugPrint("requestResetPassword exception: $err");
+      final dynamic decoded = jsonDecode(utf8.decode(response.bodyBytes));
+      if (decoded is! Map || decoded['code'] is! String) return null;
+      return CommonResponse.fromJson(Map<String, dynamic>.from(decoded));
+    } catch (_) {
       return null;
     }
   }
 
-  Future<CommonResponse?> requestVerifyCode(String email, String code) async {
-    final Uri url = buildApiUri(verifyPath);
+  // Null only for network errors, timeouts and unparseable bodies.
+  Future<CommonResponse?> _post(String label, String path, Map<String, dynamic> payload) async {
+    final Uri url = buildApiUri(path);
     try {
-      final response = await http.post(
+      final http.Response response = await http.post(
         url,
         headers: {"Content-Type": "application/json"},
-        body: jsonEncode({"email": email, "code": code}),
+        body: jsonEncode(payload),
       ).timeout(requestTimeout);
-      if (response.statusCode == 200) {
-        return CommonResponse.fromJson(jsonDecode(response.body));
+      final CommonResponse? parsed = parseEnvelope(response);
+      if (parsed == null) {
+        debugPrint("$label error: ${response.statusCode}");
       }
-      debugPrint("requestVerifyCode error: ${response.statusCode}");
-      return null;
+      return parsed;
     } catch (err) {
-      debugPrint("requestVerifyCode exception: $err");
+      debugPrint("$label exception: $err");
       return null;
     }
   }
 
-  Future<CommonResponse?> requestCompletePassword(String email, String newPassword, String verifyToken) async {
-    final Uri url = buildApiUri(completePath);
-    try {
-      final response = await http.post(
-        url,
-        headers: {"Content-Type": "application/json"},
-        body: jsonEncode({
-          "email": email,
-          "newPassword": newPassword,
-          "verifyToken": verifyToken,
-        }),
-      ).timeout(requestTimeout);
-      if (response.statusCode == 200) {
-        return CommonResponse.fromJson(jsonDecode(response.body));
-      }
-      debugPrint("requestCompletePassword error: ${response.statusCode}");
-      return null;
-    } catch (err) {
-      debugPrint("requestCompletePassword exception: $err");
-      return null;
-    }
+  Future<CommonResponse?> requestResetPassword(String email, {String? userId}) {
+    final String id = userId?.trim() ?? '';
+    return _post("requestResetPassword", resetPath, <String, dynamic>{
+      "email": email,
+      if (id.isNotEmpty) "user_id": id,
+    });
   }
 
-  Future<CommonResponse?> requestResetPasswordByIdAndEmail(String userId, String email) async {
-    final Uri url = buildApiUri(resetByIdEmailPath);
-    try {
-      final response = await http.post(
-        url,
-        headers: {"Content-Type": "application/json"},
-        body: jsonEncode({"user_id": userId, "email": email}),
-      ).timeout(requestTimeout);
-      if (response.statusCode == 200) {
-        return CommonResponse.fromJson(jsonDecode(response.body));
-      }
-      debugPrint("requestResetPasswordByIdAndEmail error: ${response.statusCode}");
-      return null;
-    } catch (err) {
-      debugPrint("requestResetPasswordByIdAndEmail exception: $err");
-      return null;
-    }
+  Future<CommonResponse?> requestVerifyCode(String email, String code) {
+    return _post("requestVerifyCode", verifyPath, <String, dynamic>{
+      "email": email,
+      "code": code,
+    });
   }
 
-  Future<CommonResponse?> requestVerifyCodeByIdAndEmail(String userId, String email, String code) async {
-    final Uri url = buildApiUri(verifyByIdEmailPath);
-    try {
-      final response = await http.post(
-        url,
-        headers: {"Content-Type": "application/json"},
-        body: jsonEncode({"user_id": userId, "email": email, "code": code}),
-      ).timeout(requestTimeout);
-      if (response.statusCode == 200) {
-        return CommonResponse.fromJson(jsonDecode(response.body));
-      }
-      debugPrint("requestVerifyCodeByIdAndEmail error: ${response.statusCode}");
-      return null;
-    } catch (err) {
-      debugPrint("requestVerifyCodeByIdAndEmail exception: $err");
-      return null;
-    }
+  Future<CommonResponse?> requestCompletePassword(String email, String newPassword, String verifyToken) {
+    return _post("requestCompletePassword", completePath, <String, dynamic>{
+      "email": email,
+      "newPassword": newPassword,
+      "verifyToken": verifyToken,
+    });
   }
 }

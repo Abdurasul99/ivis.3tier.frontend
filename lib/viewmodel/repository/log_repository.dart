@@ -6,6 +6,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../constants/constants.dart';
 import '../controller/user_controller.dart';
+import 'base_repository.dart';
 
 /// Signed download link parts from the server (a browser link cannot carry the token header).
 int? _downloadExpOf(Map<String, dynamic> json) => int.tryParse('${json['downloadExp'] ?? ''}');
@@ -71,8 +72,10 @@ class HistoryExportResult {
   });
 }
 
-class LogRepository {
+// Extends BaseRepository only for the shared 401 refresh-and-retry helper.
+class LogRepository extends BaseRepository {
   String get apiServerHost => kApiServer;
+  @override
   Duration get requestTimeout => const Duration(seconds: 8);
   Duration get exportTimeout => const Duration(seconds: 600);
 
@@ -111,8 +114,8 @@ class LogRepository {
 
   Future<List<LogFileInfo>> fetchLogFiles() async {
     final Uri uri = buildUri('/api/broker-debug/files');
-    final http.Response response =
-        await http.get(uri, headers: buildHeaders()).timeout(requestTimeout);
+    final http.Response response = await sendAuthorized(
+        (_) => http.get(uri, headers: buildHeaders()).timeout(requestTimeout));
 
     if (response.statusCode != 200) {
       throw Exception('Error ${response.statusCode}: ${response.body}');
@@ -176,11 +179,13 @@ class LogRepository {
       'sortDirection': sortDirection,
     };
 
-    final http.Response response = await http.post(
-      uri,
-      headers: buildHeaders(),
-      body: jsonEncode(payload),
-    ).timeout(exportTimeout);
+    final http.Response response = await sendAuthorized((_) => http
+        .post(
+          uri,
+          headers: buildHeaders(),
+          body: jsonEncode(payload),
+        )
+        .timeout(exportTimeout));
 
     if (response.statusCode != 200) {
       throw Exception('Error ${response.statusCode}: ${response.body}');

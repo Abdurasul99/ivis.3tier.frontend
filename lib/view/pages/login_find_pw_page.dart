@@ -2,6 +2,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:get/get.dart';
 
 import '../../i18n/app_locale.dart';
+import '../../model/common_model.dart';
 import '../../utils/utils.dart';
 import '../../viewmodel/controller/locale_controller.dart';
 import '../../viewmodel/controller/password_controller.dart';
@@ -28,6 +29,9 @@ class _LoginFindPwPageState extends State<LoginFindPwPage> {
   final FocusNode _codeFocusNode = FocusNode();
 
   String _codeErrorMsg = '';
+  // In-flight guards; nothing is rendered from them.
+  bool _sending = false;
+  bool _verifying = false;
 
   @override
   void dispose() {
@@ -48,20 +52,29 @@ class _LoginFindPwPageState extends State<LoginFindPwPage> {
       return;
     }
 
-    final PasswordController passwordCtrl = Get.find<PasswordController>();
-    final dynamic response = await passwordCtrl.reqResetPassword(email);
-    if (response == null) {
-      Utils.showSnackBar(t('서버 오류가 발생했습니다.'), isError: true);
-      return;
-    }
-    if (response.code == '0000') {
-      Utils.showSnackBar(t('인증메일을 보냈습니다. 메일을 확인해주세요.'));
-    } else {
-      Utils.showSnackBar(
-        l10n('메일 전송 실패: ${serverText(response.message)}',
-            'Failed to send email: ${serverText(response.message)}'),
-        isError: true,
-      );
+    if (_sending) return;
+    _sending = true;
+    try {
+      final PasswordController passwordCtrl = Get.find<PasswordController>();
+      final CommonResponse? response =
+          await passwordCtrl.reqResetPassword(email, userId: userId);
+      if (response == null) {
+        Utils.showSnackBar(t('서버 오류가 발생했습니다.'), isError: true);
+      } else if (response.code == '0000') {
+        Utils.showSnackBar(t('인증메일을 보냈습니다. 메일을 확인해주세요.'));
+      } else if (response.code == '9002') {
+        Utils.showSnackBar(t('등록되지 않은 메일입니다.'), isError: true);
+      } else if (response.code == '9007') {
+        Utils.showSnackBar(t('아이디와 메일이 일치하지 않습니다.'), isError: true);
+      } else {
+        Utils.showSnackBar(
+          l10n('메일 전송 실패: ${serverText(response.message)}',
+              'Failed to send email: ${serverText(response.message)}'),
+          isError: true,
+        );
+      }
+    } finally {
+      _sending = false;
     }
   }
 
@@ -80,18 +93,29 @@ class _LoginFindPwPageState extends State<LoginFindPwPage> {
       return;
     }
 
-    final PasswordController passwordCtrl = Get.find<PasswordController>();
-    final dynamic verifyRes = await passwordCtrl.reqPasswordVerifyCode(email, code);
-    if (verifyRes == null) {
-      setState(() => _codeErrorMsg = tKey('서버 오류가 발생했습니다.'));
-      return;
-    }
-
-    if (verifyRes.code == '0000') {
-      Utils.showSnackBar(t('인증되었습니다! 비밀번호를 재설정하세요.'));
-      Get.offAllNamed(LoginResetPwPage.routeName);
-    } else {
-      setState(() => _codeErrorMsg = tKey('인증번호가 올바르지 않습니다.'));
+    if (_verifying) return;
+    _verifying = true;
+    try {
+      final PasswordController passwordCtrl = Get.find<PasswordController>();
+      final CommonResponse? verifyRes =
+          await passwordCtrl.reqPasswordVerifyCode(email, code);
+      if (!mounted) return;
+      if (verifyRes == null) {
+        setState(() => _codeErrorMsg = tKey('서버 오류가 발생했습니다.'));
+      } else if (verifyRes.code == '0000') {
+        Utils.showSnackBar(t('인증되었습니다! 비밀번호를 재설정하세요.'));
+        Get.offAllNamed(LoginResetPwPage.routeName);
+      } else if (verifyRes.code == '9004') {
+        setState(() => _codeErrorMsg = tKey('인증번호가 만료되었습니다.'));
+      } else if (verifyRes.code == '9002') {
+        setState(() => _codeErrorMsg = tKey('이 메일로 발급된 인증번호가 없습니다.'));
+      } else if (verifyRes.code == '9003') {
+        setState(() => _codeErrorMsg = tKey('인증번호가 올바르지 않습니다.'));
+      } else {
+        setState(() => _codeErrorMsg = tKey('서버 오류가 발생했습니다.'));
+      }
+    } finally {
+      _verifying = false;
     }
   }
 

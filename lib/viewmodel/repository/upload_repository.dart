@@ -19,17 +19,11 @@ class UploadRepository extends BaseRepository {
   Future<List<UploadModel>> requestUploadImage(List<PickImageFile> files) async {
     final Uri url = buildApiUri(fileUploadPath);
 
-    try {
+    // Built anew for the retry after a token refresh (a multipart request cannot be re-sent).
+    http.MultipartRequest buildRequest() {
       var request = http.MultipartRequest('POST', url);
 
-      int index = 0;
-
       for (PickImageFile pickFile in files) {
-        if (pickFile.fileType == PickImageFileType.networkFile) {
-          index++;
-          continue;
-        }
-
         if (pickFile.fileType == PickImageFileType.networkFile) {
           continue;
         } else if (pickFile.fileType == PickImageFileType.imageBytes) {
@@ -55,19 +49,15 @@ class UploadRepository extends BaseRepository {
             ),
           );
         }
-        index++;
       }
 
+      return request;
+    }
+
+    try {
       // Content-Type은 multipart/form-data로 자동 설정됨 — json 헤더 추가하면 덮어써짐
-      final String? token = Get.find<UserController>().accessToken;
-      if (token != null && token.isNotEmpty) {
-        request.headers['x-access-token'] = token;
-      }
-
-      final http.StreamedResponse streamed =
-          await request.send().timeout(requestTimeout);
-      final http.Response response =
-          await http.Response.fromStream(streamed).timeout(requestTimeout);
+      // (safeMultipart adds only the access token header)
+      final http.Response response = await safeMultipart(buildRequest);
 
       if (response.statusCode != 200) {
         debugPrint('[Error] requestUploadImage() statusCode ${response.statusCode}');
@@ -98,11 +88,10 @@ class UploadRepository extends BaseRepository {
   Future<bool> requestDeleteImage(String imageUrl) async {
     final Uri url = buildApiUri(fileDeletePath);
     try {
-      final http.Response response = await http.delete(
+      final http.Response response = await safeDelete(
         url,
-        headers: getHeader(),
         body: json.encode({'imageUrl': imageUrl}),
-      ).timeout(requestTimeout);
+      );
 
       if (response.statusCode != 200) {
         debugPrint('[Error] requestDeleteImage() statusCode ${response.statusCode}');

@@ -146,8 +146,17 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     final bool isTokenValid = await userController.reqLoginByToken();
     if (!mounted) return;
     if (!isTokenValid) {
-      await userController.logout();
-      if (!mounted) return;
+      if (userController.lastSessionCheckUnreachable) {
+        // Server unreachable / 5xx: keep the stored tokens so a later reload logs in again.
+        Utils.showSnackBar(
+          l10n('서버에 연결할 수 없습니다. 잠시 후 다시 시도해주세요.',
+              'Cannot reach the server. Please try again later.'),
+          isError: true,
+        );
+      } else {
+        await userController.logout();
+        if (!mounted) return;
+      }
       Get.offAllNamed(LoginPage.routeName);
       return;
     }

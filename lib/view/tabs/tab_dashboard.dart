@@ -167,8 +167,9 @@ class _TabDashboardState extends State<TabDashboard>
 
   // 셀 탭 → 해당 행 index로 pageRows 조회 후 객체 현황 패널 갱신
   void _onRowTapped(int rowIdx) {
-    // _updateGrid 실행 중이거나 로딩 중이면 무시
-    if (_suppressRowTap || _controller.isLoading || !_gridReady) return;
+    // Ignored only while _updateGrid rebuilds the rows. Not while loading:
+    // with 1 s auto-refresh that dropped a large share of the taps.
+    if (_suppressRowTap || !_gridReady) return;
     if (rowIdx < 0 || rowIdx >= _controller.pageRows.length) return;
     final Map<String, dynamic> pageRow = _controller.pageRows[rowIdx];
     // 차량 모드: 지도 라이브 추적
@@ -2133,11 +2134,11 @@ class _TabDashboardState extends State<TabDashboard>
     // 보장할 수 없으므로 비활성화하고 Next/Prev 만 노출한다.
     final bool isKeyset = _controller.useKeysetPagination;
 
-    final bool canGoPrev =
-        !(_controller.isLoading || _controller.initialLoading) &&
-            (isKeyset ? _controller.hasPrevPage : currentPageSafe > 1);
-    final bool canGoNext =
-        !(_controller.isLoading || _controller.initialLoading) &&
+    // Paging stays enabled during a load: the controller lets the newest
+    // request win, so a click is not lost to the auto-refresh.
+    final bool canGoPrev = !_controller.initialLoading &&
+        (isKeyset ? _controller.hasPrevPage : currentPageSafe > 1);
+    final bool canGoNext = !_controller.initialLoading &&
             (isKeyset
                 ? _controller.hasNextPage
                 : currentPageSafe < _controller.totalPages);
@@ -2177,9 +2178,7 @@ class _TabDashboardState extends State<TabDashboard>
       // 하이브리드 모드 — 페이지 번호 클릭은 항상 활성화.
       // 키셋 모드여도 changePage 가 내부에서 cursorStack 을 비우고 offset 으로 fallback.
       // (깊은 페이지는 느릴 수 있지만 동작은 보장)
-      final bool canTapPageNumber = !(_controller.isLoading ||
-              _controller.initialLoading) &&
-          !selected;
+      final bool canTapPageNumber = !_controller.initialLoading && !selected;
       pager.add(
         _buildPageButton(
           selected: selected,
@@ -2216,7 +2215,7 @@ class _TabDashboardState extends State<TabDashboard>
 
     // 하이브리드 모드 — jump-to-page 항상 활성화
     // (changePage 내부에서 cursorStack 비우고 offset 으로 안전하게 처리)
-    final bool canJump = !(_controller.isLoading || _controller.initialLoading);
+    final bool canJump = !_controller.initialLoading;
 
     return Container(
       height: 64,
@@ -2382,7 +2381,6 @@ class _TabDashboardState extends State<TabDashboard>
 
     return GestureDetector(
       onTap: () async {
-        if (_controller.isLoading) return;
         if (!mounted) return;
         // 전체지도 모드일 때는 엔티티만 전환 (지도 유지)
         if (!_controller.isFullMapMode) {
@@ -2669,6 +2667,34 @@ class _TabDashboardState extends State<TabDashboard>
     }
   }
 
+  // Shown while the last history request failed: the table still holds the
+  // previous rows, and the user must be able to tell they are not fresh.
+  Widget _buildLoadErrorLine() {
+    return Container(
+      width: double.infinity,
+      color: const Color(0xFFFDECEA),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      child: Row(
+        children: <Widget>[
+          const Icon(Icons.error_outline, size: 16, color: Color(0xFFC62828)),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              l10n('데이터를 불러오지 못했습니다. 이전 데이터를 표시 중입니다.',
+                  'Failed to load data. Showing the previous data.'),
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFFC62828),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildManualRefreshButton() {
     return InkWell(
       onTap: (_controller.isLoading || _controller.initialLoading)
@@ -2878,8 +2904,13 @@ class _TabDashboardState extends State<TabDashboard>
     );
 
     if (_controller.currentEntityType == FmsEntityType.vehicle) {
+      // Duplicate values trip a DropdownButton assertion and a missing id
+      // would show as "null". Id 0 is a real device and stays in the list.
       final List<String> vehicleIds = _controller.vehicleCtrl.vehicles
-          .map((v) => '${v.vehicleId}')
+          .map((v) => v.vehicleId)
+          .whereType<int>()
+          .map((int id) => id.toString())
+          .toSet()
           .toList();
       vehicleIds.sort((String a, String b) =>
           _controller.parseIntValue(a).compareTo(_controller.parseIntValue(b)));
@@ -3262,6 +3293,7 @@ class _TabDashboardState extends State<TabDashboard>
               children: <Widget>[
                 _buildToolbar(),
                 const Divider(height: 1, color: Color(0xFFE0E0E0)),
+                if (controller.historyLoadFailed) _buildLoadErrorLine(),
                 Expanded(
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),

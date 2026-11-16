@@ -21,7 +21,7 @@ class MemberRepository extends BaseRepository {
 
     try {
       final http.Response response =
-          await http.get(url, headers: getHeader()).timeout(requestTimeout);
+          await safeGet(url);
       if (response.statusCode != 200) {
         debugPrint('[Error] requestUnApprovedMemberList() statusCode ${response.statusCode}');
         return [];
@@ -44,7 +44,7 @@ class MemberRepository extends BaseRepository {
 
     try {
       final http.Response response =
-          await http.get(url, headers: getHeader()).timeout(requestTimeout);
+          await safeGet(url);
       if (response.statusCode != 200) {
         debugPrint('[Error] requestMemberList() statusCode ${response.statusCode}');
         return [];
@@ -71,9 +71,7 @@ class MemberRepository extends BaseRepository {
     final Uri url = buildApiUri(approvePath);
 
     try {
-      final http.Response response = await http
-          .post(url, body: body, headers: getHeader())
-          .timeout(requestTimeout);
+      final http.Response response = await safePost(url, body: body);
       if (response.statusCode != 200) {
         debugPrint('[Error] requestApproveMember() statusCode ${response.statusCode}');
         return false;
@@ -97,9 +95,7 @@ class MemberRepository extends BaseRepository {
     final Uri url = buildApiUri(rejectPath);
 
     try {
-      final http.Response response = await http
-          .post(url, body: body, headers: getHeader())
-          .timeout(requestTimeout);
+      final http.Response response = await safePost(url, body: body);
       if (response.statusCode != 200) {
         debugPrint('[Error] requestRejectMember() statusCode ${response.statusCode}');
         return false;
@@ -124,9 +120,7 @@ class MemberRepository extends BaseRepository {
     final Uri url = buildApiUri(changeRolePath);
 
     try {
-      final http.Response response = await http
-          .patch(url, body: body, headers: getHeader())
-          .timeout(requestTimeout);
+      final http.Response response = await safePatch(url, body: body);
       if (response.statusCode != 200) {
         debugPrint('[Error] requestChangeRole() statusCode ${response.statusCode}');
         return false;
@@ -150,9 +144,7 @@ class MemberRepository extends BaseRepository {
     final Uri url = buildApiUri(deleteMemberPath);
 
     try {
-      final http.Response response = await http
-          .delete(url, body: body, headers: getHeader())
-          .timeout(requestTimeout);
+      final http.Response response = await safeDelete(url, body: body);
       if (response.statusCode != 200) {
         debugPrint('[Error] requestDeleteMember() statusCode ${response.statusCode}');
         return false;

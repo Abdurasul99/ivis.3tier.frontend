@@ -40,6 +40,9 @@ class DashboardController extends GetxController {
   bool firstDataArrived = false;
   bool isExporting = false;
   bool isFullMapMode = false;
+  // True while the last history request failed: the rows on screen are the
+  // previous ones, so the view must say so instead of passing them as fresh.
+  bool historyLoadFailed = false;
 
   // 객체 현황 패널 상태/로직은 DashboardObjectsStatusController 로 이관 ─────
   // View 호환을 위해 아래 getter/method 들이 위임자 역할을 한다.
@@ -259,10 +262,13 @@ class DashboardController extends GetxController {
     bool force = false,
     String? searchText,
     String? searchColumn,
+    // Cursor stack the target page needs. It replaces _cursorStack only when
+    // the page really loads, so a failed request leaves paging untouched.
+    List<int>? pendingCursorStack,
   }) async {
-    // force:true (필터 변경, 새로고침) 는 로딩 중에도 허용:
-    // _loadRequestId 체크가 이전 요청의 결과를 자동으로 버림
-    if (isLoading && !force) return;
+    // No isLoading guard: a newer request supersedes the running one through
+    // _loadRequestId, so a user click is never lost to a background refresh.
+    // (The background refresh itself yields in refreshCurrent.)
 
     if (!_vehicleCtrl.hasToken) {
       await _waitForTokenReady();
@@ -297,10 +303,18 @@ class DashboardController extends GetxController {
     if (!force) {
       final _PageCacheEntry? cached = _getPageCache(targetPage);
       if (cached != null) {
+        // Supersede a request still in flight, or it would land afterwards
+        // and put its own page back.
+        _loadRequestId++;
+        isLoading = false;
+        historyLoadFailed = false;
+        _commitCursorStack(pendingCursorStack);
         totalCount = cached.totalCount;
         currentPage = targetPage;
         pageRows = cached.rows;
         firstDataArrived = true;
+        // Next/Prev cursors must follow the page that is now on screen.
+        _updateSeenHistoryIds(cached.rows);
         if (isObjectsStatusOpen) {
           _statusCtrl.refreshOrFetchObjectsStatus(cached.rows);
         }
@@ -331,13 +345,16 @@ class DashboardController extends GetxController {
       // 키셋 모드라도 1페이지(cursorStack 비어있음)는 offset=0 으로 조회.
       // TODO: 임의 페이지 jump 시에는 offset 으로 fallback (근사치) — 키셋은
       //       Next/Prev 만 정확하게 지원한다.
-      final bool useCursor =
-          useKeysetPagination && _cursorStack.isNotEmpty;
-      final int? cursorIdParam = useCursor ? _cursorStack.last : null;
+      final List<int> cursorStack = pendingCursorStack ?? _cursorStack;
+      final bool useCursor = useKeysetPagination && cursorStack.isNotEmpty;
+      final int? cursorIdParam = useCursor ? cursorStack.last : null;
       const String cursorDirParam = 'next';
 
       List<Map<String, dynamic>> rows = <Map<String, dynamic>>[];
       int resolvedTotalCount = 0;
+      // Read right after each await: on failure the sub-controller keeps its
+      // old rows, which must not be taken for the requested page.
+      bool failed = false;
 
       if (currentEntityType == FmsEntityType.vehicle) {
         final int? vehicleId =
@@ -351,6 +368,7 @@ class DashboardController extends GetxController {
           cursorId: cursorIdParam,
           cursorDirection: useCursor ? cursorDirParam : null,
         );
+        failed = _vehicleCtrl.historyLoadFailedInternal;
         rows = _vehicleCtrl.historyItems
             .map((VehicleInfoHistory item) =>
                 DashboardFieldsHelper.enrichRowDateTimeFields(item.toJson()))
@@ -368,6 +386,7 @@ class DashboardController extends GetxController {
           cursorId: cursorIdParam,
           cursorDirection: useCursor ? cursorDirParam : null,
         );
+        failed = _infraCtrl.historyLoadFailedInternal;
         rows = _infraCtrl.historyItems
             .map((InfraInfoHistory item) =>
                 DashboardFieldsHelper.enrichRowDateTimeFields(item.toJson()))
@@ -376,6 +395,10 @@ class DashboardController extends GetxController {
       }
 
       if (requestId != _loadRequestId) return;
+      if (failed) {
+        historyLoadFailed = true;
+        return;
+      }
       final int maxPage = (resolvedTotalCount + rowsPerPage - 1) ~/ rowsPerPage;
       final int safeMaxPage = maxPage < 1 ? 1 : maxPage;
       int finalPage = targetPage;
@@ -393,6 +416,7 @@ class DashboardController extends GetxController {
             searchText: searchTextParam,
             searchColumnName: searchColumnParam,
           );
+          failed = _vehicleCtrl.historyLoadFailedInternal;
           rows = _vehicleCtrl.historyItems
               .map((VehicleInfoHistory item) =>
                   DashboardFieldsHelper.enrichRowDateTimeFields(item.toJson()))
@@ -407,6 +431,7 @@ class DashboardController extends GetxController {
             searchText: searchTextParam,
             searchColumnName: searchColumnParam,
           );
+          failed = _infraCtrl.historyLoadFailedInternal;
           rows = _infraCtrl.historyItems
               .map((InfraInfoHistory item) =>
                   DashboardFieldsHelper.enrichRowDateTimeFields(item.toJson()))
@@ -415,7 +440,17 @@ class DashboardController extends GetxController {
       }
 
       if (requestId != _loadRequestId) return;
+      // Failed request: page number, rows, cache and cursors stay as they
+      // were; the finally block repaints with the error flag set.
+      if (failed) {
+        historyLoadFailed = true;
+        return;
+      }
 
+      historyLoadFailed = false;
+      // The clamped refetch above ran by offset, so no cursor matches it.
+      _commitCursorStack(
+          finalPage == targetPage ? pendingCursorStack : const <int>[]);
       totalCount = resolvedTotalCount;
       currentPage = finalPage < 1 ? 1 : finalPage;
       pageRows = rows;
@@ -430,6 +465,7 @@ class DashboardController extends GetxController {
       if (kDebugMode) {
         debugPrint('DashboardController.loadPage error: $exception');
       }
+      if (requestId == _loadRequestId) historyLoadFailed = true;
     } finally {
       if (requestId == _loadRequestId) {
         isLoading = false;
@@ -445,8 +481,18 @@ class DashboardController extends GetxController {
     if (isLoading) return;
     if (currentEntityType == FmsEntityType.infra) {
       await _infraCtrl.reqLoadInfraIdentifiers();
+      // A user action may have started while waiting; it must not be
+      // superseded by this refresh of the page the user just left.
+      if (isLoading) return;
     }
     await loadPage(currentPage, force: true);
+  }
+
+  void _commitCursorStack(List<int>? pending) {
+    if (pending == null) return;
+    _cursorStack
+      ..clear()
+      ..addAll(pending);
   }
 
   // 디바이스 관리에서 기기 삭제 후 대시보드로 복귀했을 때 호출:
@@ -459,25 +505,25 @@ class DashboardController extends GetxController {
   }
 
   void changePage(int page) {
-    if (isLoading || initialLoading) return;
+    if (initialLoading) return;
     final int safeTotalPages = totalPages < 1 ? 1 : totalPages;
     final int target = page.clamp(1, safeTotalPages);
     if (target == currentPage) return;
     // 키셋 모드: 임의 페이지 jump 대신 1페이지로 리셋 후 offset 모드로 근사 조회.
     // (안전한 동작을 보장하기 위해 cursorStack 초기화)
-    if (useKeysetPagination) {
-      _cursorStack.clear();
-      // 임의 페이지 점프는 키셋으로는 불가능하므로 cursor 미사용 — loadPage 내부에서
-      // _cursorStack.isEmpty 이므로 offset 모드로 fallback (근사 페이지).
-    }
-    loadPage(target);
+    // An arbitrary jump cannot use a cursor: pass an empty stack so loadPage
+    // falls back to offset. The real stack is emptied only if the page loads.
+    loadPage(
+      target,
+      pendingCursorStack: useKeysetPagination ? const <int>[] : null,
+    );
   }
 
   // ── 키셋 커서 Next/Prev API ─────────────────────────────────────────────
   // Next: 현재 페이지 마지막 row history_id 를 cursorStack 에 push 하고 다음 페이지 로드.
   // Prev: cursorStack 에서 pop 한 뒤 그 이전 cursor 로 다시 로드.
   Future<void> loadNextPage() async {
-    if (isLoading || initialLoading) return;
+    if (initialLoading) return;
     if (!useKeysetPagination) {
       // 백워드 호환: offset 모드면 기존 changePage 사용
       changePage(currentPage + 1);
@@ -485,21 +531,27 @@ class DashboardController extends GetxController {
     }
     if (_lastSeenHistoryId == null) return;
     if (currentPage >= totalPages) return;
-    _cursorStack.add(_lastSeenHistoryId!);
+    // The cursor is pushed only if the page loads (see pendingCursorStack),
+    // so a failed or repeated click cannot leave a duplicate cursor behind.
     final int nextPage = currentPage + 1;
-    await loadPage(nextPage, force: true);
+    await loadPage(
+      nextPage,
+      force: true,
+      pendingCursorStack: <int>[..._cursorStack, _lastSeenHistoryId!],
+    );
   }
 
   Future<void> loadPrevPage() async {
-    if (isLoading || initialLoading) return;
+    if (initialLoading) return;
     if (!useKeysetPagination) {
       changePage(currentPage - 1);
       return;
     }
     if (currentPage <= 1) return;
-    if (_cursorStack.isNotEmpty) _cursorStack.removeLast();
+    final List<int> prevStack = List<int>.of(_cursorStack);
+    if (prevStack.isNotEmpty) prevStack.removeLast();
     final int prevPage = currentPage - 1;
-    await loadPage(prevPage, force: true);
+    await loadPage(prevPage, force: true, pendingCursorStack: prevStack);
   }
 
   // 현재 페이지의 첫/마지막 row history_id 를 기록한다.
@@ -647,7 +699,6 @@ class DashboardController extends GetxController {
   }
 
   Future<void> setVehicleIdFilter(String vehicleId) async {
-    if (isLoading) return;
     vehicleIdFilter = vehicleId;
     currentPage = 1;
     _resetCursorState();
@@ -656,7 +707,6 @@ class DashboardController extends GetxController {
   }
 
   Future<void> setInfraIdFilter(String infraId) async {
-    if (isLoading) return;
     infraIdFilter = infraId;
     currentPage = 1;
     _resetCursorState();
@@ -665,7 +715,6 @@ class DashboardController extends GetxController {
   }
 
   Future<void> setDateRangeFilter(DateTime? from, DateTime? to) async {
-    if (isLoading) return;
     dateFrom = from;
     dateTo = to;
     // 날짜 범위를 epoch ms로 변환해 각 컨트롤러에 전달

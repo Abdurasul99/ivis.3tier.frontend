@@ -38,17 +38,28 @@ class ActivityCatalogItem {
 }
 
 class ActivityController extends GetxController {
-  ActivityController();
+  // Repositories are injectable so tests can replace HTTP with fakes.
+  ActivityController({
+    ActivityRepository? repository,
+    DeviceRegistryRepository? registryRepository,
+    VehicleRepository? vehicleRepository,
+    InfraRepository? infraRepository,
+    WeatherRepository? weatherRepository,
+  })  : _repo = repository ?? ActivityRepository(),
+        _registryRepo = registryRepository ?? DeviceRegistryRepository(),
+        _vehicleRepo = vehicleRepository ?? VehicleRepository(),
+        _infraRepo = infraRepository ?? InfraRepository(),
+        _weatherRepo = weatherRepository ?? WeatherRepository();
 
   static const Duration _unreadPollInterval = Duration(seconds: 5);
   static const Duration _chartRefreshInterval = Duration(seconds: 60);
   static const Duration _onlineWindow = Duration(minutes: 5);
 
-  final ActivityRepository _repo = ActivityRepository();
-  final DeviceRegistryRepository _registryRepo = DeviceRegistryRepository();
-  final VehicleRepository _vehicleRepo = VehicleRepository();
-  final InfraRepository _infraRepo = InfraRepository();
-  final WeatherRepository _weatherRepo = WeatherRepository();
+  final ActivityRepository _repo;
+  final DeviceRegistryRepository _registryRepo;
+  final VehicleRepository _vehicleRepo;
+  final InfraRepository _infraRepo;
+  final WeatherRepository _weatherRepo;
 
   List<ActivityEventItem> feedEvents = <ActivityEventItem>[];
   int feedTotal = 0;
@@ -134,6 +145,16 @@ class ActivityController extends GetxController {
   int _distanceChartRequestId = 0;
   // Bumped on every calendar month request so a slow response for another month is dropped.
   int _calendarMonthRequestId = 0;
+  // Per-loader sequence numbers: only the newest request may write its result,
+  // so a slow response for an older device/period cannot overwrite a newer one.
+  int _deviceAnalyticsRequestId = 0;
+  int _operationStatsRequestId = 0;
+  int _vehicleObjectRequestId = 0;
+  int _infraObjectRequestId = 0;
+  int _infraTotalRequestId = 0;
+  int _feedRequestId = 0;
+  // Severity of the feed request in flight; a different one must not be skipped.
+  int? _feedLoadingSeverity;
   // 마지막 디바이스 분석 갱신 시각 (오프라인 디바이스 갱신 간격 제어)
   DateTime? _lastDeviceAnalyticsAt;
   // 오프라인 디바이스는 10분에 한 번만 갱신
@@ -259,8 +280,13 @@ class ActivityController extends GetxController {
 
   Future<void> refreshFeed() async {
     final String token = Get.find<UserController>().accessToken ?? '';
-    if (token.isEmpty || isFeedLoading) return;
+    if (token.isEmpty) return;
+    final int severity = feedMinSeverity;
+    // Skip only a duplicate of the request in flight; a changed filter must load.
+    if (isFeedLoading && _feedLoadingSeverity == severity) return;
 
+    final int requestId = ++_feedRequestId;
+    _feedLoadingSeverity = severity;
     isFeedLoading = true;
     update();
 
@@ -268,13 +294,17 @@ class ActivityController extends GetxController {
       final result = await _repo.requestEvents(
         limit: 30,
         offset: 0,
-        minSeverity: feedMinSeverity > 1 ? feedMinSeverity : null,
+        minSeverity: severity > 1 ? severity : null,
       );
+      if (requestId != _feedRequestId) return;
       feedEvents = result.items;
       feedTotal = result.totalCount;
     } finally {
-      isFeedLoading = false;
-      update();
+      if (requestId == _feedRequestId) {
+        isFeedLoading = false;
+        _feedLoadingSeverity = null;
+        update();
+      }
     }
   }
 
@@ -293,6 +323,7 @@ class ActivityController extends GetxController {
     final int calendarRequestId = ++_calendarMonthRequestId;
     final int distanceChartDays = _distanceChartDaysForPeriod(selectedDeviceDistanceChartPeriod);
     final int distanceChartRequestId = ++_distanceChartRequestId;
+    final int analyticsRequestId = ++_deviceAnalyticsRequestId;
     if (!silent) {
       isDeviceFeedLoading = true;
       isDeviceChartLoading = true;
@@ -342,6 +373,8 @@ class ActivityController extends GetxController {
           Future<DistanceStatsResult?>.value(null),
       ]);
 
+      // A newer refresh (other device or global period) owns the state now.
+      if (analyticsRequestId != _deviceAnalyticsRequestId) return;
       if (selectionKey != '${selectedDeviceType ?? ''}:${selectedDeviceId ?? ''}') {
         return;
       }
@@ -359,8 +392,14 @@ class ActivityController extends GetxController {
         if (distanceChartRequestId == _distanceChartRequestId) {
           selectedDeviceDistanceChartStats = chartDistance ?? summaryDistance;
         }
-        unawaited(_loadVehicleDailyOperationStats(deviceId, distanceChartDays, silent: silent));
-        unawaited(_loadVehicleDailyObjectCounts(deviceId, distanceChartDays, silent: silent));
+        // Each chart reloads with its own period, read now so a change made
+        // during the await above is respected.
+        unawaited(_loadVehicleDailyOperationStats(
+            deviceId, _distanceChartDaysForPeriod(selectedOperationChartPeriod),
+            silent: silent));
+        unawaited(_loadVehicleDailyObjectCounts(
+            deviceId, _distanceChartDaysForPeriod(selectedVehicleObjectChartPeriod),
+            silent: silent));
       } else {
         selectedInfraInfo = results[3] as InfraInfo?;
         selectedVehicleInfo = null;
@@ -369,7 +408,9 @@ class ActivityController extends GetxController {
           selectedDeviceDistanceChartStats = null;
         }
         // 인프라 선택 시 일별 감지 객체 합계 + 전체 인프라 비교 데이터 비동기 로드
-        unawaited(_loadInfraDailyObjectCounts(deviceId, chartDays_, silent: silent));
+        unawaited(_loadInfraDailyObjectCounts(
+            deviceId, _distanceChartDaysForPeriod(selectedInfraObjectChartPeriod),
+            silent: silent));
         unawaited(loadInfraTotalByInfra(days: chartDays_, silent: silent));
       }
       if (calendarRequestId == _calendarMonthRequestId) {
@@ -378,12 +419,15 @@ class ActivityController extends GetxController {
 
       unawaited(refreshSelectedDeviceWeather(force: true));
     } finally {
-      isDeviceFeedLoading = false;
-      isDeviceChartLoading = false;
+      // A superseded refresh must not hide the spinner of the newer one.
+      if (analyticsRequestId == _deviceAnalyticsRequestId) {
+        isDeviceFeedLoading = false;
+        isDeviceChartLoading = false;
+        isDeviceSummaryLoading = false;
+      }
       if (distanceChartRequestId == _distanceChartRequestId) {
         isDeviceDistanceChartLoading = false;
       }
-      isDeviceSummaryLoading = false;
       if (calendarRequestId == _calendarMonthRequestId) {
         isCalendarMonthLoading = false;
       }
@@ -415,6 +459,7 @@ class ActivityController extends GetxController {
     selectedCalendarDayTotal = 0;
     isCalendarDayLoading = false;
     _resetSelectedWeather();
+    _invalidateDeviceChartLoads();
     // 각 차트 기간 초기화
     selectedOperationChartPeriod = 'daily';
     selectedVehicleObjectChartPeriod = 'daily';
@@ -448,6 +493,7 @@ class ActivityController extends GetxController {
     selectedCalendarDayTotal = 0;
     isCalendarDayLoading = false;
     _resetSelectedWeather();
+    _invalidateDeviceChartLoads();
     // 각 차트 기간 초기화
     selectedOperationChartPeriod = 'daily';
     selectedVehicleObjectChartPeriod = 'daily';
@@ -493,22 +539,37 @@ class ActivityController extends GetxController {
       selectedCalendarDayTotal = 0;
       isCalendarDayLoading = false;
       _resetSelectedWeather();
+      _invalidateDeviceChartLoads();
     }
   }
 
+  // Drops in-flight per-device chart loads so they cannot write into the next
+  // selection; their spinners are cleared here because they no longer will be.
+  void _invalidateDeviceChartLoads() {
+    _operationStatsRequestId++;
+    _vehicleObjectRequestId++;
+    _infraObjectRequestId++;
+    _infraTotalRequestId++;
+    isOperationStatsLoading = false;
+    isVehicleObjectChartLoading = false;
+    isInfraObjectChartLoading = false;
+    isInfraTotalChartLoading = false;
+  }
+
+  // Device id 0 is a real device; only negative/unparseable ids are skipped.
   List<ActivityCatalogItem> get vehicleCatalog {
     final Set<int> ids = <int>{};
     for (final Map<String, dynamic> row in registryRows) {
       if ((row['device_type']?.toString() ?? '') == 'vehicle') {
         final int? id = _parseInt(row['device_id']);
-        if (id != null && id > 0) ids.add(id);
+        if (id != null && id >= 0) ids.add(id);
       }
     }
 
     if (Get.isRegistered<VehicleController>()) {
       for (final Vehicle vehicle in Get.find<VehicleController>().vehicles) {
         final int? id = vehicle.vehicleId;
-        if (id != null && id > 0) ids.add(id);
+        if (id != null && id >= 0) ids.add(id);
       }
     }
 
@@ -521,12 +582,12 @@ class ActivityController extends GetxController {
     for (final Map<String, dynamic> row in registryRows) {
       if ((row['device_type']?.toString() ?? '') == 'infra') {
         final int? id = _parseInt(row['device_id']);
-        if (id != null && id > 0) ids.add(id);
+        if (id != null && id >= 0) ids.add(id);
       }
     }
 
     if (Get.isRegistered<InfraController>()) {
-      ids.addAll(Get.find<InfraController>().infraIdentifiers.where((int id) => id > 0));
+      ids.addAll(Get.find<InfraController>().infraIdentifiers.where((int id) => id >= 0));
     }
 
     final List<int> sortedIds = ids.toList()..sort();
@@ -848,7 +909,9 @@ class ActivityController extends GetxController {
     isDeviceDistanceChartLoading = true;
     update();
 
-    unawaited(_loadVehicleDailyOperationStats(deviceId, days));
+    // The operation chart has its own period; never reload it with distance days.
+    unawaited(_loadVehicleDailyOperationStats(
+        deviceId, _distanceChartDaysForPeriod(selectedOperationChartPeriod)));
 
     try {
       final DistanceStatsResult result = await _repo.requestDistanceStats(
@@ -893,66 +956,88 @@ class ActivityController extends GetxController {
   // 차량 일별 운행 통계 로드
   Future<void> _loadVehicleDailyOperationStats(int vehicleId, int days,
       {bool silent = false}) async {
+    final int requestId = ++_operationStatsRequestId;
     if (!silent) {
       isOperationStatsLoading = true;
       update();
     }
     try {
-      vehicleDailyOperationStats = await _vehicleRepo.requestDailyOperationStats(
+      final List<Map<String, dynamic>> result = await _vehicleRepo.requestDailyOperationStats(
         vehicleId: vehicleId,
         days: days,
       );
+      if (requestId != _operationStatsRequestId) return;
+      vehicleDailyOperationStats = result;
     } finally {
-      isOperationStatsLoading = false;
-      update();
+      if (requestId == _operationStatsRequestId) {
+        isOperationStatsLoading = false;
+        update();
+      }
     }
   }
 
   // 인프라 일별 감지 객체 합계 로드
   Future<void> _loadInfraDailyObjectCounts(int infraId, int days, {bool silent = false}) async {
+    final int requestId = ++_infraObjectRequestId;
     if (!silent) {
       isInfraObjectChartLoading = true;
       update();
     }
     try {
-      infraDailyObjectCounts = await _infraRepo.requestInfraDailyObjectCounts(
+      final List<Map<String, dynamic>> result = await _infraRepo.requestInfraDailyObjectCounts(
         infraId: infraId,
         days: days,
       );
+      if (requestId != _infraObjectRequestId) return;
+      infraDailyObjectCounts = result;
     } finally {
-      isInfraObjectChartLoading = false;
-      update();
+      if (requestId == _infraObjectRequestId) {
+        isInfraObjectChartLoading = false;
+        update();
+      }
     }
   }
 
   // 차량 일별 감지 객체 합계 로드
   Future<void> _loadVehicleDailyObjectCounts(int vehicleId, int days, {bool silent = false}) async {
+    final int requestId = ++_vehicleObjectRequestId;
     if (!silent) {
       isVehicleObjectChartLoading = true;
       update();
     }
     try {
-      vehicleDailyObjectCounts = await _vehicleRepo.requestVehicleDailyObjectCounts(
+      final List<Map<String, dynamic>> result =
+          await _vehicleRepo.requestVehicleDailyObjectCounts(
         vehicleId: vehicleId,
         days: days,
       );
+      if (requestId != _vehicleObjectRequestId) return;
+      vehicleDailyObjectCounts = result;
     } finally {
-      isVehicleObjectChartLoading = false;
-      update();
+      if (requestId == _vehicleObjectRequestId) {
+        isVehicleObjectChartLoading = false;
+        update();
+      }
     }
   }
 
   // 인프라별 전체 감지 객체 합계 로드 (비교 차트용)
   Future<void> loadInfraTotalByInfra({int days = 30, bool silent = false}) async {
+    final int requestId = ++_infraTotalRequestId;
     if (!silent) {
       isInfraTotalChartLoading = true;
       update();
     }
     try {
-      infraTotalByInfra = await _infraRepo.requestInfraTotalByInfra(days: days);
+      final List<Map<String, dynamic>> result =
+          await _infraRepo.requestInfraTotalByInfra(days: days);
+      if (requestId != _infraTotalRequestId) return;
+      infraTotalByInfra = result;
     } finally {
-      isInfraTotalChartLoading = false;
-      update();
+      if (requestId == _infraTotalRequestId) {
+        isInfraTotalChartLoading = false;
+        update();
+      }
     }
   }
 

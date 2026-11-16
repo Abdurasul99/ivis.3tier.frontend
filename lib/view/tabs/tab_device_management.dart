@@ -10,7 +10,10 @@ import '../../i18n/app_locale.dart';
 import '../../utils/utils.dart';
 import '../../viewmodel/controller/activity_controller.dart';
 import '../../viewmodel/controller/dashboard_controller.dart';
+import '../../viewmodel/controller/infra_controller.dart';
 import '../../viewmodel/controller/locale_controller.dart';
+import '../../viewmodel/controller/user_controller.dart';
+import '../../viewmodel/controller/vehicle_controller.dart';
 import '../../viewmodel/repository/device_registry_repository.dart';
 import '../../viewmodel/repository/infra_repository.dart';
 import '../../viewmodel/repository/vehicle_repository.dart';
@@ -124,8 +127,9 @@ class _TabDeviceManagementState extends State<TabDeviceManagement> {
 
     final Map<int, Map<String, dynamic>> telMap = <int, Map<String, dynamic>>{};
     for (final Map<String, dynamic> t in telList) {
-      final int id = int.tryParse(t[idKey]?.toString() ?? '') ?? 0;
-      if (id > 0) telMap[id] = t;
+      // Device id 0 is valid; rows with an unparseable id are skipped.
+      final int? id = int.tryParse(t[idKey]?.toString() ?? '');
+      if (id != null && id >= 0) telMap[id] = t;
     }
 
     final Set<int> seen = <int>{};
@@ -134,7 +138,8 @@ class _TabDeviceManagementState extends State<TabDeviceManagement> {
     for (final MapEntry<String, Map<String, dynamic>> e in _regMap.entries) {
       if (!e.key.startsWith('${deviceType}_')) continue;
       final Map<String, dynamic> reg = e.value;
-      final int id = int.tryParse(reg['device_id']?.toString() ?? '') ?? 0;
+      final int? id = int.tryParse(reg['device_id']?.toString() ?? '');
+      if (id == null) continue;
       seen.add(id);
       rows.add(_DeviceRow(
         registryId: int.tryParse(reg['id']?.toString() ?? '') ?? 0,
@@ -186,8 +191,12 @@ class _TabDeviceManagementState extends State<TabDeviceManagement> {
   }
 
   void _closeForm() {
+    if (!mounted) return;
     setState(() => _formOpen = false);
   }
+
+  // Register / edit / delete are admin-only; others get the read-only list.
+  bool get _isAdmin => Get.find<UserController>().isAdminUser();
 
   // ── 삭제 ─────────────────────────────────────────────────────────────────────
 
@@ -206,7 +215,7 @@ class _TabDeviceManagementState extends State<TabDeviceManagement> {
         rightText: t('취소'),
       ),
     );
-    if (result != 'LEFT') return;
+    if (result != 'LEFT' || !mounted) return;
 
     // 삭제 대상이 현재 폼에서 편집 중이면 폼 닫기
     if (_formOpen &&
@@ -235,7 +244,19 @@ class _TabDeviceManagementState extends State<TabDeviceManagement> {
     if (Get.isRegistered<ActivityController>()) {
       unawaited(Get.find<ActivityController>().refreshCatalog());
     }
+    _reloadDeviceLists();
     await _loadAll();
+  }
+
+  // Refreshes the shared vehicle / infra lists so the map and dashboard follow
+  // a register / edit / delete without a page reload.
+  void _reloadDeviceLists() {
+    if (Get.isRegistered<VehicleController>()) {
+      unawaited(Get.find<VehicleController>().reqLoadVehicles());
+    }
+    if (Get.isRegistered<InfraController>()) {
+      unawaited(Get.find<InfraController>().reqLoadInfraIdentifiers());
+    }
   }
 
   // ── 빌드 ─────────────────────────────────────────────────────────────────────
@@ -244,7 +265,9 @@ class _TabDeviceManagementState extends State<TabDeviceManagement> {
   Widget build(BuildContext context) {
     return GetBuilder<LocaleController>(
       init: Get.find<LocaleController>(),
-      builder: (_) => Padding(
+      // Rebuilds when the login user (role) changes.
+      builder: (_) => GetBuilder<UserController>(
+          builder: (_) => Padding(
         padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -290,7 +313,7 @@ class _TabDeviceManagementState extends State<TabDeviceManagement> {
                         AnimatedSize(
                           duration: const Duration(milliseconds: 220),
                           curve: Curves.easeInOut,
-                          child: _formOpen
+                          child: _formOpen && _isAdmin
                               ? Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: <Widget>[
@@ -298,13 +321,19 @@ class _TabDeviceManagementState extends State<TabDeviceManagement> {
                                     SizedBox(
                                       width: 360,
                                       child: _DeviceForm(
-                                        key: ValueKey(
-                                            '${_formDeviceType}_${_formExisting?.registryId ?? 'new'}'),
+                                        // Device id is part of the key: telemetry-only rows
+                                        // all have registryId 0 and must not share form state.
+                                        key: ValueKey(_formExisting == null
+                                            ? '${_formDeviceType}_new'
+                                            : '${_formDeviceType}_${_formExisting!.registryId}_${_formExisting!.deviceId}'),
                                         deviceType: _formDeviceType,
                                         existing: _formExisting,
                                         onDone: (bool saved) async {
                                           _closeForm();
-                                          if (saved) await _loadAll();
+                                          if (saved) {
+                                            _reloadDeviceLists();
+                                            await _loadAll();
+                                          }
                                         },
                                       ),
                                     ),
@@ -319,7 +348,7 @@ class _TabDeviceManagementState extends State<TabDeviceManagement> {
             ),
           ],
         ),
-      ),
+      )),
     );
   }
 
@@ -381,6 +410,7 @@ class _TabDeviceManagementState extends State<TabDeviceManagement> {
                   ),
                 ),
                 const Spacer(),
+                if (_isAdmin)
                 GestureDetector(
                   onTap: () => _openForm(deviceType: deviceType),
                   child: Container(
@@ -589,7 +619,7 @@ class _TabDeviceManagementState extends State<TabDeviceManagement> {
           Expanded(
             flex: 2,
             child: Row(
-              children: <Widget>[
+              children: !_isAdmin ? const <Widget>[] : <Widget>[
                 _actionBtn(
                   label: t('편집'),
                   icon: Icons.edit_outlined,
@@ -674,7 +704,7 @@ class _TabDeviceManagementState extends State<TabDeviceManagement> {
       //   폼 안의 지도(_PinMap)가 해당 장치의 위치를 핀으로 보여 주므로
       //   "클릭 → 지도에서 위치 확인 → 수정" 이 한 번에 된다.
       //   오른쪽 편집/삭제 버튼은 자식이라 그대로 각자 동작한다.
-      onTap: () => _openForm(deviceType: row.deviceType, existing: row),
+      onTap: _isAdmin ? () => _openForm(deviceType: row.deviceType, existing: row) : null,
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 11, horizontal: 16),
         child: Row(
@@ -811,7 +841,7 @@ class _TabDeviceManagementState extends State<TabDeviceManagement> {
               flex: 2,
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.end,
-                children: <Widget>[
+                children: !_isAdmin ? const <Widget>[] : <Widget>[
                   _actionBtn(
                     label: t('편집'),
                     icon: Icons.edit_outlined,
@@ -1010,6 +1040,8 @@ class _DeviceFormState extends State<_DeviceForm> {
   double? _lat;
   double? _lng;
   bool _saving = false;
+  // Translation key of the lat/lng validation error ('' = none).
+  String _coordError = '';
 
   // 지도 위젯 키 (재생성 방지)
   final GlobalKey<_PinMapState> _mapKey = GlobalKey<_PinMapState>();
@@ -1040,7 +1072,42 @@ class _DeviceFormState extends State<_DeviceForm> {
       } else if (_addrCtrl.text.trim().isNotEmpty) {
         _useStation = false;
       }
+      _syncCoordFields();
     }
+  }
+
+  // The lat/lng text fields are what gets saved; keep them equal to _lat/_lng.
+  void _syncCoordFields() {
+    _latCtrl.text = _lat?.toStringAsFixed(6) ?? '';
+    _lngCtrl.text = _lng?.toStringAsFixed(6) ?? '';
+    _coordError = '';
+  }
+
+  // Validates the lat/lng fields into _lat/_lng. Both empty = no location.
+  // Returns a translation key for the error, or null when valid.
+  String? _validateCoords() {
+    final String latText = _latCtrl.text.trim();
+    final String lngText = _lngCtrl.text.trim();
+    if (latText.isEmpty && lngText.isEmpty) {
+      _lat = null;
+      _lng = null;
+      return null;
+    }
+    if (latText.isEmpty || lngText.isEmpty) {
+      return tKey('위도와 경도를 모두 입력하세요.');
+    }
+    final double? lat = double.tryParse(latText);
+    final double? lng = double.tryParse(lngText);
+    if (lat == null || lng == null) {
+      return tKey('위도와 경도는 숫자로 입력하세요.');
+    }
+    // Written so that NaN fails too.
+    if (!(lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180)) {
+      return tKey('위도는 -90~90, 경도는 -180~180 범위여야 합니다.');
+    }
+    _lat = lat;
+    _lng = lng;
+    return null;
   }
 
   @override
@@ -1084,6 +1151,7 @@ class _DeviceFormState extends State<_DeviceForm> {
         _lat = null;
         _lng = null;
       }
+      _syncCoordFields();
     });
   }
 
@@ -1124,7 +1192,17 @@ class _DeviceFormState extends State<_DeviceForm> {
   }
 
   Future<void> _save() async {
-    setState(() => _saving = true);
+    if (_saving) return;
+    final String? coordError = _validateCoords();
+    if (coordError != null) {
+      setState(() => _coordError = coordError);
+      Utils.showSnackBar(t(coordError), isError: true);
+      return;
+    }
+    setState(() {
+      _coordError = '';
+      _saving = true;
+    });
 
     String? locationAddress;
     String? homeStation;
@@ -1396,6 +1474,14 @@ class _DeviceFormState extends State<_DeviceForm> {
             ),
           ],
         ),
+        if (_coordError.isNotEmpty) ...<Widget>[
+          const SizedBox(height: 5),
+          Text(
+            t(_coordError),
+            style: const TextStyle(
+                fontSize: 11, color: Color(0xFFDC2626), fontFamily: 'pretendard'),
+          ),
+        ],
       ],
     );
   }
@@ -1607,6 +1693,8 @@ class _DeviceFormState extends State<_DeviceForm> {
                 onTap: () => setState(() {
                   _lat = null;
                   _lng = null;
+                  // Clear the text fields too, or Save would bring the pin back.
+                  _syncCoordFields();
                 }),
                 child: Text(t('핀 제거'),
                     style: const TextStyle(

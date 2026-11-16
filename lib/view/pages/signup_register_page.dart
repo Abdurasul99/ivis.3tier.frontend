@@ -40,6 +40,10 @@ class _SignupRegisterPageState extends State<SignupRegisterPage> {
     super.dispose();
   }
 
+  // Basic email format: one @, no spaces, a dot in the domain.
+  bool _isValidEmail(String email) =>
+      RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s.]+$').hasMatch(email);
+
   Future<void> _onSendCode() async {
     final String name = _nameCtrl.text.trim();
     final String email = _emailCtrl.text.trim();
@@ -49,6 +53,10 @@ class _SignupRegisterPageState extends State<SignupRegisterPage> {
     }
     if (email.isEmpty) {
       Utils.showSnackBar(t('메일을 입력해주세요.'), isError: true);
+      return;
+    }
+    if (!_isValidEmail(email)) {
+      Utils.showSnackBar(t('메일 형식이 올바르지 않습니다.'), isError: true);
       return;
     }
 
@@ -68,6 +76,10 @@ class _SignupRegisterPageState extends State<SignupRegisterPage> {
       Utils.showSnackBar(t('이름과 메일을 입력하세요.'), isError: true);
       return;
     }
+    if (!_isValidEmail(email)) {
+      Utils.showSnackBar(t('메일 형식이 올바르지 않습니다.'), isError: true);
+      return;
+    }
 
     setState(() => _codeErrorMsg = '');
     final String code = _codeCtrl.text.trim();
@@ -78,6 +90,7 @@ class _SignupRegisterPageState extends State<SignupRegisterPage> {
 
     final RegisterController regCtrl = Get.find<RegisterController>();
     final bool verified = await regCtrl.verifyRegisterCode(email, code);
+    if (!mounted) return;
     if (!verified) {
       setState(() => _codeErrorMsg = tKey('인증번호가 유효하지 않습니다.'));
       return;

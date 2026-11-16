@@ -9,7 +9,6 @@ import 'package:flutter/services.dart';
 import 'package:get/get.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:http/http.dart' as http;
-import '../../constants/constants.dart';
 import '../../i18n/app_locale.dart';
 import '../../model/infra_model.dart';
 import '../../model/object_model.dart';
@@ -17,10 +16,10 @@ import '../../model/vehicle_model.dart';
 import '../../utils/geo_utils.dart' as geo;
 import '../../viewmodel/controller/infra_controller.dart';
 import '../../viewmodel/controller/object_controller.dart';
-import '../../viewmodel/controller/user_controller.dart';
 import '../../viewmodel/controller/vehicle_controller.dart';
 import '../../viewmodel/controller/dashboard_controller.dart';
 import '../../viewmodel/repository/device_registry_repository.dart';
+import '../../viewmodel/repository/map_repository.dart';
 import 'vehicle_marker_overlay.dart';
 
 enum MapEntityType { vehicle, infra }
@@ -31,36 +30,6 @@ LatLng lerpLatLng(LatLng a, LatLng b, double t) {
     a.latitude + (b.latitude - a.latitude) * ct,
     a.longitude + (b.longitude - a.longitude) * ct,
   );
-}
-
-Map<String, String> _getAuthHeaders() {
-  final Map<String, String> headers = <String, String>{
-    'Content-Type': 'application/json; charset=utf-8',
-  };
-
-  try {
-    final String accessToken = Get.find<UserController>().accessToken ?? '';
-    if (accessToken.isNotEmpty) {
-      headers['x-access-token'] = accessToken;
-    }
-  } catch (_) {}
-
-  return headers;
-}
-
-Uri buildApiUri(String path, [Map<String, String>? queryParams]) {
-  String server = kApiServer;
-  if (server.startsWith('http://') || server.startsWith('https://')) {
-    final Uri parsed = Uri.parse(server);
-    final String base = parsed.path.endsWith('/')
-        ? parsed.path.substring(0, parsed.path.length - 1)
-        : parsed.path;
-    return parsed.replace(path: '$base$path', queryParameters: queryParams);
-  }
-  if (kIsWeb && Uri.base.scheme == 'https') {
-    return Uri.https(server, path, queryParams);
-  }
-  return Uri.http(server, path, queryParams);
 }
 
 class KiapiWaypointData {
@@ -356,15 +325,14 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
   bool _mapMounted = false;
 
   late final VehicleController _vehicleCtrl;
-  late final InfraController _infraCtrl;
-  late final ObjectController _objectCtrl;
+  // Map HTTP calls (shared 401 refresh-and-retry path).
+  final MapRepository _mapRepo = MapRepository();
   // 마지막으로 동기화한 dashboard entity type (변경 감지용)
   FmsEntityType? _lastDashEntityType;
 
   bool _disposed = false;
   bool _realtimeEnabled = true;
   final Set<int> _visibleObjectTypes = <int>{0, 1, 2, 3, 4, 5};
-  bool _objectsBarExpanded = false;
   bool _isSidePanelCollapsed = false;
   // 감지 객체 마커 표시 여부 (ON/OFF 버튼으로 제어)
   bool _showDetectedObjects = true;
@@ -373,7 +341,6 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
   int? _selectedVehicleId;
   int? _selectedInfraId;
   int _selectedStationIdx = 0;
-  bool _showWaypoints = false;
 
   Map<int, VehicleTrackingData> _tracked = <int, VehicleTrackingData>{};
   final Map<String, ObjectTrackingData> _trackedObjects =
@@ -398,8 +365,6 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
 
   BitmapDescriptor? _vehicleIcon;
   BitmapDescriptor? _vehicleSelectedIcon;
-  BitmapDescriptor? _vehicleMovingIcon;
-  BitmapDescriptor? _vehicleMovingSelectedIcon;
   BitmapDescriptor? _infraIcon;
   BitmapDescriptor? _infraBlinkIcon;
   BitmapDescriptor? _infraOfflineIcon;
@@ -492,6 +457,15 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
   static const double _objectConvergenceHeadingDeg = 0.5;
   static const double _objectTeleportDistM = 1500.0;
   static const int _objectTrackingExpiryMs = 12000;
+  // A tracked vehicle that is in neither the controller list nor the registry
+  // and has sent nothing new for this long is dropped from the map and the list.
+  // Registered vehicles are never dropped (they keep the grey offline marker).
+  static const int _staleVehicleExpiryMs = 10 * 60 * 1000;
+  // Last time (client clock) a tracked vehicle was registered, selected or sending.
+  final Map<int, int> _vehicleKeepAliveMs = <int, int>{};
+  // Dropped vehicles → telemetry timestamp at the drop; the same old status row
+  // must not bring the vehicle back.
+  final Map<int, int> _evictedVehicleTsMs = <int, int>{};
   static const double _objectRelativeMaxAbsMeters = 20000.0;
   static const double _objectAbsoluteParentMaxDistanceMeters = 2000.0;
 
@@ -500,10 +474,6 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
   // 200ms = 5 FPS marker update → 차량 12m/s 기준 2.4m 점프 (시각적 허용 범위)
   // 깜빡임 1000 events/sec → 500 events/sec (절반 감소)
   static const int _markerRebuildThrottleMs = 200;
-  // 위치/방향 변화가 임계값 미만이면 Marker 재생성 스킵
-  // Skip marker recreation if position/heading change is below threshold
-  static const double _markerPositionDeltaMeters = 0.5;
-  static const double _markerHeadingDeltaDeg = 5.0;
   // 차량별 마지막으로 렌더링된 Marker (캐시)
   // Per-vehicle last rendered Marker (cache to skip rebuild)
   final Map<int, Marker> _lastVehicleMarker = <int, Marker>{};
@@ -533,7 +503,6 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
   Size _overlayContainerSize = Size.zero;
   EdgeInsets _overlayPadding = EdgeInsets.zero;
   final Map<int, bool> _lastVehicleMarkerSelected = <int, bool>{};
-  int _markerSeq = 0;
   bool _initialMarkersBuilt = false;
   int _lastInterpStepMs = 0;
 
@@ -550,8 +519,6 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
     });
   }
 
-  int _lastCameraMoveMs = 0;
-  static const int _cameraCooldownMs = 3000;
   static const int _followCameraThrottleMs = 250;
   int _lastVehicleFollowMs = 0;
   int _lastInfraFollowMs = 0;
@@ -561,8 +528,6 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
   Size? _lastMapViewportSize;
   Timer? _mapViewportRefreshTimer;
 
-  List<LatLng> _routePoints = <LatLng>[];
-  Map<String, List<LatLng>> _routeCache = <String, List<LatLng>>{};
 
   int _consecutiveErrorCount = 0;
   bool _vehiclePollInFlight = false;
@@ -720,12 +685,8 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
 
   Future<String?> _geocodePosition(LatLng pos) async {
     try {
-      final Uri uri = buildApiUri('/api/activity/geocode');
-      final http.Response resp = await http.post(
-        uri,
-        headers: _getAuthHeaders(),
-        body: '{"latitude":${pos.latitude},"longitude":${pos.longitude}}',
-      ).timeout(const Duration(seconds: 5));
+      final http.Response resp =
+          await _mapRepo.requestGeocode(pos.latitude, pos.longitude);
       if (resp.statusCode != 200) return null;
       final dynamic decoded = jsonDecode(resp.body);
       return decoded?['body']?['location_name']?.toString();
@@ -891,12 +852,9 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
     _vehicleCtrl = Get.isRegistered<VehicleController>()
         ? Get.find<VehicleController>()
         : Get.put(VehicleController());
-    _infraCtrl = Get.isRegistered<InfraController>()
-        ? Get.find<InfraController>()
-        : Get.put(InfraController());
-    _objectCtrl = Get.isRegistered<ObjectController>()
-        ? Get.find<ObjectController>()
-        : Get.put(ObjectController());
+    // Register the controllers other widgets look up.
+    if (!Get.isRegistered<InfraController>()) Get.put(InfraController());
+    if (!Get.isRegistered<ObjectController>()) Get.put(ObjectController());
 
     // DashboardController와 entity type 동기화
     if (Get.isRegistered<DashboardController>()) {
@@ -960,25 +918,6 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
   bool _isObjectTypeVisible(int objectType) {
     final int safeType = objectType.clamp(0, 5);
     return _visibleObjectTypes.contains(safeType);
-  }
-
-  void _toggleObjectTypeVisibility(int objectType) {
-    final int safeType = objectType.clamp(0, 5);
-    setState(() {
-      if (_visibleObjectTypes.contains(safeType)) {
-        if (_visibleObjectTypes.length == 1) {
-          return;
-        }
-        _visibleObjectTypes.remove(safeType);
-      } else {
-        _visibleObjectTypes.add(safeType);
-      }
-    });
-    if (_entityType == MapEntityType.vehicle) {
-      _forceRebuildMarkers();
-    } else {
-      _buildInfraMarkers();
-    }
   }
 
   void _toggleSidePanel() {
@@ -1077,19 +1016,6 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
     final double zoom = _currentMapZoom.clamp(_minCameraZoom, _maxCameraZoom);
 
     _moveCameraTo(target, zoom: zoom);
-  }
-
-  void _resetObjectTypeVisibility() {
-    setState(() {
-      _visibleObjectTypes
-        ..clear()
-        ..addAll(<int>{0, 1, 2, 3, 4, 5});
-    });
-    if (_entityType == MapEntityType.vehicle) {
-      _forceRebuildMarkers();
-    } else {
-      _buildInfraMarkers();
-    }
   }
 
   void _selectStation(int idx) {
@@ -1319,39 +1245,6 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
     }
   }
 
-  Future<List<DetectedObject>> _fetchDetectedObjectsByVehicleId(
-      int vehicleId,
-      {int? vehicleTimestampMs}) async {
-    try {
-      final Uri uri = buildApiUri('/api/detectedObjects/byVehicleInfo');
-
-      final Map<String, dynamic> requestBody = <String, dynamic>{
-        'vehicle_id': vehicleId,
-        'latest_only': true,
-      };
-
-      if (vehicleTimestampMs != null && vehicleTimestampMs > 0) {
-        requestBody['vehicle_time_stamp_ms'] = vehicleTimestampMs;
-      }
-
-      final http.Response resp = await http
-          .post(
-            uri,
-            headers: _getAuthHeaders(),
-            body: jsonEncode(requestBody),
-          )
-          .timeout(const Duration(seconds: 3));
-      if (resp.statusCode != 200) {
-        return <DetectedObject>[];
-      }
-
-      final dynamic decoded = jsonDecode(resp.body);
-      return _parseDetectedObjectsResponse(decoded);
-    } catch (_) {
-      return <DetectedObject>[];
-    }
-  }
-
   /// 여러 차량의 탐지 객체를 **단일 배치 요청**으로 가져온다.
   /// 차량마다 byVehicleInfo 를 호출하면 100대 = 100요청 → 브라우저 연결풀(6개)
   /// 포화로 테이블/차트 요청이 굶주림. byMultipleVehicles 로 1요청에 처리.
@@ -1363,17 +1256,8 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
       return result;
     }
     try {
-      final Uri uri = buildApiUri('/api/detectedObjects/byMultipleVehicles');
-      final http.Response resp = await http
-          .post(
-            uri,
-            headers: _getAuthHeaders(),
-            body: jsonEncode(<String, dynamic>{
-              'vehicle_ids': vehicleIds,
-              'latest_only': true,
-            }),
-          )
-          .timeout(const Duration(seconds: 8));
+      final http.Response resp =
+          await _mapRepo.requestVehicleObjectsBatch(vehicleIds);
       if (resp.statusCode != 200) {
         return result;
       }
@@ -1400,18 +1284,7 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
   Future<List<DetectedObject>> _fetchDetectedObjectsByInfraId(
       int infraId) async {
     try {
-      final Uri uri = buildApiUri('/api/detectedObjects/byInfraInfo');
-      final http.Response resp = await http
-          .post(
-            uri,
-            headers: _getAuthHeaders(),
-            body: jsonEncode(<String, dynamic>{
-              'infra_id': infraId,
-              'limit': 500,
-              'offset': 0,
-            }),
-          )
-          .timeout(const Duration(seconds: 5));
+      final http.Response resp = await _mapRepo.requestInfraObjects(infraId);
       if (resp.statusCode != 200) {
         return <DetectedObject>[];
       }
@@ -1455,18 +1328,8 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
 
   Future<void> _fetchVehicleStatusFromDb() async {
     try {
-      final Uri uri = buildApiUri('/api/vehicle/status');
-
-      final http.Response resp = await http
-          .post(
-            uri,
-            headers: _getAuthHeaders(),
-            body: jsonEncode(<String, dynamic>{
-              'limit': _vehicleStatusFetchLimit,
-              'offset': 0,
-            }),
-          )
-          .timeout(const Duration(seconds: 3));
+      final http.Response resp =
+          await _mapRepo.requestVehicleStatus(_vehicleStatusFetchLimit);
 
       if (resp.statusCode != 200) {
         _consecutiveErrorCount++;
@@ -1527,6 +1390,8 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
 
       // 탐지 객체 조회/캐시 대상: 장치 번호(vehicle_id) → 텔레메트리 timestamp
       final Map<int, int> vehicleIdToTimestampMs = <int, int>{};
+      final Set<int>? registeredIds =
+          _evictedVehicleTsMs.isEmpty ? null : _registeredVehicleIds();
 
       for (final dynamic item in effectiveVehicleList) {
         if (item is! Map<String, dynamic>) continue;
@@ -1570,6 +1435,16 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
             nowMs;
         final bool hasFreshTelemetry =
             tsMs > 0 && tsMs != previousTelemetryTsMs;
+
+        // Dropped stale vehicle: ignore its unchanged row until it sends again
+        // or gets registered.
+        final int? evictedTsMs = _evictedVehicleTsMs[vehicleId];
+        if (evictedTsMs != null) {
+          if (evictedTsMs == tsMs && !registeredIds!.contains(vehicleId)) {
+            continue;
+          }
+          _evictedVehicleTsMs.remove(vehicleId);
+        }
 
         // out-of-order 보호: 이미 표시한 것보다 오래된 timestamp 레코드면 마커가
         // 뒤로 점프하므로 무시한다(외부 시뮬레이터/파이프라인 재정렬로 과거 데이터가
@@ -1774,6 +1649,7 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
         }
       }
 
+      _pruneStaleVehicles(nowMs: nowMs);
       _updateSelectedVehicleSession(nowMs: nowMs);
       _syncVehicleObjectTargets(nowMs: nowMs);
       _pruneExpiredObjectTargets(nowMs: nowMs);
@@ -1874,23 +1750,11 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
   Future<void> _fetchInfraStatusFromDb() async {
     try {
       final int nowMs = DateTime.now().millisecondsSinceEpoch;
-      final Uri uri = buildApiUri('/api/infra/status');
-
-      final http.Response resp = await http
-          .post(
-            uri,
-            headers: _getAuthHeaders(),
-            body: jsonEncode(<String, dynamic>{
-              'limit': _infraStatusFetchLimit,
-              'offset': 0,
-              // 2026-08-07: 지도는 응답에서 infra_id / time_stamp_ms 만 사용한다.
-              //   중첩 objects(레코드당 3개 × 27필드)는 쓰지 않으면서 응답의 대부분을
-              //   차지해 인프라 255개 기준 501KB 였다. 이 옵션으로 48KB 로 줄어든다(약 10배).
-              //   객체 상세는 마커 클릭 시 detectedObjects/byInfraInfo 로 따로 조회한다.
-              'include_objects': false,
-            }),
-          )
-          .timeout(const Duration(seconds: 5));
+      // The repository sends include_objects:false — the map only reads
+      // infra_id / time_stamp_ms (501 KB → 48 KB for 255 infras); object
+      // details come from detectedObjects/byInfraInfo on marker selection.
+      final http.Response resp =
+          await _mapRepo.requestInfraStatus(_infraStatusFetchLimit);
 
       if (resp.statusCode != 200) {
         _consecutiveErrorCount++;
@@ -2492,6 +2356,55 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
         nowMs - tracking.lastSeenMs > _objectTrackingExpiryMs);
   }
 
+  /// Vehicle ids known to the controller list or the device registry.
+  Set<int> _registeredVehicleIds() {
+    final Set<int> ids = <int>{};
+    for (final Vehicle v in _vehicleCtrl.vehicles) {
+      final int? id = _deviceIdOrNull(v.vehicleId);
+      if (id != null) ids.add(id);
+    }
+    for (final Map<String, dynamic> reg in _offlineVehicles) {
+      final int? id = _deviceIdOrNull(reg['device_id']);
+      if (id != null) ids.add(id);
+    }
+    return ids;
+  }
+
+  /// Drops tracked vehicles that are unregistered, not selected and silent for
+  /// [_staleVehicleExpiryMs]; their marker and side-list entry go with them.
+  void _pruneStaleVehicles({required int nowMs}) {
+    if (_tracked.isEmpty) return;
+    final Set<int> registered = _registeredVehicleIds();
+    final List<int> expired = <int>[];
+    _tracked.forEach((int vid, VehicleTrackingData tracking) {
+      if (registered.contains(vid) || vid == _selectedVehicleId) {
+        _vehicleKeepAliveMs[vid] = nowMs;
+        return;
+      }
+      final int lastAliveMs = max(
+        _vehicleKeepAliveMs[vid] ?? 0,
+        max(tracking.lastPacketMs, tracking.lastUpdateMs),
+      );
+      if (nowMs - lastAliveMs > _staleVehicleExpiryMs) {
+        expired.add(vid);
+      }
+    });
+    for (final int vid in expired) {
+      _evictedVehicleTsMs[vid] = _tracked[vid]?.vehicleInfo?.timeStampMs ?? 0;
+      _tracked.remove(vid);
+      _vehicleKeepAliveMs.remove(vid);
+      _objectsCacheByVehicleId.remove(vid);
+      _objectsCacheTimestampMs.remove(vid);
+      _vehicleLastBucket.remove(vid);
+      _vehicleIconRef.remove(vid);
+      _vehicleIconKey.remove(vid);
+      _lastVehicleMarker.remove(vid);
+      _lastVehicleMarkerPos.remove(vid);
+      _lastVehicleMarkerHeading.remove(vid);
+      _lastVehicleMarkerSelected.remove(vid);
+    }
+  }
+
   LatLng _resolveVehiclePredictedTarget({
     required VehicleTrackingData tracking,
     required int nowMs,
@@ -2895,7 +2808,6 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
       if (!geo.isValidLatLng(pos.latitude, pos.longitude)) continue;
 
       final bool isSel = vid == _selectedVehicleId;
-      _markerSeq++;
       final double heading = geo.normalizeHeadingDegrees(t.displayHeading);
       final double speedKph =
           (t.vehicleInfo?.velocityKph ?? (t.retainedSpeedMps * 3.6)).abs();
@@ -3303,32 +3215,6 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
     return total;
   }
 
-  String _currentStationShortLabel() {
-    final int idx = _selectedStationIdx.clamp(0, kiapiRoadWaypoints.length - 1);
-    return kiapiRoadWaypoints[idx].shortLabel;
-  }
-
-  String _currentStationName() {
-    final int idx = _selectedStationIdx.clamp(0, kiapiRoadWaypoints.length - 1);
-    return kiapiRoadWaypoints[idx].name;
-  }
-
-  Map<int, int> _objectCountsByType() {
-    final Map<int, int> counts = <int, int>{};
-    final List<DetectedObject> source = _entityType == MapEntityType.vehicle
-        ? _tracked.values.expand((VehicleTrackingData t) => t.objects).toList()
-        : _infraObjects;
-
-    for (final DetectedObject obj in source) {
-      final int type = (obj.objectType ?? 0).clamp(0, 5);
-      counts[type] = (counts[type] ?? 0) + 1;
-    }
-    for (int i = 0; i <= 5; i++) {
-      counts[i] = counts[i] ?? 0;
-    }
-    return counts;
-  }
-
   LatLng _offsetLatLngByMeters({
     required LatLng origin,
     required double distanceMeters,
@@ -3501,17 +3387,6 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
     );
   }
 
-  Future<void> _loadRoutePolyline(int fromStationIdx, int toStationIdx) async {
-    return;
-  }
-
-  void _applyRoutePolyline() {
-    if (_disposed || !mounted) return;
-    setState(() {
-      _polylines = <Polyline>{};
-    });
-  }
-
   // ============================================================================
   // Flutter Overlay 헬퍼 / Flutter overlay helpers
   // ============================================================================
@@ -3571,7 +3446,7 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
   /// 규칙 (Rules):
   /// 1) EXACT 캐시 hit (wantKey 가 캐시에 있음) → 즉시 사용 + 저장
   /// 2) EXACT 미스이지만 이 차량에 이미 할당된 icon 이 있음 → 이전 icon 유지
-  ///    (절대 _findNearestCarIcon 으로 switching → 매 호출마다 다른 ref → flicker)
+  ///    (절대 nearest icon 으로 switching → 매 호출마다 다른 ref → flicker)
   /// 3) 신규 차량 → 일반 fallback 사용, 비동기 빌드 트리거
   /// 4) 모든 경우 비동기 build 트리거하여 EXACT 가 준비되면 다음 rebuild 에서 swap
   ///
@@ -3783,8 +3658,6 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
     //     via _resolveStableVehicleIcon, producing a smooth single swap.
   }
 
-  bool _isPrewarming = false;
-
   /// 모든 bucket 미리 생성 (앱 시작 시 한 번) → 주행 중 cache miss 없음
   /// Pre-warm all heading buckets at startup → no cache miss during driving
   Future<void> _prewarmCarIcons() async {
@@ -3792,8 +3665,6 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
       await _loadCarSrc(_vehicleIconSizePx);
     }
     if (_carSrcImg == null) return;
-    // prewarm 중에는 _buildCarIconForBucket 이 마커를 rebuild 하지 않도록
-    _isPrewarming = true;
     try {
       // 두 가지 크기 모두 미리 생성 / Both sizes (stopped + moving)
       final List<int> sizes = <int>[
@@ -3813,90 +3684,10 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
         }
       }
     } finally {
-      _isPrewarming = false;
       // prewarm 완료 후 단 한 번만 rebuild
       // Single rebuild after prewarm completes
       if (!_disposed && mounted) _forceRebuildMarkers();
     }
-  }
-
-  // 마커 빌드(동기)에서 호출: 캐시 히트 → 반환 / 미스 → 백그라운드 생성 후 폴백 반환
-  BitmapDescriptor _carIconFor(
-    double heading, {
-    required bool selected,
-    required int sizePx,
-  }) {
-    final int bucketDeg = _carBucket(heading);
-    final String cacheKey = _carCacheKey(bucketDeg, sizePx);
-    final Map<String, BitmapDescriptor> cache =
-        selected ? _carIconSelected : _carIconNormal;
-
-    // 정확한 매칭 / Exact match
-    if (cache.containsKey(cacheKey)) return cache[cacheKey]!;
-
-    // 캐시 미스 → 비동기 생성 트리거 (중복 방지)
-    if (!_carIconPending.contains(cacheKey)) {
-      _carIconPending.add(cacheKey);
-      if (_carSrcImg != null) {
-        unawaited(_buildCarIconForBucket(bucketDeg, sizePx: sizePx));
-      } else {
-        unawaited(_loadCarSrc(sizePx).then((_) {
-          if (!_disposed && mounted) {
-            unawaited(_buildCarIconForBucket(bucketDeg, sizePx: sizePx));
-          }
-        }));
-      }
-    }
-
-    // ── 가까운 캐시 매칭 (depo 마커 깜빡임 방지) / Nearest cached match ──
-    // 동일 sizePx 에서 heading 이 가장 가까운 이미 생성된 아이콘을 사용
-    // 정확한 bucket 이 빌드되는 동안 기본 마커 대신 비슷한 방향의 차 아이콘 표시
-    final BitmapDescriptor? nearest = _findNearestCarIcon(
-      cache: cache,
-      targetBucketDeg: bucketDeg,
-      targetSizePx: sizePx,
-    );
-    if (nearest != null) return nearest;
-
-    // 정말로 캐시가 비어있는 첫 프레임에만 폴백 사용
-    final bool useMovingFallback = sizePx > _vehicleIconSizePx;
-    return selected
-        ? ((useMovingFallback ? _vehicleMovingSelectedIcon : null) ??
-            _vehicleSelectedIcon ??
-            BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure))
-        : ((useMovingFallback ? _vehicleMovingIcon : null) ??
-            _vehicleIcon ??
-            BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue));
-  }
-
-  /// 캐시에서 가장 가까운 bucketDeg + sizePx 매치 찾기
-  /// Find the closest cached car icon by bucketDeg + sizePx
-  BitmapDescriptor? _findNearestCarIcon({
-    required Map<String, BitmapDescriptor> cache,
-    required int targetBucketDeg,
-    required int targetSizePx,
-  }) {
-    if (cache.isEmpty) return null;
-    BitmapDescriptor? best;
-    int bestScore = 0x7fffffff;
-    for (final MapEntry<String, BitmapDescriptor> e in cache.entries) {
-      final List<String> parts = e.key.split('@');
-      if (parts.length != 2) continue;
-      final int? bd = int.tryParse(parts[0]);
-      final int? sp = int.tryParse(parts[1]);
-      if (bd == null || sp == null) continue;
-      // 각도 차 (0..180)
-      int dBucket = (bd - targetBucketDeg).abs();
-      if (dBucket > 180) dBucket = 360 - dBucket;
-      // 크기 차이는 큰 페널티 (크기 다른 아이콘은 마지막 수단)
-      final int dSize = (sp - targetSizePx).abs() * 4;
-      final int score = dBucket + dSize;
-      if (score < bestScore) {
-        bestScore = score;
-        best = e.value;
-      }
-    }
-    return best;
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -4852,17 +4643,10 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
       final int stPx = (sizePx * 0.78).round().clamp(24, 46); // 스테이션
       final int stsPx = (sizePx * 0.82).round().clamp(26, 48); // 스테이션 선택
 
-      final int vmPx =
-          (vPx * _vehicleMovingMarkerScale).round().clamp(vPx + 2, 76);
-      final int vmsPx = (vmPx * 1.08).round().clamp(vmPx + 2, 82);
       final BitmapDescriptor newVehicleIcon =
           await _vehicleAssetMarker(sizePx: vPx);
       final BitmapDescriptor newVehicleSelectedIcon =
           await _vehicleAssetMarker(sizePx: vsPx, selected: true);
-      final BitmapDescriptor newVehicleMovingIcon =
-          await _vehicleAssetMarker(sizePx: vmPx);
-      final BitmapDescriptor newVehicleMovingSelectedIcon =
-          await _vehicleAssetMarker(sizePx: vmsPx, selected: true);
       final BitmapDescriptor newInfraIcon = await _canvasMarker(
         sizePx: iPx,
         painter: (Canvas c, double s) {
@@ -4919,8 +4703,6 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
         _vehicleIconSizePx = vPx;
         _vehicleIcon = newVehicleIcon;
         _vehicleSelectedIcon = newVehicleSelectedIcon;
-        _vehicleMovingIcon = newVehicleMovingIcon;
-        _vehicleMovingSelectedIcon = newVehicleMovingSelectedIcon;
         _infraIcon = newInfraIcon;
         _infraBlinkIcon = newInfraBlinkIcon;
         _stationIcons = newStationIcons;
@@ -5203,14 +4985,21 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
                           Size(constraints.maxWidth, constraints.maxHeight);
                       _overlayPadding = gmapPadding;
                       // 다음 프레임에 갱신 (build 도중 ValueNotifier 변경 금지)
-                      WidgetsBinding.instance.addPostFrameCallback((_) {
-                        if (!_disposed && mounted) {
-                          _updateOverlayCamera(
-                            containerSize: _overlayContainerSize,
-                            padding: _overlayPadding,
-                          );
-                        }
-                      });
+                      // Only when the size/padding changed: every build used to
+                      // queue a callback that re-fired the overlay notifier.
+                      final OverlayCameraSnapshot overlaySnap =
+                          _overlayCamera.value;
+                      if (overlaySnap.containerSize != _overlayContainerSize ||
+                          overlaySnap.padding != _overlayPadding) {
+                        WidgetsBinding.instance.addPostFrameCallback((_) {
+                          if (!_disposed && mounted) {
+                            _updateOverlayCamera(
+                              containerSize: _overlayContainerSize,
+                              padding: _overlayPadding,
+                            );
+                          }
+                        });
+                      }
 
                       return Stack(
                         children: <Widget>[
@@ -5238,10 +5027,6 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
                                       } else {
                                         _forceRebuildMarkers();
                                       }
-                                    },
-                                    onCameraMoveStarted: () {
-                                      _lastCameraMoveMs =
-                                          DateTime.now().millisecondsSinceEpoch;
                                     },
                                     onCameraMove: (CameraPosition pos) {
                                       _currentCameraTarget = pos.target;
@@ -5769,18 +5554,6 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
                               : const Color(0xFF424242),
                         ),
                       ),
-                      // ignore: dead_code
-                      if (false)
-                        Text(
-                          l10n('차량 $vid', 'Vehicle $vid'),
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: sel ? FontWeight.w700 : FontWeight.w500,
-                            color: sel
-                                ? const Color(0xFF1976D2)
-                                : const Color(0xFF424242),
-                          ),
-                        ),
                       if (speed.isNotEmpty)
                         Text(
                           l10n('차량 $vid | $speed | 객체 $objCount',
@@ -6079,27 +5852,6 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
     return l10n('${max(1, diff.inSeconds)}초 전', '${max(1, diff.inSeconds)}s ago');
   }
 
-  String _formatHeadingLabel(double headingDegrees) {
-    const List<String> directions = <String>[
-      'N',
-      'NE',
-      'E',
-      'SE',
-      'S',
-      'SW',
-      'W',
-      'NW',
-    ];
-    final double normalized = geo.normalizeHeadingDegrees(headingDegrees);
-    final int index = ((normalized + 22.5) ~/ 45) % directions.length;
-    return '${normalized.round()}° ${directions[index]}';
-  }
-
-  String _vehicleTypeLabel(Vehicle? vehicle) {
-    final String type = vehicle?.vehicleType?.trim() ?? '';
-    return type.isEmpty ? t('차량') : type;
-  }
-
   String _vehicleModelLabel(Vehicle? vehicle) {
     final List<String> parts = <String>[];
     final String make = vehicle?.make?.trim() ?? '';
@@ -6145,43 +5897,6 @@ class InfraVehicleMapPanelState extends State<InfraVehicleMapPanel>
               fontSize: 10,
               fontWeight: FontWeight.w600,
               color: Color(0xFF6E7C8F),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildTrackingDetailRow(
-    String label,
-    String value, {
-    Color valueColor = const Color(0xFF1F2D3D),
-  }) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          SizedBox(
-            width: 92,
-            child: Text(
-              label,
-              style: const TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-                color: Color(0xFF7B8794),
-              ),
-            ),
-          ),
-          Expanded(
-            child: Text(
-              value,
-              textAlign: TextAlign.right,
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w700,
-                color: valueColor,
-              ),
             ),
           ),
         ],
