@@ -24,9 +24,11 @@ const double kMobileWidth = 700;
 const double kTabletWidth = 1300;
 const double kDesktopWidth = 1290;
 
-// 3tier-server-dev (테스트 DB ivis-3tier-2)
-const String kApiServer = "localhost:4090"; 
-const String kMqttServer = "ws://localhost";  
+// Server addresses are not kept in git. Local runs use localhost; a server build passes
+// the real address: flutter build web --dart-define=API_SERVER=host:4090 --dart-define=MQTT_SERVER=ws://host:9001
+// (deploy.sh in 3tier-dev does this).
+const String kApiServer = String.fromEnvironment('API_SERVER', defaultValue: 'localhost:4090');
+const String kMqttServer = String.fromEnvironment('MQTT_SERVER', defaultValue: 'ws://localhost:9001');
 
 final List<Color> kRandomColor = [
   Colors.yellow,
